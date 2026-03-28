@@ -34,10 +34,12 @@ enum ModifierKey: String, CaseIterable {
 // MARK: - Drag State
 
 private struct DragState {
-    let axWindow: AXUIElement
+    let pid: pid_t
+    let windowFrame: CGRect
     let startCursor: CGPoint
-    let startWindowOrigin: CGPoint
-    var dragActivated: Bool  // becomes true once threshold exceeded
+    var startWindowOrigin: CGPoint
+    var axWindow: AXUIElement?     // resolved lazily on first drag
+    var dragActivated: Bool
 }
 
 // MARK: - DragEngine
@@ -94,7 +96,6 @@ final class DragEngine {
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
-        // Note: thread will exit when run loop source is removed
         eventTap = nil
         runLoopSource = nil
         dragState = nil
@@ -103,7 +104,6 @@ final class DragEngine {
     // MARK: - Event Handling
 
     fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // If the tap gets disabled by the system, re-enable it
         if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -127,35 +127,27 @@ final class DragEngine {
         }
     }
 
-    // MARK: - Mouse Down
+    // MARK: - Mouse Down (lightweight — no AX calls)
 
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         let flags = event.flags
         let targetRaw = modifierKey.eventFlags.rawValue
-        // Strip non-coalesced flag and check modifier match
         let cleaned = flags.rawValue & ~CGEventFlags.maskNonCoalesced.rawValue
-        // Check that our target modifier bits are all set
-        // For fn key, we only check the fn bit; for others, mask to the standard modifiers + fn
         let relevantMask: UInt64 = CGEventFlags.maskAlternate.rawValue |
                                     CGEventFlags.maskCommand.rawValue |
                                     CGEventFlags.maskControl.rawValue |
                                     CGEventFlags.maskShift.rawValue |
-                                    0x800000 // maskSecondaryFn
+                                    0x800000
         let activeModifiers = cleaned & relevantMask
 
         guard activeModifiers == targetRaw else {
             return Unmanaged.passRetained(event)
         }
 
-        let screenPoint = event.location // global screen coords, top-left origin
+        let screenPoint = event.location
 
-        // Ignore menu bar area
         let menuBarHeight = Double(NSStatusBar.system.thickness)
-        // On main screen, menu bar is at y=0..~24. For multi-monitor we check the main screen.
         if let mainScreen = NSScreen.screens.first {
-            // Convert: NSScreen uses bottom-left, CGEvent uses top-left
-            // Main screen top-left in CG coords is (mainScreen.frame.origin.x, 0)
-            // Menu bar occupies y < menuBarHeight in CG coords on the main display
             let mainFrame = mainScreen.frame
             if screenPoint.x >= mainFrame.origin.x &&
                screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
@@ -164,41 +156,20 @@ final class DragEngine {
             }
         }
 
-        // Find window under cursor
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
             return Unmanaged.passRetained(event)
         }
 
-        // Find and cache the AXUIElement for this window
-        guard let axWindow = findAXWindow(pid: windowInfo.pid, expectedFrame: windowInfo.frame) else {
-            return Unmanaged.passRetained(event)
-        }
-
-        // Check if window is fullscreen
-        var fullscreenRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(axWindow, "AXFullScreen" as CFString, &fullscreenRef)
-        if let isFullscreen = fullscreenRef as? Bool, isFullscreen {
-            return Unmanaged.passRetained(event)
-        }
-
-        // Get current window position via AX
-        var posRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(axWindow, kAXPositionAttribute as CFString, &posRef)
-        guard let posValue = posRef, CFGetTypeID(posValue) == AXValueGetTypeID() else {
-            return Unmanaged.passRetained(event)
-        }
-        var windowOrigin = CGPoint.zero
-        AXValueGetValue(posValue as! AXValue, .cgPoint, &windowOrigin)
-
+        // Store pid + frame for lazy AX lookup; use CGWindowList bounds as start origin
         dragState = DragState(
-            axWindow: axWindow,
+            pid: windowInfo.pid,
+            windowFrame: windowInfo.frame,
             startCursor: screenPoint,
-            startWindowOrigin: windowOrigin,
+            startWindowOrigin: windowInfo.frame.origin,
+            axWindow: nil,
             dragActivated: false
         )
 
-        // Don't suppress mouseDown yet — wait for drag threshold.
-        // We hold it and decide on mouseUp or drag.
         return nil
     }
 
@@ -214,17 +185,34 @@ final class DragEngine {
         if !state.dragActivated {
             let dx = screenPoint.x - state.startCursor.x
             let dy = screenPoint.y - state.startCursor.y
-            let distance = sqrt(dx * dx + dy * dy)
-            if distance < dragThreshold {
-                // Below threshold, suppress and wait
+            if dx * dx + dy * dy < dragThreshold * dragThreshold {
                 return nil
             }
-            // Activate drag
+
+            // Threshold exceeded — resolve AX window now (one-time cost)
+            guard let axWin = findAXWindow(pid: state.pid, expectedFrame: state.windowFrame) else {
+                dragState = nil
+                return Unmanaged.passRetained(event)
+            }
+
+            // Get precise AX position (may differ slightly from CGWindowList bounds)
+            var posRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(axWin, kAXPositionAttribute as CFString, &posRef)
+            if let posValue = posRef, CFGetTypeID(posValue) == AXValueGetTypeID() {
+                var pos = CGPoint.zero
+                AXValueGetValue(posValue as! AXValue, .cgPoint, &pos)
+                state.startWindowOrigin = pos
+            }
+
+            state.axWindow = axWin
             state.dragActivated = true
             dragState = state
         }
 
-        // Compute new window origin
+        guard let axWindow = state.axWindow else {
+            return Unmanaged.passRetained(event)
+        }
+
         let dx = screenPoint.x - state.startCursor.x
         let dy = screenPoint.y - state.startCursor.y
         var newOrigin = CGPoint(
@@ -233,10 +221,10 @@ final class DragEngine {
         )
 
         if let value = AXValueCreate(.cgPoint, &newOrigin) {
-            AXUIElementSetAttributeValue(state.axWindow, kAXPositionAttribute as CFString, value)
+            AXUIElementSetAttributeValue(axWindow, kAXPositionAttribute as CFString, value)
         }
 
-        return nil // suppress drag events during our drag
+        return nil
     }
 
     // MARK: - Mouse Up
@@ -249,14 +237,10 @@ final class DragEngine {
         dragState = nil
 
         if !state.dragActivated {
-            // Drag threshold was never exceeded — this was a modifier+click.
-            // We need to pass through both the original mouseDown and this mouseUp.
-            // Synthesize a mouseDown at the original position, then pass through mouseUp.
-            let screenPoint = state.startCursor
             if let syntheticDown = CGEvent(
                 mouseEventSource: nil,
                 mouseType: .leftMouseDown,
-                mouseCursorPosition: screenPoint,
+                mouseCursorPosition: state.startCursor,
                 mouseButton: .left
             ) {
                 syntheticDown.post(tap: .cgSessionEventTap)
@@ -264,7 +248,6 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
-        // Drag was active — suppress the mouseUp from reaching the app
         return nil
     }
 
@@ -286,7 +269,6 @@ final class DragEngine {
                 let windowID = info[kCGWindowNumber] as? CGWindowID
             else { continue }
 
-            // Skip Dock
             if let ownerName = info[kCGWindowOwnerName] as? String, ownerName == "Dock" {
                 continue
             }
@@ -322,13 +304,11 @@ final class DragEngine {
             var pos = CGPoint.zero
             AXValueGetValue(posValue as! AXValue, .cgPoint, &pos)
 
-            // Match by position (within tolerance)
             if abs(pos.x - expectedFrame.origin.x) < 5 && abs(pos.y - expectedFrame.origin.y) < 5 {
                 return axWin
             }
         }
 
-        // Fallback: return first window if only one exists
         if windows.count == 1 {
             return windows.first
         }

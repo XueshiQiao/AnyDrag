@@ -14,7 +14,7 @@ targets:
       - AnyDrag/Sources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.anydrag.AnyDrag
+        PRODUCT_BUNDLE_IDENTIFIER: me.xueshi.anydrag
         INFOPLIST_FILE: AnyDrag/Info.plist
         CODE_SIGN_ENTITLEMENTS: AnyDrag/AnyDrag.entitlements
         ENABLE_HARDENED_RUNTIME: YES
@@ -23,5 +23,6 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_VERSION: "5.9"
-        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 584KQTRF3B

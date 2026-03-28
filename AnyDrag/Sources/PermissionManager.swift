@@ -4,15 +4,7 @@ import ApplicationServices
 final class PermissionManager {
 
     var allGranted: Bool {
-        accessibilityGranted && inputMonitoringGranted
-    }
-
-    var accessibilityGranted: Bool {
         AXIsProcessTrusted()
-    }
-
-    var inputMonitoringGranted: Bool {
-        CGRequestPostEventAccess()
     }
 
     /// Blocks on a background timer until both permissions are granted, then calls `completion` on the main thread.
@@ -52,15 +44,8 @@ final class PermissionManager {
     }
 
     private func permissionMessage() -> String {
-        var parts: [String] = []
-        if !accessibilityGranted {
-            parts.append("Accessibility — required to move windows via the Accessibility API.")
-        }
-        if !inputMonitoringGranted {
-            parts.append("Input Monitoring — required to detect modifier keys and mouse events globally.")
-        }
-        return "AnyDrag requires the following permissions:\n\n" + parts.joined(separator: "\n\n") +
-            "\n\nPlease grant the permissions in System Settings, then return here. AnyDrag will detect the change automatically."
+        return "AnyDrag requires Accessibility permission to detect modifier keys and move windows.\n\n" +
+            "Please grant the permission in System Settings, then return here. AnyDrag will detect the change automatically."
     }
 
     private func openAccessibilitySettings() {

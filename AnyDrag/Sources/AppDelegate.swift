@@ -10,7 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Do not activate the app (no window, no dock icon)
         NSApp.setActivationPolicy(.accessory)
 
+        NSLog("AnyDrag: AXIsProcessTrusted=\(AXIsProcessTrusted())")
         permissionManager.ensurePermissions { [weak self] in
+            NSLog("AnyDrag: permissions OK, starting")
             self?.startApp()
         }
     }
