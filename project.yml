@@ -1,0 +1,27 @@
+name: AnyDrag
+options:
+  bundleIdPrefix: com.anydrag
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "15.0"
+  minimumXcodeGenVersion: "2.35"
+
+targets:
+  AnyDrag:
+    type: application
+    platform: macOS
+    sources:
+      - AnyDrag/Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.anydrag.AnyDrag
+        INFOPLIST_FILE: AnyDrag/Info.plist
+        CODE_SIGN_ENTITLEMENTS: AnyDrag/AnyDrag.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Automatic
