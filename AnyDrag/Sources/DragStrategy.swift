@@ -46,11 +46,15 @@ final class TitleBarDragStrategy {
 
     // MARK: - Title Bar Drag Point
 
-    /// Returns a point just right of the green (zoom) button via AX.
-    /// Falls back to hardcoded offset if AX lookup fails.
+    /// Locates the green (zoom) traffic light button via Accessibility API,
+    /// then returns a drag anchor point in the gap between the yellow and green
+    /// buttons, slightly above center — a safe title bar area that avoids both
+    /// the traffic light hit targets and any app-specific controls.
+    /// Falls back to a hardcoded offset from the window origin if AX fails.
     private func titleBarDragPoint(pid: pid_t, windowFrame: CGRect) -> CGPoint {
         let fallback = CGPoint(x: windowFrame.origin.x + fallbackDragX, y: windowFrame.origin.y + fallbackDragY)
 
+        // Step 1: Get the AX window object by matching position against CGWindowList frame
         let app = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
@@ -58,11 +62,13 @@ final class TitleBarDragStrategy {
               let axWindow = windows.first(where: { axWindowMatches($0, frame: windowFrame) })
         else { return fallback }
 
+        // Step 2: Get the zoom (green) traffic light button from the window
         var zoomRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(axWindow, kAXZoomButtonAttribute as CFString, &zoomRef) == .success,
               let zoomButton = zoomRef
         else { return fallback }
 
+        // Step 3: Read the button's screen position and size
         var posRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(zoomButton as! AXUIElement, kAXPositionAttribute as CFString, &posRef) == .success,
@@ -76,7 +82,8 @@ final class TitleBarDragStrategy {
         AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
         AXValueGetValue(sizeVal as! AXValue, .cgSize, &size)
 
-        return CGPoint(x: pos.x + size.width + 10, y: pos.y + size.height / 2)
+        // Step 4: Place the drag anchor in the gap between yellow and green buttons, slightly above center
+        return CGPoint(x: pos.x - 5, y: pos.y - 2)
     }
 
     private func axWindowMatches(_ axWin: AXUIElement, frame: CGRect) -> Bool {
