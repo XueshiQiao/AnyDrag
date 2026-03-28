@@ -42,8 +42,7 @@ final class DragEngine {
     private var runLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
 
-    private let strategy: DragStrategy = TitleBarDragStrategy()
-    // Fallback: private let strategy: DragStrategy = AccessibilityDragStrategy()
+    private let strategy = TitleBarDragStrategy()
 
     // MARK: - Lifecycle
 
