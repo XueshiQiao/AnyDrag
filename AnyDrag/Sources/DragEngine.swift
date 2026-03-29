@@ -33,6 +33,8 @@ enum ModifierKey: String, CaseIterable {
 
 // MARK: - DragEngine
 
+/// Intercepts mouse events via a CGEvent tap and delegates to TitleBarDragStrategy
+/// when a configured modifier key is held during a click.
 final class DragEngine {
 
     var isEnabled: Bool = true
@@ -69,6 +71,7 @@ final class DragEngine {
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
 
+        // Run the event tap on a dedicated high-priority thread
         let thread = Thread { [weak self] in
             guard let source = self?.runLoopSource else { return }
             CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
@@ -92,6 +95,7 @@ final class DragEngine {
     // MARK: - Event Handling
 
     fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Re-enable tap if the system disabled it (happens if callback was slow)
         if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -118,7 +122,8 @@ final class DragEngine {
     // MARK: - Mouse Down
 
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Check modifier
+        // Check if the configured modifier key is held.
+        // Strip maskNonCoalesced and compare only modifier bits.
         let flags = event.flags
         let targetRaw = modifierKey.eventFlags.rawValue
         let cleaned = flags.rawValue & ~CGEventFlags.maskNonCoalesced.rawValue
@@ -126,7 +131,7 @@ final class DragEngine {
                                     CGEventFlags.maskCommand.rawValue |
                                     CGEventFlags.maskControl.rawValue |
                                     CGEventFlags.maskShift.rawValue |
-                                    0x800000
+                                    0x800000 // maskSecondaryFn
         let activeModifiers = cleaned & relevantMask
 
         guard activeModifiers == targetRaw else {
@@ -135,7 +140,7 @@ final class DragEngine {
 
         let screenPoint = event.location
 
-        // Ignore menu bar
+        // Ignore clicks on the menu bar
         let menuBarHeight = Double(NSStatusBar.system.thickness)
         if let mainScreen = NSScreen.screens.first {
             let mainFrame = mainScreen.frame
@@ -146,7 +151,7 @@ final class DragEngine {
             }
         }
 
-        // Find window under cursor
+        // Find the topmost normal window (layer 0) under the cursor
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
             return Unmanaged.passRetained(event)
         }
@@ -180,6 +185,8 @@ final class DragEngine {
 
     // MARK: - Window Detection
 
+    /// Finds the topmost normal window at the given screen point using CGWindowListCopyWindowInfo.
+    /// Returns nil if no window is found. Skips the Dock and non-normal windows (layer != 0).
     private func windowUnderCursor(at point: CGPoint) -> (pid: pid_t, windowID: CGWindowID, frame: CGRect)? {
         guard let windowList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
@@ -188,6 +195,8 @@ final class DragEngine {
             return nil
         }
 
+        // CGWindowListCopyWindowInfo returns windows in front-to-back order,
+        // so the first hit is the topmost window at that point.
         for info in windowList {
             guard
                 let layer = info[kCGWindowLayer] as? Int, layer == 0,
@@ -196,9 +205,8 @@ final class DragEngine {
                 let windowID = info[kCGWindowNumber] as? CGWindowID
             else { continue }
 
-            if let ownerName = info[kCGWindowOwnerName] as? String, ownerName == "Dock" {
-                continue
-            }
+            let ownerName = info[kCGWindowOwnerName] as? String ?? "unknown"
+            if ownerName == "Dock" { continue }
 
             let bounds = CGRect(
                 x: boundsDict["X"] ?? 0,
