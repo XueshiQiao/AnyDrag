@@ -7,7 +7,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Do not activate the app (no window, no dock icon)
         NSApp.setActivationPolicy(.accessory)
 
         NSLog("AnyDrag: AXIsProcessTrusted=\(AXIsProcessTrusted())")
