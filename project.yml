@@ -6,12 +6,19 @@ options:
   xcodeVersion: "15.0"
   minimumXcodeGenVersion: "2.35"
 
+schemes:
+  AnyDrag:
+    build:
+      targets:
+        AnyDrag: all
+
 targets:
   AnyDrag:
     type: application
     platform: macOS
     sources:
       - AnyDrag/Sources
+      - AnyDrag/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: me.xueshi.anydrag
@@ -26,3 +33,4 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 584KQTRF3B
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
