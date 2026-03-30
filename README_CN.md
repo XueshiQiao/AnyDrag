@@ -5,15 +5,15 @@
 ![AnyDrag 演示](demo.png)
 <!-- 替换 demo.png 为截图或视频 -->
 
+## 为什么选择 AnyDrag？
+
+BetterTouchTool 等工具也有类似的修饰键+拖动功能，但它们通过 Accessibility API 移动窗口——这条路径要经过目标 app 的进程，延迟明显。AnyDrag 采用不同的方案：在 window server 层面模拟原生标题栏拖动，流畅度和手动拖标题栏完全一致。
+
 ## 安装
 
-从 [Releases](https://github.com/XueshiQiao/AnyDrag/releases) 下载最新 `.dmg`，或从源码构建：
+从 [Releases](https://github.com/XueshiQiao/AnyDrag/releases) 下载最新 `.dmg`，打开后将 AnyDrag 拖到应用程序文件夹。
 
-```bash
-brew install xcodegen
-xcodegen generate
-open AnyDrag.xcodeproj
-```
+首次启动时 macOS 会请求**辅助功能权限**——这是检测修饰键和移动窗口所必需的。
 
 ## 使用
 
@@ -32,8 +32,19 @@ open AnyDrag.xcodeproj
 ## 要求
 
 - macOS 13+
-- 辅助功能权限（首次启动时会提示授权）
+
+## 从源码构建
+
+```bash
+brew install xcodegen
+git clone https://github.com/XueshiQiao/AnyDrag.git
+cd AnyDrag
+xcodegen generate
+open AnyDrag.xcodeproj
+```
+
+然后在 Xcode 中构建并运行（⌘R）。
 
 ## 许可
 
-MIT
+GPL-3.0

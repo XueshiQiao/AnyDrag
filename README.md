@@ -5,15 +5,15 @@ Move any window by holding a modifier key and dragging anywhere on the window �
 ![AnyDrag Demo](demo.png)
 <!-- Replace demo.png with your screenshot or video -->
 
+## Why AnyDrag?
+
+Tools like BetterTouchTool offer similar modifier+drag features, but they move windows through the Accessibility API — an indirect path that goes through the target app's process, adding noticeable lag. AnyDrag takes a different approach: it simulates a native title bar drag at the window server level, achieving the same smoothness as dragging a title bar by hand.
+
 ## Install
 
-Download the latest `.dmg` from [Releases](https://github.com/XueshiQiao/AnyDrag/releases), or build from source:
+Download the latest `.dmg` from [Releases](https://github.com/XueshiQiao/AnyDrag/releases), open it, and drag AnyDrag to your Applications folder.
 
-```bash
-brew install xcodegen
-xcodegen generate
-open AnyDrag.xcodeproj
-```
+On first launch, macOS will ask for **Accessibility permission** — this is required to detect modifier keys and move windows.
 
 ## Usage
 
@@ -32,8 +32,19 @@ open AnyDrag.xcodeproj
 ## Requirements
 
 - macOS 13+
-- Accessibility permission (prompted on first launch)
+
+## Build from Source
+
+```bash
+brew install xcodegen
+git clone https://github.com/XueshiQiao/AnyDrag.git
+cd AnyDrag
+xcodegen generate
+open AnyDrag.xcodeproj
+```
+
+Then build and run in Xcode (⌘R).
 
 ## License
 
-MIT
+GPL-3.0
