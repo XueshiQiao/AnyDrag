@@ -15,6 +15,8 @@ Tools like BetterTouchTool offer similar modifier+drag features, but they move w
 
 Download the latest `.dmg` from [Releases](https://github.com/XueshiQiao/AnyDrag/releases), open it, and drag AnyDrag to your Applications folder.
 
+The app is signed with an Apple Developer ID certificate and notarized by Apple, so you can install it without any security warnings.
+
 On first launch, macOS will ask for **Accessibility permission** — this is required to detect modifier keys and move windows.
 
 ## Usage
