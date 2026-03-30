@@ -1,5 +1,7 @@
 # AnyDrag
 
+[English](README.md)
+
 按住修饰键，拖动窗口任意位置即可移动窗口，无需拖拽标题栏。
 
 ![AnyDrag 演示](demo.png)

@@ -1,5 +1,7 @@
 # AnyDrag
 
+[中文文档](README_CN.md)
+
 Move any window by holding a modifier key and dragging anywhere on the window — no need to grab the title bar.
 
 ![AnyDrag Demo](demo.png)
