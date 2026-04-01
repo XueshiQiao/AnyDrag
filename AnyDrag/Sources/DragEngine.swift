@@ -203,9 +203,9 @@ final class DragEngine {
     // MARK: - Right-Click Tiling
 
     private func handleRightMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // If tiling panel is visible, don't intercept — let the panel handle dismissal
+        // If tiling panel is visible, suppress right-click (avoid system context menu)
         if tilingPanel?.isVisible == true {
-            return Unmanaged.passRetained(event)
+            return nil
         }
 
         let flags = event.flags
@@ -290,7 +290,11 @@ final class DragEngine {
                 width: screen.width, height: screen.height / 2))
 
         // MARK: Fill & Arrange
-        case .fillLeft, .leftAndRight:
+        case .fill:
+            // Maximize to screen's visible area (keeps title bar)
+            setWindowFrame(axWindow, frame: screen)
+
+        case .leftAndRight:
             // Current window → left half, next Z-order window → right half
             setWindowFrame(axWindow, frame: CGRect(
                 x: screen.minX, y: screen.minY,

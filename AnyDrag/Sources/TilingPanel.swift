@@ -5,7 +5,7 @@ import AppKit
 
 enum TileAction: Hashable {
     case leftHalf, rightHalf, topHalf, bottomHalf
-    case fillLeft, fillRight, leftAndRight, quarters
+    case fill, fillRight, leftAndRight, quarters
 }
 
 // MARK: - TilingPanel
@@ -77,7 +77,7 @@ struct TilingPanelView: View {
             Divider().padding(.vertical, 8)
 
             sectionHeader("Fill & Arrange")
-            tileRow([.fillLeft, .fillRight, .leftAndRight, .quarters])
+            tileRow([.fill, .fillRight, .leftAndRight, .quarters])
 
             Divider().padding(.vertical, 8)
 
@@ -225,9 +225,9 @@ private struct TileIconView: View {
                      color: fill, cr: ir)
 
             // MARK: Fill & Arrange
-            case .fillLeft:
+            case .fill:
                 fillRect(context, CGRect(x: content.minX, y: content.minY,
-                     width: content.width / 2 - gap / 2, height: content.height),
+                     width: content.width, height: content.height),
                      color: fill, cr: ir)
 
             case .fillRight:
