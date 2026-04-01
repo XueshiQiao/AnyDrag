@@ -289,6 +289,26 @@ final class DragEngine {
                 x: screen.minX, y: screen.midY,
                 width: screen.width, height: screen.height / 2))
 
+        case .topLeft:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.minX, y: screen.minY,
+                width: screen.width / 2, height: screen.height / 2))
+
+        case .topRight:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.midX, y: screen.minY,
+                width: screen.width / 2, height: screen.height / 2))
+
+        case .bottomLeft:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.minX, y: screen.midY,
+                width: screen.width / 2, height: screen.height / 2))
+
+        case .bottomRight:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.midX, y: screen.midY,
+                width: screen.width / 2, height: screen.height / 2))
+
         // MARK: Fill & Arrange
         case .fill:
             // Maximize to screen's visible area (keeps title bar)

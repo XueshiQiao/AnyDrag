@@ -5,6 +5,7 @@ import AppKit
 
 enum TileAction: Hashable {
     case leftHalf, rightHalf, topHalf, bottomHalf
+    case topLeft, topRight, bottomLeft, bottomRight
     case fill, fillRight, leftAndRight, quarters
 }
 
@@ -73,6 +74,8 @@ struct TilingPanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader("Move & Resize")
             tileRow([.leftHalf, .rightHalf, .topHalf, .bottomHalf])
+            Spacer().frame(height: 6)
+            tileRow([.topLeft, .topRight, .bottomLeft, .bottomRight])
 
             Divider().padding(.vertical, 8)
 
@@ -222,6 +225,26 @@ private struct TileIconView: View {
             case .bottomHalf:
                 fillRect(context, CGRect(x: content.minX, y: content.midY + gap / 2,
                      width: content.width, height: content.height / 2 - gap / 2),
+                     color: fill, cr: ir)
+
+            case .topLeft:
+                fillRect(context, CGRect(x: content.minX, y: content.minY,
+                     width: content.width / 2 - gap / 2, height: content.height / 2 - gap / 2),
+                     color: fill, cr: ir)
+
+            case .topRight:
+                fillRect(context, CGRect(x: content.midX + gap / 2, y: content.minY,
+                     width: content.width / 2 - gap / 2, height: content.height / 2 - gap / 2),
+                     color: fill, cr: ir)
+
+            case .bottomLeft:
+                fillRect(context, CGRect(x: content.minX, y: content.midY + gap / 2,
+                     width: content.width / 2 - gap / 2, height: content.height / 2 - gap / 2),
+                     color: fill, cr: ir)
+
+            case .bottomRight:
+                fillRect(context, CGRect(x: content.midX + gap / 2, y: content.midY + gap / 2,
+                     width: content.width / 2 - gap / 2, height: content.height / 2 - gap / 2),
                      color: fill, cr: ir)
 
             // MARK: Fill & Arrange
