@@ -110,17 +110,18 @@ jobs:
 
       - name: Staple Ticket to DMG
         if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
+        continue-on-error: true
         run: |
           cd build/Release
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3 4 5 6 7 8 9 10; do
             if xcrun stapler staple AnyDrag.dmg; then
               echo "Stapling succeeded"
               exit 0
             fi
-            echo "Staple attempt $i failed, retrying in 15s..."
-            sleep 15
+            echo "Staple attempt $i failed, retrying in 30s..."
+            sleep 30
           done
-          echo "Stapling failed after 5 attempts"
+          echo "Stapling failed — DMG is still notarized and passes Gatekeeper online"
           exit 1
 
       - name: Sign Update with Sparkle EdDSA
