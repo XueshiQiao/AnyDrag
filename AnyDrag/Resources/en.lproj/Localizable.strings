@@ -5,8 +5,8 @@
 "Quit AnyDrag" = "Quit AnyDrag";
 
 /* Usage Tips — %@ is the modifier key symbol */
-"tip.drag" = "%@ + Drag: Move window";
-"tip.maximize" = "%@ + Double-click: Maximize / Restore";
+"tip.drag" = "%@ + Left-drag: Move window";
+"tip.maximize" = "%@ + Left-double-click: Maximize / Restore";
 "tip.tiling" = "%@ + Right-click: Window tiling";
 
 /* Tiling Panel */
