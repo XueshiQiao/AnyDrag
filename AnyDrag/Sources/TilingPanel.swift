@@ -78,6 +78,15 @@ struct TilingPanelView: View {
 
             sectionHeader("Fill & Arrange")
             tileRow([.fill, .leftAndRight, .fillRight, .quarters])
+
+//            Divider().padding(.vertical, 8)
+//
+//            menuRow(icon: "macwindow.on.rectangle", title: "Full Screen", showChevron: true)
+//
+//            if NSScreen.screens.count > 1,
+//               let other = NSScreen.screens.first(where: { $0 != NSScreen.main }) {
+//                menuRow(icon: "display", title: "Move to \(other.localizedName)")
+//            }
         }
         .padding(12)
         .frame(width: 264)
