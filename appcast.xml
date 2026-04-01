@@ -8,6 +8,17 @@
 
     <!-- CI will prepend new <item> entries here automatically -->
     <!-- SPARKLE_ITEM_PLACEHOLDER -->
+    <item>
+      <title>Version 1.2.1</title>
+      <sparkle:version>1</sparkle:version>
+      <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 01 Apr 2026 14:32:10 +0000</pubDate>
+      <enclosure
+        url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.1/AnyDrag.dmg"
+        length="3854727"
+        type="application/octet-stream"
+        sparkle:edSignature="R+s6ZVqZF1vCsMLrZ9J76Prjep55OsBWzzoUoebh4oik+CdcJG3GDjWCQup+f+NAW9pV2yEYemM+GeDq0ogYCA==
 
     <!--
     <item>
