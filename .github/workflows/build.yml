@@ -153,40 +153,50 @@ jobs:
           SIGN_OUTPUT=$("$SIGN_UPDATE" build/Release/AnyDrag.dmg --ed-key-file <(echo "$SPARKLE_EDDSA_KEY"))
           echo "sign_update output: $SIGN_OUTPUT"
 
-          # Parse version info
+          # Parse signature and length from sign_update output
+          SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -o 'sparkle:edSignature="[^"]*"' | sed 's/sparkle:edSignature="//;s/"$//')
+          FILESIZE=$(stat -f%z build/Release/AnyDrag.dmg)
           TAG_NAME=${GITHUB_REF#refs/tags/}
           VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
           BUILD=$(grep 'CURRENT_PROJECT_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
-          FILESIZE=$(stat -f%z build/Release/AnyDrag.dmg)
           PUBDATE=$(date -R)
 
-          # Use Python for reliable XML generation
-          python3 - <<PYEOF
-          import xml.etree.ElementTree as ET
-          import re
+          # Pass values via env vars to avoid shell/python quoting issues
+          export APPCAST_SIG="$SIGNATURE"
+          export APPCAST_SIZE="$FILESIZE"
+          export APPCAST_TAG="$TAG_NAME"
+          export APPCAST_VERSION="$VERSION"
+          export APPCAST_BUILD="$BUILD"
+          export APPCAST_DATE="$PUBDATE"
 
-          sign_output = """$SIGN_OUTPUT"""
-          sig_match = re.search(r'sparkle:edSignature="([^"]+)"', sign_output)
-          signature = sig_match.group(1) if sig_match else ""
-          if not signature:
-              raise ValueError(f"Could not parse edSignature from: {sign_output}")
+          python3 - <<'PYEOF'
+          import xml.etree.ElementTree as ET
+          import os
+
+          sig = os.environ["APPCAST_SIG"]
+          size = os.environ["APPCAST_SIZE"]
+          tag = os.environ["APPCAST_TAG"]
+          version = os.environ["APPCAST_VERSION"]
+          build = os.environ["APPCAST_BUILD"]
+          pub_date = os.environ["APPCAST_DATE"]
+
+          if not sig:
+              raise ValueError("Empty edSignature")
 
           tree = ET.parse("appcast.xml")
-          root = tree.getroot()
-          ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
-          channel = root.find("channel")
+          channel = tree.getroot().find("channel")
 
           item = ET.SubElement(channel, "item")
-          ET.SubElement(item, "title").text = "Version $VERSION"
-          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}version").text = "$BUILD"
-          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString").text = "$VERSION"
+          ET.SubElement(item, "title").text = f"Version {version}"
+          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}version").text = build
+          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString").text = version
           ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion").text = "13.0"
-          ET.SubElement(item, "pubDate").text = "$PUBDATE"
+          ET.SubElement(item, "pubDate").text = pub_date
           enc = ET.SubElement(item, "enclosure")
-          enc.set("url", "https://github.com/XueshiQiao/AnyDrag/releases/download/$TAG_NAME/AnyDrag.dmg")
-          enc.set("length", "$FILESIZE")
+          enc.set("url", f"https://github.com/XueshiQiao/AnyDrag/releases/download/{tag}/AnyDrag.dmg")
+          enc.set("length", size)
           enc.set("type", "application/octet-stream")
-          enc.set("{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature", signature)
+          enc.set("{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature", sig)
 
           ET.indent(tree, space="  ", level=0)
           tree.write("appcast.xml", xml_declaration=True, encoding="unicode")
