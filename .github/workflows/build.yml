@@ -72,7 +72,28 @@ jobs:
       - name: Sign App
         if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
         run: |
-          codesign --force --options runtime --sign "Developer ID Application" --timestamp --entitlements AnyDrag/AnyDrag.entitlements build/Release/AnyDrag.app
+          codesign --force --deep --options runtime --sign "Developer ID Application" --timestamp --entitlements AnyDrag/AnyDrag.entitlements build/Release/AnyDrag.app
+
+      - name: Notarize App
+        if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+        run: |
+          cd build/Release
+          /usr/bin/ditto -c -k --keepParent AnyDrag.app AnyDrag-app.zip
+          xcrun notarytool submit AnyDrag-app.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$TEAM_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --wait
+
+      - name: Staple App
+        if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
+        run: |
+          cd build/Release
+          xcrun stapler staple AnyDrag.app
 
       - name: Create DMG
         run: |
@@ -108,21 +129,12 @@ jobs:
             --password "$APP_SPECIFIC_PASSWORD" \
             --wait
 
-      - name: Staple Ticket to DMG
+      - name: Staple DMG
         if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
         continue-on-error: true
         run: |
           cd build/Release
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if xcrun stapler staple AnyDrag.dmg; then
-              echo "Stapling succeeded"
-              exit 0
-            fi
-            echo "Staple attempt $i failed, retrying in 30s..."
-            sleep 30
-          done
-          echo "Stapling failed — DMG is still notarized and passes Gatekeeper online"
-          exit 1
+          xcrun stapler staple AnyDrag.dmg
 
       - name: Sign Update with Sparkle EdDSA
         if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_KEY == 'true' }}
