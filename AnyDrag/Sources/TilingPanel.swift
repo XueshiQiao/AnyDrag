@@ -72,23 +72,23 @@ struct TilingPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Move & Resize")
+            sectionHeader(NSLocalizedString("Move & Resize", comment: ""))
             tileRow([.leftHalf, .rightHalf, .topHalf, .bottomHalf])
             Spacer().frame(height: 6)
             tileRow([.topLeft, .topRight, .bottomLeft, .bottomRight])
 
             Divider().padding(.vertical, 8)
 
-            sectionHeader("Fill & Arrange")
+            sectionHeader(NSLocalizedString("Fill & Arrange", comment: ""))
             tileRow([.fill, .leftAndRight, .fillRight, .quarters])
 
 //            Divider().padding(.vertical, 8)
 //
-//            menuRow(icon: "macwindow.on.rectangle", title: "Full Screen", showChevron: true)
+//            menuRow(icon: "macwindow.on.rectangle", title: NSLocalizedString("Full Screen", comment: ""), showChevron: true)
 //
 //            if NSScreen.screens.count > 1,
 //               let other = NSScreen.screens.first(where: { $0 != NSScreen.main }) {
-//                menuRow(icon: "display", title: "Move to \(other.localizedName)")
+//                menuRow(icon: "display", title: String(format: NSLocalizedString("Move to %@", comment: ""), other.localizedName))
 //            }
         }
         .padding(12)

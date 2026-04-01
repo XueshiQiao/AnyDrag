@@ -1,0 +1,11 @@
+/* Menu Bar */
+"Enabled" = "启用";
+"Modifier Key" = "修饰键";
+"Launch at Login" = "登录时启动";
+"Quit AnyDrag" = "退出 AnyDrag";
+
+/* Tiling Panel */
+"Move & Resize" = "移动与调整大小";
+"Fill & Arrange" = "填充与排列";
+"Full Screen" = "全屏";
+"Move to %@" = "移动到 %@";

@@ -1,0 +1,11 @@
+/* Menu Bar */
+"Enabled" = "Enabled";
+"Modifier Key" = "Modifier Key";
+"Launch at Login" = "Launch at Login";
+"Quit AnyDrag" = "Quit AnyDrag";
+
+/* Tiling Panel */
+"Move & Resize" = "Move & Resize";
+"Fill & Arrange" = "Fill & Arrange";
+"Full Screen" = "Full Screen";
+"Move to %@" = "Move to %@";

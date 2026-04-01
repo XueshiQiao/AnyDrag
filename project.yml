@@ -19,6 +19,7 @@ targets:
     sources:
       - AnyDrag/Sources
       - AnyDrag/Assets.xcassets
+      - AnyDrag/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: me.xueshi.anydrag

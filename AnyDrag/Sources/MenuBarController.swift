@@ -41,7 +41,7 @@ final class MenuBarController: NSObject {
         menu.addItem(.separator())
 
         // Enabled toggle
-        let enabledItem = NSMenuItem(title: "Enabled", action: #selector(toggleEnabled(_:)), keyEquivalent: "")
+        let enabledItem = NSMenuItem(title: NSLocalizedString("Enabled", comment: ""), action: #selector(toggleEnabled(_:)), keyEquivalent: "")
         enabledItem.target = self
         enabledItem.tag = 100
         menu.addItem(enabledItem)
@@ -49,7 +49,7 @@ final class MenuBarController: NSObject {
         menu.addItem(.separator())
 
         // Modifier key submenu
-        let modifierItem = NSMenuItem(title: "Modifier Key", action: nil, keyEquivalent: "")
+        let modifierItem = NSMenuItem(title: NSLocalizedString("Modifier Key", comment: ""), action: nil, keyEquivalent: "")
         let modifierSubmenu = NSMenu()
 
         for (index, mod) in ModifierKey.allCases.enumerated() {
@@ -61,12 +61,13 @@ final class MenuBarController: NSObject {
         }
 
         modifierItem.submenu = modifierSubmenu
+        modifierItem.tag = 400
         menu.addItem(modifierItem)
 
         menu.addItem(.separator())
 
         // Launch at Login
-        let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        let loginItem = NSMenuItem(title: NSLocalizedString("Launch at Login", comment: ""), action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
         loginItem.target = self
         loginItem.tag = 300
         menu.addItem(loginItem)
@@ -74,7 +75,7 @@ final class MenuBarController: NSObject {
         menu.addItem(.separator())
 
         // Quit
-        let quitItem = NSMenuItem(title: "Quit AnyDrag", action: #selector(quitApp(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: NSLocalizedString("Quit AnyDrag", comment: ""), action: #selector(quitApp(_:)), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -147,7 +148,7 @@ extension MenuBarController: NSMenuDelegate {
         }
 
         // Update modifier selection
-        if let modifierItem = menu.item(withTitle: "Modifier Key"),
+        if let modifierItem = menu.item(withTag: 400),
            let submenu = modifierItem.submenu {
             for item in submenu.items {
                 if let rawValue = item.representedObject as? String {
