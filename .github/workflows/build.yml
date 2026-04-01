@@ -72,7 +72,43 @@ jobs:
       - name: Sign App
         if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
         run: |
-          codesign --force --deep --options runtime --sign "Developer ID Application" --timestamp --entitlements AnyDrag/AnyDrag.entitlements build/Release/AnyDrag.app
+          APP_PATH="build/Release/AnyDrag.app"
+          ENTITLEMENTS="AnyDrag/AnyDrag.entitlements"
+
+          # Sign embedded frameworks inside-out (deepest first)
+          if [ -d "$APP_PATH/Contents/Frameworks" ]; then
+            find "$APP_PATH/Contents/Frameworks" -type f | while read -r f; do
+              if file "$f" | grep -q "Mach-O"; then
+                echo "Signing Mach-O: $f"
+                codesign --force --options runtime --timestamp \
+                  --sign "Developer ID Application" "$f"
+              fi
+            done
+
+            find "$APP_PATH/Contents/Frameworks" -name "*.xpc" -type d | while read -r b; do
+              echo "Signing bundle: $b"
+              codesign --force --options runtime --timestamp \
+                --sign "Developer ID Application" "$b"
+            done
+            find "$APP_PATH/Contents/Frameworks" -name "*.app" -type d | while read -r b; do
+              echo "Signing bundle: $b"
+              codesign --force --options runtime --timestamp \
+                --sign "Developer ID Application" "$b"
+            done
+            find "$APP_PATH/Contents/Frameworks" \( -name "*.framework" -o -name "*.dylib" \) | while read -r b; do
+              echo "Signing bundle: $b"
+              codesign --force --options runtime --timestamp \
+                --sign "Developer ID Application" "$b"
+            done
+          fi
+
+          # Sign the main app bundle with entitlements
+          codesign --force --options runtime --timestamp \
+            --entitlements "$ENTITLEMENTS" \
+            --sign "Developer ID Application" "$APP_PATH"
+
+          # Verify
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Notarize App
         if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
@@ -81,19 +117,31 @@ jobs:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
         run: |
-          cd build/Release
-          /usr/bin/ditto -c -k --keepParent AnyDrag.app AnyDrag-app.zip
-          xcrun notarytool submit AnyDrag-app.zip \
+          ditto -c -k --keepParent \
+            "build/Release/AnyDrag.app" \
+            "$RUNNER_TEMP/notarize.zip"
+
+          SUBMISSION_OUT=$(xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
             --apple-id "$APPLE_ID" \
             --team-id "$TEAM_ID" \
             --password "$APP_SPECIFIC_PASSWORD" \
-            --wait
+            --wait 2>&1) || true
+          echo "$SUBMISSION_OUT"
 
-      - name: Staple App
-        if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
-        run: |
-          cd build/Release
-          xcrun stapler staple AnyDrag.app
+          SUBMISSION_ID=$(echo "$SUBMISSION_OUT" | grep -m1 "^  id:" | awk '{print $NF}')
+          STATUS=$(echo "$SUBMISSION_OUT" | grep "^  status:" | awk '{print $NF}')
+
+          if [[ "$STATUS" != "Accepted" ]]; then
+            echo "--- Notarization log ---"
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$TEAM_ID" \
+              --password "$APP_SPECIFIC_PASSWORD" 2>&1 || true
+            echo "error: Notarization failed with status: $STATUS" >&2
+            exit 1
+          fi
+
+          xcrun stapler staple "build/Release/AnyDrag.app"
 
       - name: Create DMG
         run: |
@@ -109,104 +157,93 @@ jobs:
             "AnyDrag.dmg" \
             "AnyDrag.app"
 
-      - name: Sign DMG
-        if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
+      - name: Download Sparkle Tools
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_KEY == 'true' }}
         run: |
-          cd build/Release
-          codesign --force --sign "Developer ID Application" --timestamp AnyDrag.dmg
+          SPARKLE_VERSION="2.9.0"
+          curl -sL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
 
-      - name: Notarize DMG
-        if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
+      - name: Generate Release Notes
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_KEY == 'true' }}
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cd build/Release
-          xcrun notarytool submit AnyDrag.dmg \
-            --apple-id "$APPLE_ID" \
-            --team-id "$TEAM_ID" \
-            --password "$APP_SPECIFIC_PASSWORD" \
-            --wait
+          PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | grep -v "${GITHUB_REF_NAME}" | head -1)
+          if [[ -n "$PREV_TAG" ]]; then
+            NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="${GITHUB_REF_NAME}" \
+              -f previous_tag_name="${PREV_TAG}" \
+              --jq '.body' 2>/dev/null || echo "")
+          fi
+          if [[ -z "$NOTES" && -n "$PREV_TAG" ]]; then
+            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" --no-merges 2>/dev/null || echo "")
+          fi
+          if [[ -z "$NOTES" ]]; then
+            NOTES="Bug fixes and improvements."
+          fi
+          NOTES_HTML=$(echo "$NOTES" | sed 's/^## .*$/<h3>\0<\/h3>/; s/^- \(.*\)$/<li>\1<\/li>/' | sed 's/<h3>## /<h3>/g')
+          NOTES_HTML="<ul>${NOTES_HTML}</ul>"
+          echo "$NOTES_HTML" > "$RUNNER_TEMP/release_notes.html"
 
-      - name: Staple DMG
-        if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
-        continue-on-error: true
-        run: |
-          cd build/Release
-          xcrun stapler staple AnyDrag.dmg
-
-      - name: Update Appcast with Sparkle Signature
+      - name: Sign DMG and Generate Appcast
         if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_KEY == 'true' }}
         env:
           SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
         run: |
-          # Find Sparkle CLI tools from SPM build artifacts
-          SIGN_UPDATE=$(find ~/Library/Developer/Xcode/DerivedData -name "sign_update" -path "*/Sparkle/bin/*" 2>/dev/null | head -1)
-          if [ -z "$SIGN_UPDATE" ]; then
-            echo "Error: sign_update not found in DerivedData"
-            exit 1
-          fi
-          echo "Using: $SIGN_UPDATE"
-
-          # Sign the DMG and capture full output
-          SIGN_OUTPUT=$("$SIGN_UPDATE" build/Release/AnyDrag.dmg --ed-key-file <(echo "$SPARKLE_EDDSA_KEY"))
-          echo "sign_update output: $SIGN_OUTPUT"
-
-          # Parse signature and length from sign_update output
-          SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -o 'sparkle:edSignature="[^"]*"' | sed 's/sparkle:edSignature="//;s/"$//')
-          FILESIZE=$(stat -f%z build/Release/AnyDrag.dmg)
           TAG_NAME=${GITHUB_REF#refs/tags/}
           VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
           BUILD=$(grep 'CURRENT_PROJECT_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
-          PUBDATE=$(date -R)
+          PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S %z")
+          FILE_LENGTH=$(stat -f%z "build/Release/AnyDrag.dmg")
+          DOWNLOAD_URL="https://github.com/XueshiQiao/AnyDrag/releases/download/${TAG_NAME}/AnyDrag.dmg"
 
-          # Pass values via env vars to avoid shell/python quoting issues
-          export APPCAST_SIG="$SIGNATURE"
-          export APPCAST_SIZE="$FILESIZE"
-          export APPCAST_TAG="$TAG_NAME"
-          export APPCAST_VERSION="$VERSION"
-          export APPCAST_BUILD="$BUILD"
-          export APPCAST_DATE="$PUBDATE"
+          # Sign DMG with EdDSA private key (temp file, not process substitution)
+          echo -n "$SPARKLE_EDDSA_KEY" > "$RUNNER_TEMP/sparkle_eddsa.key"
+          SIGN_OUTPUT=$("$RUNNER_TEMP/sparkle/bin/sign_update" "build/Release/AnyDrag.dmg" -f "$RUNNER_TEMP/sparkle_eddsa.key")
+          rm -f "$RUNNER_TEMP/sparkle_eddsa.key"
 
-          python3 - <<'PYEOF'
-          import xml.etree.ElementTree as ET
-          import os
+          ED_SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+          if [[ -z "$ED_SIGNATURE" ]]; then
+            echo "error: Failed to generate EdDSA signature." >&2
+            echo "sign_update output: $SIGN_OUTPUT" >&2
+            exit 1
+          fi
 
-          sig = os.environ["APPCAST_SIG"]
-          size = os.environ["APPCAST_SIZE"]
-          tag = os.environ["APPCAST_TAG"]
-          version = os.environ["APPCAST_VERSION"]
-          build = os.environ["APPCAST_BUILD"]
-          pub_date = os.environ["APPCAST_DATE"]
+          # Read release notes
+          RELEASE_NOTES=$(cat "$RUNNER_TEMP/release_notes.html")
 
-          if not sig:
-              raise ValueError("Empty edSignature")
+          # Generate appcast.xml with shell echo (clean namespace, no Python mangling)
+          {
+            echo '<?xml version="1.0" encoding="utf-8"?>'
+            echo '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            echo '  <channel>'
+            echo '    <title>AnyDrag Updates</title>'
+            echo '    <link>https://github.com/XueshiQiao/AnyDrag</link>'
+            echo '    <language>en</language>'
+            echo '    <item>'
+            echo "      <title>Version ${VERSION}</title>"
+            echo "      <description><![CDATA[${RELEASE_NOTES}]]></description>"
+            echo "      <pubDate>${PUB_DATE}</pubDate>"
+            echo "      <sparkle:version>${BUILD}</sparkle:version>"
+            echo "      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>"
+            echo '      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>'
+            echo "      <enclosure url=\"${DOWNLOAD_URL}\" length=\"${FILE_LENGTH}\" type=\"application/octet-stream\" sparkle:edSignature=\"${ED_SIGNATURE}\" />"
+            echo '    </item>'
+            echo '  </channel>'
+            echo '</rss>'
+          } > appcast.xml
 
-          tree = ET.parse("appcast.xml")
-          channel = tree.getroot().find("channel")
+          echo "--- Appcast ---"
+          cat appcast.xml
 
-          item = ET.SubElement(channel, "item")
-          ET.SubElement(item, "title").text = f"Version {version}"
-          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}version").text = build
-          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString").text = version
-          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion").text = "13.0"
-          ET.SubElement(item, "pubDate").text = pub_date
-          enc = ET.SubElement(item, "enclosure")
-          enc.set("url", f"https://github.com/XueshiQiao/AnyDrag/releases/download/{tag}/AnyDrag.dmg")
-          enc.set("length", size)
-          enc.set("type", "application/octet-stream")
-          enc.set("{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature", sig)
-
-          ET.indent(tree, space="  ", level=0)
-          tree.write("appcast.xml", xml_declaration=True, encoding="unicode")
-          PYEOF
-
-          # Commit and push
+          # Commit and push appcast
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add appcast.xml
-          git commit -m "Update appcast for $TAG_NAME"
+          git commit -m "Update appcast for ${TAG_NAME}"
           git push origin HEAD:main
 
       - name: Upload Artifact
@@ -220,5 +257,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: build/Release/AnyDrag.dmg
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

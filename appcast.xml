@@ -1,17 +1,8 @@
-<?xml version='1.0' encoding='utf-8'?>
-<rss xmlns:ns0="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
-    <title>AnyDrag</title>
-    <link>https://raw.githubusercontent.com/XueshiQiao/AnyDrag/main/appcast.xml</link>
-    <description>AnyDrag Updates</description>
+    <title>AnyDrag Updates</title>
+    <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
-    <item>
-      <title>Version 1.2.1</title>
-      <ns0:version>1</ns0:version>
-      <ns0:shortVersionString>1.2.1</ns0:shortVersionString>
-      <ns0:minimumSystemVersion>13.0</ns0:minimumSystemVersion>
-      <pubDate>Wed, 01 Apr 2026 14:49:02 +0000</pubDate>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.1/AnyDrag.dmg" length="3913547" type="application/octet-stream" ns0:edSignature="I5+Vem7SoOdFUM7eIhU8rCxyHz71Meh7AqjTHxZj4LBg6tX5j0tbPvRm0DC/6y9AAI+qun+wuS9JZ6LixZH9BQ==" />
-    </item>
   </channel>
 </rss>
