@@ -25,7 +25,7 @@ targets:
         INFOPLIST_FILE: AnyDrag/Info.plist
         CODE_SIGN_ENTITLEMENTS: AnyDrag/AnyDrag.entitlements
         ENABLE_HARDENED_RUNTIME: YES
-        MARKETING_VERSION: "1.1.1"
+        MARKETING_VERSION: "1.2.0"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: NO
         MACOSX_DEPLOYMENT_TARGET: "13.0"
