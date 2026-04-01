@@ -127,6 +127,11 @@ final class DragEngine {
     // MARK: - Mouse Down
 
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // If tiling panel is visible, don't intercept — let clicks reach the panel
+        if tilingPanel?.isVisible == true {
+            return Unmanaged.passRetained(event)
+        }
+
         // Check if the configured modifier key is held.
         // Strip maskNonCoalesced and compare only modifier bits.
         let flags = event.flags
@@ -198,6 +203,11 @@ final class DragEngine {
     // MARK: - Right-Click Tiling
 
     private func handleRightMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // If tiling panel is visible, don't intercept — let the panel handle dismissal
+        if tilingPanel?.isVisible == true {
+            return Unmanaged.passRetained(event)
+        }
+
         let flags = event.flags
         let targetRaw = modifierKey.eventFlags.rawValue
         let cleaned = flags.rawValue & ~CGEventFlags.maskNonCoalesced.rawValue
