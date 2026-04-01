@@ -46,6 +46,7 @@ final class DragEngine {
 
     private let strategy = TitleBarDragStrategy()
     private var savedFrames: [CGWindowID: CGRect] = [:]
+    private var tilingPanel: TilingPanel?
 
     // MARK: - Lifecycle
 
@@ -54,7 +55,8 @@ final class DragEngine {
 
         let eventMask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue) |
                                      (1 << CGEventType.leftMouseDragged.rawValue) |
-                                     (1 << CGEventType.leftMouseUp.rawValue)
+                                     (1 << CGEventType.leftMouseUp.rawValue) |
+                                     (1 << CGEventType.rightMouseDown.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -115,6 +117,8 @@ final class DragEngine {
             return handleMouseDragged(event: event)
         case .leftMouseUp:
             return handleMouseUp(event: event)
+        case .rightMouseDown:
+            return handleRightMouseDown(event: event)
         default:
             return Unmanaged.passRetained(event)
         }
@@ -189,6 +193,64 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
         return strategy.handleMouseUp(event: event)
+    }
+
+    // MARK: - Right-Click Tiling
+
+    private func handleRightMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        let flags = event.flags
+        let targetRaw = modifierKey.eventFlags.rawValue
+        let cleaned = flags.rawValue & ~CGEventFlags.maskNonCoalesced.rawValue
+        let relevantMask: UInt64 = CGEventFlags.maskAlternate.rawValue |
+                                    CGEventFlags.maskCommand.rawValue |
+                                    CGEventFlags.maskControl.rawValue |
+                                    CGEventFlags.maskShift.rawValue |
+                                    0x800000
+        let activeModifiers = cleaned & relevantMask
+
+        guard activeModifiers == targetRaw else {
+            return Unmanaged.passRetained(event)
+        }
+
+        let screenPoint = event.location
+
+        let menuBarHeight = Double(NSStatusBar.system.thickness)
+        if let mainScreen = NSScreen.screens.first {
+            let mainFrame = mainScreen.frame
+            if screenPoint.x >= mainFrame.origin.x &&
+               screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
+               screenPoint.y < menuBarHeight {
+                return Unmanaged.passRetained(event)
+            }
+        }
+
+        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            return Unmanaged.passRetained(event)
+        }
+
+        let mouseLocation = NSEvent.mouseLocation
+        let capturedInfo = windowInfo
+
+        DispatchQueue.main.async { [weak self] in
+            self?.showTilingPanel(at: mouseLocation, for: capturedInfo)
+        }
+
+        return nil
+    }
+
+    private func showTilingPanel(at point: NSPoint, for windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
+        tilingPanel?.dismiss()
+
+        let panel = TilingPanel()
+        panel.onAction = { [weak self] action in
+            self?.performTileAction(action, windowInfo: windowInfo)
+        }
+        panel.show(at: point)
+        tilingPanel = panel
+    }
+
+    private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
+        // Will be implemented: Task 2 (Move & Resize), Task 3 (Fill & Arrange)
     }
 
     // MARK: - Maximize / Restore
