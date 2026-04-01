@@ -9,6 +9,7 @@ final class MenuBarController: NSObject {
     private let enabledKey = "AnyDragEnabled"
     private let modifierKey = "AnyDragModifier"
     private let launchAtLoginKey = "AnyDragLaunchAtLogin"
+    private var tilingPanel: TilingPanel?
 
     init(dragEngine: DragEngine) {
         self.dragEngine = dragEngine
@@ -73,6 +74,13 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
+        // Tiling Panel (Preview)
+        let tilingItem = NSMenuItem(title: "Tiling Panel (Preview)", action: #selector(showTilingPanel(_:)), keyEquivalent: "t")
+        tilingItem.target = self
+        menu.addItem(tilingItem)
+
+        menu.addItem(.separator())
+
         // Quit
         let quitItem = NSMenuItem(title: "Quit AnyDrag", action: #selector(quitApp(_:)), keyEquivalent: "q")
         quitItem.target = self
@@ -129,6 +137,15 @@ final class MenuBarController: NSObject {
         } catch {
             NSLog("AnyDrag: Failed to toggle launch at login: \(error)")
         }
+    }
+
+    @objc private func showTilingPanel(_ sender: NSMenuItem) {
+        let panel = TilingPanel()
+        panel.onAction = { action in
+            NSLog("AnyDrag: Tiling action: \(action)")
+        }
+        panel.show(at: NSEvent.mouseLocation)
+        tilingPanel = panel
     }
 
     @objc private func quitApp(_ sender: NSMenuItem) {
