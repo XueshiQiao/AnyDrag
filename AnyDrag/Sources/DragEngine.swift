@@ -250,7 +250,39 @@ final class DragEngine {
     }
 
     private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
-        // Will be implemented: Task 2 (Move & Resize), Task 3 (Fill & Arrange)
+        guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else { return }
+        guard let screen = screenVisibleFrame(for: windowInfo.frame) else { return }
+
+        // Save original frame for double-click restore
+        let currentFrame = getWindowFrame(axWindow) ?? windowInfo.frame
+        savedFrames[windowInfo.windowID] = currentFrame
+
+        switch action {
+        // MARK: Move & Resize
+        case .leftHalf:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.minX, y: screen.minY,
+                width: screen.width / 2, height: screen.height))
+
+        case .rightHalf:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.midX, y: screen.minY,
+                width: screen.width / 2, height: screen.height))
+
+        case .topHalf:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.minX, y: screen.minY,
+                width: screen.width, height: screen.height / 2))
+
+        case .bottomHalf:
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.minX, y: screen.midY,
+                width: screen.width, height: screen.height / 2))
+
+        // MARK: Fill & Arrange
+        case .fillLeft, .fillRight, .leftAndRight, .quarters:
+            break // Will be implemented in Task 3
+        }
     }
 
     // MARK: - Maximize / Restore
