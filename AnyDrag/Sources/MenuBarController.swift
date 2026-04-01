@@ -5,13 +5,15 @@ final class MenuBarController: NSObject {
 
     private var statusItem: NSStatusItem!
     private let dragEngine: DragEngine
+    private let updateController: UpdateController
 
     private let enabledKey = "AnyDragEnabled"
     private let modifierKey = "AnyDragModifier"
     private let launchAtLoginKey = "AnyDragLaunchAtLogin"
 
-    init(dragEngine: DragEngine) {
+    init(dragEngine: DragEngine, updateController: UpdateController) {
         self.dragEngine = dragEngine
+        self.updateController = updateController
         super.init()
         setupStatusItem()
         loadPreferences()
@@ -82,6 +84,12 @@ final class MenuBarController: NSObject {
         loginItem.tag = 300
         menu.addItem(loginItem)
 
+        // Check for Updates
+        let updateItem = NSMenuItem(title: NSLocalizedString("Check for Updates…", comment: ""), action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        updateItem.target = self
+        updateItem.tag = 600
+        menu.addItem(updateItem)
+
         menu.addItem(.separator())
 
         // Quit
@@ -142,6 +150,10 @@ final class MenuBarController: NSObject {
         }
     }
 
+    @objc private func checkForUpdates(_ sender: NSMenuItem) {
+        updateController.checkForUpdates(sender)
+    }
+
     @objc private func quitApp(_ sender: NSMenuItem) {
         NSApp.terminate(nil)
     }
@@ -179,6 +191,11 @@ extension MenuBarController: NSMenuDelegate {
         // Update launch at login
         if let loginItem = menu.item(withTag: 300) {
             loginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
+        }
+
+        // Update check-for-updates availability
+        if let updateItem = menu.item(withTag: 600) {
+            updateItem.isEnabled = updateController.canCheckForUpdates
         }
     }
 }

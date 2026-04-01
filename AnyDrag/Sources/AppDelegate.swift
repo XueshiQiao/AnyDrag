@@ -3,6 +3,7 @@ import Cocoa
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let permissionManager = PermissionManager()
+    private let updateController = UpdateController()
     private var dragEngine: DragEngine?
     private var menuBarController: MenuBarController?
 
@@ -21,6 +22,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.start()
         dragEngine = engine
 
-        menuBarController = MenuBarController(dragEngine: engine)
+        menuBarController = MenuBarController(dragEngine: engine, updateController: updateController)
     }
 }

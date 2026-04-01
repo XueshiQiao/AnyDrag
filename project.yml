@@ -6,6 +6,11 @@ options:
   xcodeVersion: "15.0"
   minimumXcodeGenVersion: "2.35"
 
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
 schemes:
   AnyDrag:
     build:
@@ -26,7 +31,7 @@ targets:
         INFOPLIST_FILE: AnyDrag/Info.plist
         CODE_SIGN_ENTITLEMENTS: AnyDrag/AnyDrag.entitlements
         ENABLE_HARDENED_RUNTIME: YES
-        MARKETING_VERSION: "1.2.0"
+        MARKETING_VERSION: "1.2.1"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: NO
         MACOSX_DEPLOYMENT_TARGET: "13.0"
@@ -35,3 +40,5 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 584KQTRF3B
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - package: Sparkle

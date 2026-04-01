@@ -24,5 +24,9 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/XueshiQiao/AnyDrag/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>vWSttpXjoyovufHXSzTZtmmul2eUR3OsZmB6GzfpkvQ=</string>
 </dict>
 </plist>

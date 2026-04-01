@@ -2,6 +2,7 @@
 "Enabled" = "Enabled";
 "Modifier Key" = "Modifier Key";
 "Launch at Login" = "Launch at Login";
+"Check for Updates…" = "Check for Updates…";
 "Quit AnyDrag" = "Quit AnyDrag";
 
 /* Usage Tips — %@ is the modifier key symbol */

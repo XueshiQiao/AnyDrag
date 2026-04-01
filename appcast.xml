@@ -1,0 +1,29 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+  <channel>
+    <title>AnyDrag</title>
+    <link>https://raw.githubusercontent.com/XueshiQiao/AnyDrag/main/appcast.xml</link>
+    <description>AnyDrag Updates</description>
+    <language>en</language>
+
+    <!-- CI will prepend new <item> entries here automatically -->
+    <!-- SPARKLE_ITEM_PLACEHOLDER -->
+
+    <!--
+    <item>
+      <title>Version 1.2.0</title>
+      <sparkle:version>1</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 01 Apr 2026 00:00:00 +0000</pubDate>
+      <enclosure
+        url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.0/AnyDrag.dmg"
+        length="FILESIZE_BYTES"
+        type="application/octet-stream"
+        sparkle:edSignature="EDDSA_SIGNATURE"
+      />
+    </item>
+    -->
+
+  </channel>
+</rss>
