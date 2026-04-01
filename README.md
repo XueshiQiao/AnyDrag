@@ -4,8 +4,7 @@
 
 Move any window by holding a modifier key and dragging anywhere on the window — no need to grab the title bar.
 
-![AnyDrag Demo](demo.png)
-<!-- Replace demo.png with your screenshot or video -->
+<!-- ![AnyDrag Demo](demo.png) -->
 
 ## Why AnyDrag?
 

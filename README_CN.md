@@ -4,8 +4,7 @@
 
 按住修饰键，拖动窗口任意位置即可移动窗口，无需拖拽标题栏。
 
-![AnyDrag 演示](demo.png)
-<!-- 替换 demo.png 为截图或视频 -->
+<!-- ![AnyDrag 演示](demo.png) -->
 
 ## 为什么选择 AnyDrag？
 
