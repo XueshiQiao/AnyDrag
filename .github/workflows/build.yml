@@ -112,7 +112,16 @@ jobs:
         if: ${{ env.HAS_APPLE_SECRETS == 'true' }}
         run: |
           cd build/Release
-          xcrun stapler staple AnyDrag.dmg
+          for i in 1 2 3 4 5; do
+            if xcrun stapler staple AnyDrag.dmg; then
+              echo "Stapling succeeded"
+              exit 0
+            fi
+            echo "Staple attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
+          echo "Stapling failed after 5 attempts"
+          exit 1
 
       - name: Sign Update with Sparkle EdDSA
         if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_KEY == 'true' }}
