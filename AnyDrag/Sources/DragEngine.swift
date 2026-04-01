@@ -352,13 +352,40 @@ final class DragEngine {
     }
 
     private func setWindowFrame(_ window: AXUIElement, frame: CGRect) {
+        // Disable AXEnhancedUserInterface if enabled (Electron apps set this,
+        // which causes AX resizing to silently fail). Rectangle does the same.
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        let appElement = AXUIElementCreateApplication(pid)
+
+        var enhancedUIRef: CFTypeRef?
+        let hadEnhancedUI = AXUIElementCopyAttributeValue(
+            appElement, "AXEnhancedUserInterface" as CFString, &enhancedUIRef
+        ) == .success && (enhancedUIRef as? NSNumber)?.boolValue == true
+
+        if hadEnhancedUI {
+            AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+        }
+
+        // Size → Position → Size (Rectangle's proven approach).
+        // macOS constrains window size to the current display, so we must:
+        // 1. Shrink first (so the window fits before moving)
+        // 2. Move to the target position
+        // 3. Set size again (in case the display changed and the constraint was wrong)
         var position = frame.origin
         var size = frame.size
-        if let posValue = AXValueCreate(.cgPoint, &position) {
-            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
+        if let sv = AXValueCreate(.cgSize, &size) {
+            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
         }
-        if let sizeValue = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+        if let pv = AXValueCreate(.cgPoint, &position) {
+            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pv)
+        }
+        if let sv = AXValueCreate(.cgSize, &size) {
+            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
+        }
+
+        if hadEnhancedUI {
+            AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
         }
     }
 
