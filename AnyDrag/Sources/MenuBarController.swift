@@ -32,6 +32,14 @@ final class MenuBarController: NSObject {
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
+        // App name and version
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let aboutItem = NSMenuItem(title: "AnyDrag v\(version)", action: nil, keyEquivalent: "")
+        aboutItem.isEnabled = false
+        menu.addItem(aboutItem)
+
+        menu.addItem(.separator())
+
         // Enabled toggle
         let enabledItem = NSMenuItem(title: "Enabled", action: #selector(toggleEnabled(_:)), keyEquivalent: "")
         enabledItem.target = self

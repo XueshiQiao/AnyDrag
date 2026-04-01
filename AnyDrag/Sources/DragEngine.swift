@@ -45,6 +45,7 @@ final class DragEngine {
     private var tapThread: Thread?
 
     private let strategy = TitleBarDragStrategy()
+    private var savedFrames: [CGWindowID: CGRect] = [:]
 
     // MARK: - Lifecycle
 
@@ -156,6 +157,13 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
+        // Double-click with modifier: toggle maximize/restore
+        let clickCount = event.getIntegerValueField(.mouseEventClickState)
+        if clickCount == 2 {
+            toggleMaximize(windowID: windowInfo.windowID, pid: windowInfo.pid, windowFrame: windowInfo.frame)
+            return nil
+        }
+
         strategy.reset()
         return strategy.handleMouseDown(
             pid: windowInfo.pid,
@@ -181,6 +189,94 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
         return strategy.handleMouseUp(event: event)
+    }
+
+    // MARK: - Maximize / Restore
+
+    private func toggleMaximize(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
+        guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else { return }
+
+        // Activate the target app and raise the window
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+
+        if let savedFrame = savedFrames[windowID] {
+            // Restore to original frame
+            setWindowFrame(axWindow, frame: savedFrame)
+            savedFrames.removeValue(forKey: windowID)
+        } else {
+            // Save current frame and maximize to screen's visible area
+            let currentFrame = getWindowFrame(axWindow) ?? windowFrame
+            savedFrames[windowID] = currentFrame
+            if let targetFrame = screenVisibleFrame(for: windowFrame) {
+                setWindowFrame(axWindow, frame: targetFrame)
+            }
+        }
+    }
+
+    private func setWindowFrame(_ window: AXUIElement, frame: CGRect) {
+        var position = frame.origin
+        var size = frame.size
+        if let posValue = AXValueCreate(.cgPoint, &position) {
+            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
+        }
+        if let sizeValue = AXValueCreate(.cgSize, &size) {
+            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+        }
+    }
+
+    private func getWindowFrame(_ window: AXUIElement) -> CGRect? {
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef) == .success,
+              AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let posVal = posRef, CFGetTypeID(posVal) == AXValueGetTypeID(),
+              let sizeVal = sizeRef, CFGetTypeID(sizeVal) == AXValueGetTypeID()
+        else { return nil }
+
+        var pos = CGPoint.zero
+        var size = CGSize.zero
+        AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
+        AXValueGetValue(sizeVal as! AXValue, .cgSize, &size)
+        return CGRect(origin: pos, size: size)
+    }
+
+    /// Returns the screen's visible area (excluding menu bar and Dock) in CG coordinates
+    /// for the screen that contains the given window frame.
+    private func screenVisibleFrame(for windowFrame: CGRect) -> CGRect? {
+        guard let mainScreen = NSScreen.screens.first else { return nil }
+        let mainHeight = mainScreen.frame.height
+
+        // Find which screen contains the window center (convert CG → NS coordinates)
+        let centerNS = NSPoint(x: windowFrame.midX, y: mainHeight - windowFrame.midY)
+        let screen = NSScreen.screens.first { $0.frame.contains(centerNS) } ?? mainScreen
+
+        // Convert NSScreen visibleFrame (bottom-left origin) → CG coordinates (top-left origin)
+        let vf = screen.visibleFrame
+        return CGRect(
+            x: vf.origin.x,
+            y: mainHeight - vf.origin.y - vf.height,
+            width: vf.width,
+            height: vf.height
+        )
+    }
+
+    private func findAXWindow(pid: pid_t, windowFrame: CGRect) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement]
+        else { return nil }
+
+        return windows.first { axWin in
+            var posRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(axWin, kAXPositionAttribute as CFString, &posRef)
+            guard let posVal = posRef, CFGetTypeID(posVal) == AXValueGetTypeID() else { return false }
+            var pos = CGPoint.zero
+            AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
+            return abs(pos.x - windowFrame.origin.x) < 5 && abs(pos.y - windowFrame.origin.y) < 5
+        }
     }
 
     // MARK: - Window Detection
