@@ -136,50 +136,63 @@ jobs:
           cd build/Release
           xcrun stapler staple AnyDrag.dmg
 
-      - name: Sign Update with Sparkle EdDSA
+      - name: Update Appcast with Sparkle Signature
         if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_KEY == 'true' }}
         env:
           SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
         run: |
-          # Resolve the Sparkle binary path from SPM build artifacts
-          SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData -path "*/SourcePackages/artifacts/sparkle/Sparkle/bin" -maxdepth 6 2>/dev/null | head -1)
-          if [ -z "$SPARKLE_BIN" ]; then
-            # Fallback: download sign_update from Sparkle release
-            curl -sL "https://github.com/sparkle-project/Sparkle/releases/latest/download/Sparkle-2.7.5.tar.xz" -o /tmp/sparkle.tar.xz
-            mkdir -p /tmp/sparkle && tar -xf /tmp/sparkle.tar.xz -C /tmp/sparkle
-            SPARKLE_BIN="/tmp/sparkle/bin"
-          fi
+          # Download Sparkle CLI tools
+          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/2.7.5/Sparkle-2.7.5.tar.xz" -o /tmp/sparkle.tar.xz
+          mkdir -p /tmp/sparkle && tar -xf /tmp/sparkle.tar.xz -C /tmp/sparkle
 
-          SIGNATURE=$("$SPARKLE_BIN/sign_update" build/Release/AnyDrag.dmg --ed-key-file <(echo "$SPARKLE_EDDSA_KEY") | grep "sparkle:edSignature=" | sed 's/.*sparkle:edSignature="\(.*\)".*/\1/')
-          FILESIZE=$(stat -f%z build/Release/AnyDrag.dmg)
+          # Sign the DMG and capture full output
+          SIGN_OUTPUT=$("/tmp/sparkle/bin/sign_update" build/Release/AnyDrag.dmg --ed-key-file <(echo "$SPARKLE_EDDSA_KEY"))
+          echo "sign_update output: $SIGN_OUTPUT"
+
+          # Parse version info
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          VERSION=${{ env.MARKETING_VERSION || '1.2.0' }}
-
-          # Read version from project.yml
           VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
           BUILD=$(grep 'CURRENT_PROJECT_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+          FILESIZE=$(stat -f%z build/Release/AnyDrag.dmg)
           PUBDATE=$(date -R)
 
-          echo "SPARKLE_SIG=$SIGNATURE" >> $GITHUB_ENV
-          echo "SPARKLE_SIZE=$FILESIZE" >> $GITHUB_ENV
-          echo "SPARKLE_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "SPARKLE_BUILD=$BUILD" >> $GITHUB_ENV
-          echo "SPARKLE_TAG=$TAG_NAME" >> $GITHUB_ENV
-          echo "SPARKLE_DATE=$PUBDATE" >> $GITHUB_ENV
+          # Use Python for reliable XML generation
+          python3 - <<PYEOF
+          import xml.etree.ElementTree as ET
+          import re
 
-      - name: Update Appcast
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_SPARKLE_KEY == 'true' }}
-        run: |
-          ITEM="    <item>\n      <title>Version ${{ env.SPARKLE_VERSION }}</title>\n      <sparkle:version>${{ env.SPARKLE_BUILD }}</sparkle:version>\n      <sparkle:shortVersionString>${{ env.SPARKLE_VERSION }}</sparkle:shortVersionString>\n      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>\n      <pubDate>${{ env.SPARKLE_DATE }}</pubDate>\n      <enclosure\n        url=\"https://github.com/XueshiQiao/AnyDrag/releases/download/${{ env.SPARKLE_TAG }}/AnyDrag.dmg\"\n        length=\"${{ env.SPARKLE_SIZE }}\"\n        type=\"application/octet-stream\"\n        sparkle:edSignature=\"${{ env.SPARKLE_SIG }}\"\n      />\n    </item>"
+          sign_output = """$SIGN_OUTPUT"""
+          sig_match = re.search(r'sparkle:edSignature="([^"]+)"', sign_output)
+          signature = sig_match.group(1) if sig_match else ""
+          if not signature:
+              raise ValueError(f"Could not parse edSignature from: {sign_output}")
 
-          # Insert new item at placeholder
-          sed -i '' "s|<!-- SPARKLE_ITEM_PLACEHOLDER -->|<!-- SPARKLE_ITEM_PLACEHOLDER -->\n${ITEM}|" appcast.xml
+          tree = ET.parse("appcast.xml")
+          root = tree.getroot()
+          ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
+          channel = root.find("channel")
 
-          # Commit and push updated appcast
+          item = ET.SubElement(channel, "item")
+          ET.SubElement(item, "title").text = "Version $VERSION"
+          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}version").text = "$BUILD"
+          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString").text = "$VERSION"
+          ET.SubElement(item, "{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion").text = "13.0"
+          ET.SubElement(item, "pubDate").text = "$PUBDATE"
+          enc = ET.SubElement(item, "enclosure")
+          enc.set("url", "https://github.com/XueshiQiao/AnyDrag/releases/download/$TAG_NAME/AnyDrag.dmg")
+          enc.set("length", "$FILESIZE")
+          enc.set("type", "application/octet-stream")
+          enc.set("{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature", signature)
+
+          ET.indent(tree, space="  ", level=0)
+          tree.write("appcast.xml", xml_declaration=True, encoding="unicode")
+          PYEOF
+
+          # Commit and push
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add appcast.xml
-          git commit -m "Update appcast for ${{ env.SPARKLE_TAG }}"
+          git commit -m "Update appcast for $TAG_NAME"
           git push origin HEAD:main
 
       - name: Upload Artifact
