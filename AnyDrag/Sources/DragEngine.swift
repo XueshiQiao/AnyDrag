@@ -280,8 +280,50 @@ final class DragEngine {
                 width: screen.width, height: screen.height / 2))
 
         // MARK: Fill & Arrange
-        case .fillLeft, .fillRight, .leftAndRight, .quarters:
-            break // Will be implemented in Task 3
+        case .fillLeft, .leftAndRight:
+            // Current window → left half, next Z-order window → right half
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.minX, y: screen.minY,
+                width: screen.width / 2, height: screen.height))
+            if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
+                savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
+                setWindowFrame(next.axWindow, frame: CGRect(
+                    x: screen.midX, y: screen.minY,
+                    width: screen.width / 2, height: screen.height))
+            }
+
+        case .fillRight:
+            // Current window → right half, next Z-order window → left half
+            setWindowFrame(axWindow, frame: CGRect(
+                x: screen.midX, y: screen.minY,
+                width: screen.width / 2, height: screen.height))
+            if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
+                savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
+                setWindowFrame(next.axWindow, frame: CGRect(
+                    x: screen.minX, y: screen.minY,
+                    width: screen.width / 2, height: screen.height))
+            }
+
+        case .quarters:
+            // Top 4 windows by Z-order → quadrants
+            let quadrants = [
+                CGRect(x: screen.minX, y: screen.minY,
+                       width: screen.width / 2, height: screen.height / 2),
+                CGRect(x: screen.midX, y: screen.minY,
+                       width: screen.width / 2, height: screen.height / 2),
+                CGRect(x: screen.minX, y: screen.midY,
+                       width: screen.width / 2, height: screen.height / 2),
+                CGRect(x: screen.midX, y: screen.midY,
+                       width: screen.width / 2, height: screen.height / 2),
+            ]
+            // Current window → top-left
+            setWindowFrame(axWindow, frame: quadrants[0])
+            // Next windows → remaining quadrants
+            let others = windowsOnScreen(after: windowInfo.windowID, screen: screen, limit: 3)
+            for (i, other) in others.enumerated() {
+                savedFrames[other.windowID] = getWindowFrame(other.axWindow) ?? other.frame
+                setWindowFrame(other.axWindow, frame: quadrants[i + 1])
+            }
         }
     }
 
@@ -371,6 +413,52 @@ final class DragEngine {
             AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
             return abs(pos.x - windowFrame.origin.x) < 5 && abs(pos.y - windowFrame.origin.y) < 5
         }
+    }
+
+    // MARK: - Multi-Window Lookup
+
+    /// Returns the next window in Z-order on the same screen, skipping the given windowID.
+    private func nextWindowOnScreen(after windowID: CGWindowID, screen: CGRect) -> (windowID: CGWindowID, pid: pid_t, frame: CGRect, axWindow: AXUIElement)? {
+        return windowsOnScreen(after: windowID, screen: screen, limit: 1).first
+    }
+
+    /// Returns up to `limit` windows in Z-order on the same screen, skipping the given windowID.
+    private func windowsOnScreen(after windowID: CGWindowID, screen: CGRect, limit: Int) -> [(windowID: CGWindowID, pid: pid_t, frame: CGRect, axWindow: AXUIElement)] {
+        guard let windowList = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[CFString: Any]] else { return [] }
+
+        var results: [(windowID: CGWindowID, pid: pid_t, frame: CGRect, axWindow: AXUIElement)] = []
+
+        for info in windowList {
+            guard results.count < limit,
+                  let layer = info[kCGWindowLayer] as? Int, layer == 0,
+                  let boundsDict = info[kCGWindowBounds] as? [String: CGFloat],
+                  let pid = info[kCGWindowOwnerPID] as? pid_t,
+                  let wID = info[kCGWindowNumber] as? CGWindowID,
+                  wID != windowID
+            else { continue }
+
+            let ownerName = info[kCGWindowOwnerName] as? String ?? "unknown"
+            if ownerName == "Dock" { continue }
+
+            let frame = CGRect(
+                x: boundsDict["X"] ?? 0, y: boundsDict["Y"] ?? 0,
+                width: boundsDict["Width"] ?? 0, height: boundsDict["Height"] ?? 0
+            )
+
+            // Check if window center is on the same screen
+            let centerX = frame.midX
+            let centerY = frame.midY
+            guard centerX >= screen.minX && centerX <= screen.maxX &&
+                  centerY >= screen.minY && centerY <= screen.maxY else { continue }
+
+            guard let axWindow = findAXWindow(pid: pid, windowFrame: frame) else { continue }
+            results.append((wID, pid, frame, axWindow))
+        }
+
+        return results
     }
 
     // MARK: - Window Detection
