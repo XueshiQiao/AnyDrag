@@ -141,12 +141,16 @@ jobs:
         env:
           SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
         run: |
-          # Download Sparkle CLI tools
-          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/2.7.5/Sparkle-2.7.5.tar.xz" -o /tmp/sparkle.tar.xz
-          mkdir -p /tmp/sparkle && tar -xf /tmp/sparkle.tar.xz -C /tmp/sparkle
+          # Find Sparkle CLI tools from SPM build artifacts
+          SIGN_UPDATE=$(find ~/Library/Developer/Xcode/DerivedData -name "sign_update" -path "*/Sparkle/bin/*" 2>/dev/null | head -1)
+          if [ -z "$SIGN_UPDATE" ]; then
+            echo "Error: sign_update not found in DerivedData"
+            exit 1
+          fi
+          echo "Using: $SIGN_UPDATE"
 
           # Sign the DMG and capture full output
-          SIGN_OUTPUT=$("/tmp/sparkle/bin/sign_update" build/Release/AnyDrag.dmg --ed-key-file <(echo "$SPARKLE_EDDSA_KEY"))
+          SIGN_OUTPUT=$("$SIGN_UPDATE" build/Release/AnyDrag.dmg --ed-key-file <(echo "$SPARKLE_EDDSA_KEY"))
           echo "sign_update output: $SIGN_OUTPUT"
 
           # Parse version info
