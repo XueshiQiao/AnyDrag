@@ -40,6 +40,16 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
+        // Usage tips (placeholder — updated dynamically in menuWillOpen)
+        for key in ["tip.drag", "tip.maximize", "tip.tiling"] {
+            let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.tag = 500 + ["tip.drag", "tip.maximize", "tip.tiling"].firstIndex(of: key)!
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+
         // Enabled toggle
         let enabledItem = NSMenuItem(title: NSLocalizedString("Enabled", comment: ""), action: #selector(toggleEnabled(_:)), keyEquivalent: "")
         enabledItem.target = self
@@ -142,6 +152,15 @@ final class MenuBarController: NSObject {
 extension MenuBarController: NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
+        // Update usage tips with current modifier key
+        let sym = dragEngine.modifierKey.symbol
+        let tipKeys = ["tip.drag", "tip.maximize", "tip.tiling"]
+        for (i, key) in tipKeys.enumerated() {
+            if let item = menu.item(withTag: 500 + i) {
+                item.title = String(format: NSLocalizedString(key, comment: ""), sym)
+            }
+        }
+
         // Update checkmarks
         if let enabledItem = menu.item(withTag: 100) {
             enabledItem.state = dragEngine.isEnabled ? .on : .off

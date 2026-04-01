@@ -29,6 +29,16 @@ enum ModifierKey: String, CaseIterable {
         case .optionCommand:  return "Option + Command"
         }
     }
+
+    var symbol: String {
+        switch self {
+        case .option:         return "⌥"
+        case .command:        return "⌘"
+        case .control:        return "⌃"
+        case .fn:             return "fn"
+        case .optionCommand:  return "⌥⌘"
+        }
+    }
 }
 
 // MARK: - DragEngine

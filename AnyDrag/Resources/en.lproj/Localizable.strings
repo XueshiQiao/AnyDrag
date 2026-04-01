@@ -4,6 +4,11 @@
 "Launch at Login" = "Launch at Login";
 "Quit AnyDrag" = "Quit AnyDrag";
 
+/* Usage Tips — %@ is the modifier key symbol */
+"tip.drag" = "%@ + Drag: Move window";
+"tip.maximize" = "%@ + Double-click: Maximize / Restore";
+"tip.tiling" = "%@ + Right-click: Window tiling";
+
 /* Tiling Panel */
 "Move & Resize" = "Move & Resize";
 "Fill & Arrange" = "Fill & Arrange";

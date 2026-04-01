@@ -4,6 +4,11 @@
 "Launch at Login" = "登录时启动";
 "Quit AnyDrag" = "退出 AnyDrag";
 
+/* Usage Tips — %@ is the modifier key symbol */
+"tip.drag" = "%@ + 拖动：移动窗口";
+"tip.maximize" = "%@ + 双击：最大化 / 恢复";
+"tip.tiling" = "%@ + 右键：窗口布局";
+
 /* Tiling Panel */
 "Move & Resize" = "移动与调整大小";
 "Fill & Arrange" = "填充与排列";
