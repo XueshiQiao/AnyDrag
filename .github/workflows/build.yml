@@ -60,6 +60,8 @@ jobs:
           xcodebuild -project AnyDrag.xcodeproj \
             -scheme AnyDrag \
             -configuration Release \
+            ARCHS="x86_64 arm64" \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
