@@ -25,6 +25,8 @@ On first launch, macOS will ask for **Accessibility permission** — this is req
 2. Hold **Option** (default) and drag any window
 3. Hold the modifier key and **double-click** a window to maximize it; double-click again to restore its original size
 4. Hold the modifier key and **right-click** a window to open the **tiling panel** — quickly snap windows to halves, corners, or arrange multiple windows side by side
+
+   ![Tiling Panel](tiling_panel.png)
 5. Click the menu bar icon to change the modifier key or toggle on/off
 
 ### Supported Modifiers
