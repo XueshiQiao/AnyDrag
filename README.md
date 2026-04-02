@@ -28,6 +28,8 @@ On first launch, macOS will ask for **Accessibility permission** — this is req
    ![Tiling Panel](tiling_panel.png)
 5. Click the menu bar icon to change the modifier key or toggle on/off
 
+If macOS "Hold Option key while dragging windows to tile" is enabled and AnyDrag's modifier is not `Option`, you can also hold `Option` as an extra key to use native tiling. For example, with AnyDrag set to `fn`, `fn + option + drag` starts a native drag from anywhere in the window and still triggers system tiling.
+
 ### Supported Modifiers
 
 - Option
