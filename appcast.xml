@@ -6,7 +6,23 @@
     <language>en</language>
     <item>
       <title>Version 1.2.3</title>
-      <description><![CDATA[<ul><li>Support Option-augmented AnyDrag shortcuts for macOS tiling (by @goxq)</li><li>Fix CGEventFlags compile error</li><li>Add debug bundle ID for easier development</li></ul>]]></description>
+      <description><![CDATA[
+<h3>What's New in 1.2.x</h3>
+<ul>
+  <li><b>Option + modifier drag to tile</b> — If your AnyDrag modifier is not Option (e.g. fn, Command, Control), you can now hold Option as an extra key to trigger macOS native window tiling while dragging. (Thanks to <a href="https://github.com/goxq">@goxq</a>)</li>
+  <li><b>Sparkle auto-update</b> — AnyDrag now checks for updates automatically via Sparkle.</li>
+  <li><b>New app icon</b></li>
+  <li><b>Bug fixes and stability improvements</b></li>
+</ul>
+
+<h3>1.2.x 更新内容</h3>
+<ul>
+  <li><b>Option + 修饰键拖动平铺</b> — 如果 AnyDrag 的修饰键不是 Option（如 fn、Command、Control），现在可以额外按住 Option 键，在拖动窗口时触发 macOS 原生窗口平铺功能。（感谢 <a href="https://github.com/goxq">@goxq</a> 贡献）</li>
+  <li><b>Sparkle 自动更新</b> — AnyDrag 现在通过 Sparkle 自动检查更新。</li>
+  <li><b>新应用图标</b></li>
+  <li><b>Bug 修复与稳定性改进</b></li>
+</ul>
+]]></description>
       <pubDate>Thu, 02 Apr 2026 15:19:20 +0000</pubDate>
       <sparkle:version>2</sparkle:version>
       <sparkle:shortVersionString>1.2.3</sparkle:shortVersionString>
