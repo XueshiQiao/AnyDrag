@@ -39,6 +39,15 @@ enum ModifierKey: String, CaseIterable {
         case .optionCommand:  return "⌥⌘"
         }
     }
+
+    var supportsOptionAugmentation: Bool {
+        switch self {
+        case .option, .optionCommand:
+            return false
+        case .command, .control, .fn:
+            return true
+        }
+    }
 }
 
 // MARK: - DragEngine
@@ -46,6 +55,13 @@ enum ModifierKey: String, CaseIterable {
 /// Intercepts mouse events via a CGEvent tap and delegates to TitleBarDragStrategy
 /// when a configured modifier key is held during a click.
 final class DragEngine {
+
+    private static let secondaryFnMask = CGEventFlags(rawValue: 0x800000)
+    private static let relevantModifierMask = CGEventFlags.maskAlternate |
+                                              CGEventFlags.maskCommand |
+                                              CGEventFlags.maskControl |
+                                              CGEventFlags.maskShift |
+                                              secondaryFnMask
 
     var isEnabled: Bool = true
     var modifierKey: ModifierKey = .option
@@ -143,18 +159,9 @@ final class DragEngine {
         }
 
         // Check if the configured modifier key is held.
-        // Strip maskNonCoalesced and compare only modifier bits.
-        let flags = event.flags
-        let targetRaw = modifierKey.eventFlags.rawValue
-        let cleaned = flags.rawValue & ~CGEventFlags.maskNonCoalesced.rawValue
-        let relevantMask: UInt64 = CGEventFlags.maskAlternate.rawValue |
-                                    CGEventFlags.maskCommand.rawValue |
-                                    CGEventFlags.maskControl.rawValue |
-                                    CGEventFlags.maskShift.rawValue |
-                                    0x800000 // maskSecondaryFn
-        let activeModifiers = cleaned & relevantMask
-
-        guard activeModifiers == targetRaw else {
+        // We also allow an extra Option key for non-Option shortcuts so
+        // macOS native tiling can still kick in during an AnyDrag drag.
+        guard matchesConfiguredModifier(event.flags) else {
             return Unmanaged.passRetained(event)
         }
 
@@ -218,17 +225,7 @@ final class DragEngine {
             return nil
         }
 
-        let flags = event.flags
-        let targetRaw = modifierKey.eventFlags.rawValue
-        let cleaned = flags.rawValue & ~CGEventFlags.maskNonCoalesced.rawValue
-        let relevantMask: UInt64 = CGEventFlags.maskAlternate.rawValue |
-                                    CGEventFlags.maskCommand.rawValue |
-                                    CGEventFlags.maskControl.rawValue |
-                                    CGEventFlags.maskShift.rawValue |
-                                    0x800000
-        let activeModifiers = cleaned & relevantMask
-
-        guard activeModifiers == targetRaw else {
+        guard matchesConfiguredModifier(event.flags) else {
             return Unmanaged.passRetained(event)
         }
 
@@ -267,6 +264,24 @@ final class DragEngine {
         }
         panel.show(at: point)
         tilingPanel = panel
+    }
+
+    private func matchesConfiguredModifier(_ flags: CGEventFlags) -> Bool {
+        let cleanedFlags = flags.subtracting(.maskNonCoalesced)
+        let activeModifiers = cleanedFlags.intersection(Self.relevantModifierMask)
+        let targetModifiers = modifierKey.eventFlags
+
+        if activeModifiers == targetModifiers {
+            return true
+        }
+
+        guard modifierKey.supportsOptionAugmentation else {
+            return false
+        }
+
+        // Allow base shortcut + Option so users can combine AnyDrag with
+        // the macOS "Hold Option key while dragging windows to tile" feature.
+        return activeModifiers == targetModifiers.union(.maskAlternate)
     }
 
     private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {

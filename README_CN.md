@@ -28,6 +28,8 @@ BetterTouchTool 等工具也有类似的修饰键+拖动功能，但它们通过
    ![窗口布局面板](tiling_panel.png)
 5. 点击菜单栏图标可以切换修饰键或开关
 
+如果你在 macOS 中开启了“按住 ⌥ 键拖移窗口以平铺”，并且 AnyDrag 的修饰键不是 `Option`，那么也可以额外按住 `Option` 使用系统平铺。例如把 AnyDrag 设为 `fn` 后，可以直接用 `fn + option + 拖动` 从窗口任意区域触发原生拖动和平铺。
+
 ### 支持的修饰键
 
 - Option
