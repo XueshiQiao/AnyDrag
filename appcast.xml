@@ -6,7 +6,7 @@
     <language>en</language>
     <item>
       <title>Version 1.2.3</title>
-      <description><![CDATA[<ul>Bug fixes and improvements.</ul>]]></description>
+      <description><![CDATA[<ul><li>Support Option-augmented AnyDrag shortcuts for macOS tiling (by @goxq)</li><li>Fix CGEventFlags compile error</li><li>Add debug bundle ID for easier development</li></ul>]]></description>
       <pubDate>Thu, 02 Apr 2026 15:19:20 +0000</pubDate>
       <sparkle:version>2</sparkle:version>
       <sparkle:shortVersionString>1.2.3</sparkle:shortVersionString>
