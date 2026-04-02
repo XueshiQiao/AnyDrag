@@ -7,11 +7,11 @@
     <item>
       <title>Version 1.2.3</title>
       <description><![CDATA[<ul>Bug fixes and improvements.</ul>]]></description>
-      <pubDate>Thu, 02 Apr 2026 15:04:14 +0000</pubDate>
-      <sparkle:version>1</sparkle:version>
+      <pubDate>Thu, 02 Apr 2026 15:19:20 +0000</pubDate>
+      <sparkle:version>2</sparkle:version>
       <sparkle:shortVersionString>1.2.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.3/AnyDrag.dmg" length="3773679" type="application/octet-stream" sparkle:edSignature="y/Lvz0FsCBBQ9gsWDen9lUZh/rLbf9oR6pXnzGc0vTgfCsoJy1htTr9cpiPLOBWnsshY7/+VPkUXWe4zJfS+Bg==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.3/AnyDrag.dmg" length="3773587" type="application/octet-stream" sparkle:edSignature="SIT8lQTizlgRKdtlor5485rAHSMmZ83h6YUNeI36I8gy72/dzXE2tjZLgSoKO0TH/nmimd/1ynAd8qkM9XeIAQ==" />
     </item>
   </channel>
 </rss>
