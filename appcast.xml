@@ -5,13 +5,13 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 1.2.1</title>
+      <title>Version 1.2.2</title>
       <description><![CDATA[<ul>Bug fixes and improvements.</ul>]]></description>
-      <pubDate>Wed, 01 Apr 2026 15:16:10 +0000</pubDate>
+      <pubDate>Thu, 02 Apr 2026 13:45:34 +0000</pubDate>
       <sparkle:version>1</sparkle:version>
-      <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
+      <sparkle:shortVersionString>1.2.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.1/AnyDrag.dmg" length="3900772" type="application/octet-stream" sparkle:edSignature="AubEBjst3gNKPMniCwxk5kfr0twE52WKL8WBfD2SIdc7bxQrH0ov4DmjCjP87VTTSo/4kgLZvYcj6VlWzTGbDw==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.2/AnyDrag.dmg" length="3773246" type="application/octet-stream" sparkle:edSignature="v3lrmcWp4LKoP7CynlN+RhLzFqYfaFLF1HJUE8QxGrouMDndbnEHfa7Hn2S7T1k4VJ8qkjZlQyJMsmVlROXZAg==" />
     </item>
   </channel>
 </rss>
