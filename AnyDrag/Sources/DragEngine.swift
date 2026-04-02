@@ -57,11 +57,9 @@ enum ModifierKey: String, CaseIterable {
 final class DragEngine {
 
     private static let secondaryFnMask = CGEventFlags(rawValue: 0x800000)
-    private static let relevantModifierMask = CGEventFlags.maskAlternate |
-                                              CGEventFlags.maskCommand |
-                                              CGEventFlags.maskControl |
-                                              CGEventFlags.maskShift |
-                                              secondaryFnMask
+    private static let relevantModifierMask = CGEventFlags([
+        .maskAlternate, .maskCommand, .maskControl, .maskShift, secondaryFnMask
+    ])
 
     var isEnabled: Bool = true
     var modifierKey: ModifierKey = .option
