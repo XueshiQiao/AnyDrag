@@ -10,7 +10,8 @@ final class MenuBarController: NSObject {
     private let enabledKey = "AnyDragEnabled"
     private let modifierKey = "AnyDragModifier"
     private let launchAtLoginKey = "AnyDragLaunchAtLogin"
-    private let middleClickDragKey = "AnyDragMiddleClickDrag"
+    private let middleActionKey = "AnyDragMiddleAction"
+    private let legacyMiddleClickDragKey = "AnyDragMiddleClickDrag"  // pre-MiddleAction bool
 
     init(dragEngine: DragEngine, updateController: UpdateController) {
         self.dragEngine = dragEngine
@@ -77,11 +78,19 @@ final class MenuBarController: NSObject {
         modifierItem.tag = 400
         menu.addItem(modifierItem)
 
-        // Middle-click drag (independent of modifier — works without one)
-        let middleClickItem = NSMenuItem(title: NSLocalizedString("Middle-click drag", comment: ""), action: #selector(toggleMiddleClickDrag(_:)), keyEquivalent: "")
-        middleClickItem.target = self
-        middleClickItem.tag = 700
-        menu.addItem(middleClickItem)
+        // Middle-click action submenu (Off / Drag window / Tile by direction)
+        let middleActionItem = NSMenuItem(title: NSLocalizedString("Middle-click action", comment: ""), action: nil, keyEquivalent: "")
+        let middleActionSubmenu = NSMenu()
+        for (index, action) in MiddleAction.allCases.enumerated() {
+            let item = NSMenuItem(title: action.displayName, action: #selector(selectMiddleAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = 700 + index
+            item.representedObject = action.rawValue
+            middleActionSubmenu.addItem(item)
+        }
+        middleActionItem.submenu = middleActionSubmenu
+        middleActionItem.tag = 700
+        menu.addItem(middleActionItem)
 
         menu.addItem(.separator())
 
@@ -128,8 +137,18 @@ final class MenuBarController: NSObject {
             dragEngine.modifierKey = .option
         }
 
-        // Middle-click drag (default false — middle-click is commonly used by browsers/IDEs)
-        dragEngine.isMiddleClickDragEnabled = defaults.bool(forKey: middleClickDragKey)
+        // Middle-click action (default off). Migrate the old bool preference if present.
+        if let saved = defaults.string(forKey: middleActionKey),
+           let action = MiddleAction(rawValue: saved) {
+            dragEngine.middleAction = action
+        } else if defaults.object(forKey: legacyMiddleClickDragKey) != nil {
+            let migrated: MiddleAction = defaults.bool(forKey: legacyMiddleClickDragKey) ? .dragWindow : .off
+            dragEngine.middleAction = migrated
+            defaults.set(migrated.rawValue, forKey: middleActionKey)
+            defaults.removeObject(forKey: legacyMiddleClickDragKey)
+        } else {
+            dragEngine.middleAction = .off
+        }
     }
 
     // MARK: - Actions
@@ -147,10 +166,11 @@ final class MenuBarController: NSObject {
         UserDefaults.standard.set(mod.rawValue, forKey: modifierKey)
     }
 
-    @objc private func toggleMiddleClickDrag(_ sender: NSMenuItem) {
-        let newValue = !dragEngine.isMiddleClickDragEnabled
-        dragEngine.isMiddleClickDragEnabled = newValue
-        UserDefaults.standard.set(newValue, forKey: middleClickDragKey)
+    @objc private func selectMiddleAction(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let action = MiddleAction(rawValue: raw) else { return }
+        dragEngine.middleAction = action
+        UserDefaults.standard.set(action.rawValue, forKey: middleActionKey)
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
@@ -204,9 +224,14 @@ extension MenuBarController: NSMenuDelegate {
             }
         }
 
-        // Update middle-click drag toggle
-        if let middleClickItem = menu.item(withTag: 700) {
-            middleClickItem.state = dragEngine.isMiddleClickDragEnabled ? .on : .off
+        // Update middle-click action selection
+        if let middleActionItem = menu.item(withTag: 700),
+           let submenu = middleActionItem.submenu {
+            for item in submenu.items {
+                if let raw = item.representedObject as? String {
+                    item.state = (raw == dragEngine.middleAction.rawValue) ? .on : .off
+                }
+            }
         }
 
         // Update launch at login
