@@ -12,7 +12,17 @@ BetterTouchTool 等工具也有类似的修饰键+拖动功能，但它们通过
 
 ## 安装
 
+### Homebrew
+
+```bash
+brew install --cask XueshiQiao/tap/anydrag
+```
+
+### 手动安装
+
 从 [Releases](https://github.com/XueshiQiao/AnyDrag/releases) 下载最新 `.dmg`，打开后将 AnyDrag 拖到应用程序文件夹。
+
+---
 
 应用已使用 Apple 开发者证书签名，并通过了 Apple 公证（Notarization），可以直接安装，不会出现安全警告。
 
