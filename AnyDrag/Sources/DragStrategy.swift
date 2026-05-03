@@ -23,11 +23,13 @@ import ApplicationServices
 final class TitleBarDragStrategy {
 
     private(set) var isActive = false
+    private(set) var didDrag = false
     private var yOffset: CGFloat = 0
     private var dragPoint: CGPoint = .zero
     private var needsInitialMouseDown = false
+    private var rewriteToLeftButton = false
 
-    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent) -> Unmanaged<CGEvent>? {
+    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
         // Drag point: cursor's X (on an exposed part of the window), Y at the very top of
@@ -53,18 +55,29 @@ final class TitleBarDragStrategy {
         }
 
         isActive = true
+        didDrag = false
         needsInitialMouseDown = true
+        self.rewriteToLeftButton = rewriteToLeftButton
         return nil  // suppress — the mouseDown will be sent on first drag
     }
 
     func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        didDrag = true
         if needsInitialMouseDown {
             needsInitialMouseDown = false
             // Convert this mouseDragged into a mouseDown at the title bar.
             // By now the window is frontmost (activation happened ~8ms ago).
             event.type = .leftMouseDown
+            if rewriteToLeftButton {
+                event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
+            }
             event.location = dragPoint
             return Unmanaged.passRetained(event)
+        }
+
+        if rewriteToLeftButton {
+            event.type = .leftMouseDragged
+            event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
         }
 
         // Shift Y so the window server sees movement relative to the title bar click.
@@ -76,10 +89,19 @@ final class TitleBarDragStrategy {
 
     func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
         if needsInitialMouseDown {
-            // Released before any drag — was a modifier+click, not a drag.
+            // Released before any drag — was a click, not a drag.
+            // For middle-button entry we suppress the up so the engine can replay
+            // a synthesized middle-click at the original location (preserving
+            // browser/IDE middle-click behavior). Left-button keeps original behavior.
+            let suppressForReplay = rewriteToLeftButton
             needsInitialMouseDown = false
             isActive = false
-            return Unmanaged.passRetained(event)
+            return suppressForReplay ? nil : Unmanaged.passRetained(event)
+        }
+
+        if rewriteToLeftButton {
+            event.type = .leftMouseUp
+            event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
         }
 
         let pos = event.location
@@ -90,9 +112,11 @@ final class TitleBarDragStrategy {
 
     func reset() {
         isActive = false
+        didDrag = false
         yOffset = 0
         dragPoint = .zero
         needsInitialMouseDown = false
+        rewriteToLeftButton = false
     }
 
     // MARK: - AX Window Lookup

@@ -61,8 +61,12 @@ final class DragEngine {
         .maskAlternate, .maskCommand, .maskControl, .maskShift, secondaryFnMask
     ])
 
+    // Marker carried on synthesized replay events so we ignore them in our own tap.
+    private static let synthesizedEventMarker: Int64 = 0x416E794472616701  // "AnyDrag\x01"
+
     var isEnabled: Bool = true
     var modifierKey: ModifierKey = .option
+    var isMiddleClickDragEnabled: Bool = false
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -72,6 +76,10 @@ final class DragEngine {
     private var savedFrames: [CGWindowID: CGRect] = [:]
     private var tilingPanel: TilingPanel?
 
+    // Tracks the original screen location of a middle-button press so we can
+    // replay a synthesized middle-click if the user releases without dragging.
+    private var middleClickOrigin: CGPoint?
+
     // MARK: - Lifecycle
 
     func start() {
@@ -80,7 +88,10 @@ final class DragEngine {
         let eventMask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue) |
                                      (1 << CGEventType.leftMouseDragged.rawValue) |
                                      (1 << CGEventType.leftMouseUp.rawValue) |
-                                     (1 << CGEventType.rightMouseDown.rawValue)
+                                     (1 << CGEventType.rightMouseDown.rawValue) |
+                                     (1 << CGEventType.otherMouseDown.rawValue) |
+                                     (1 << CGEventType.otherMouseDragged.rawValue) |
+                                     (1 << CGEventType.otherMouseUp.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -143,6 +154,12 @@ final class DragEngine {
             return handleMouseUp(event: event)
         case .rightMouseDown:
             return handleRightMouseDown(event: event)
+        case .otherMouseDown:
+            return handleOtherMouseDown(event: event)
+        case .otherMouseDragged:
+            return handleOtherMouseDragged(event: event)
+        case .otherMouseUp:
+            return handleOtherMouseUp(event: event)
         default:
             return Unmanaged.passRetained(event)
         }
@@ -188,6 +205,9 @@ final class DragEngine {
             return nil
         }
 
+        // Clear any orphaned middle-drag origin (e.g. from a tap-disabled
+        // gesture where we never received the otherMouseUp).
+        middleClickOrigin = nil
         strategy.reset()
         return strategy.handleMouseDown(
             pid: windowInfo.pid,
@@ -251,6 +271,124 @@ final class DragEngine {
         }
 
         return nil
+    }
+
+    // MARK: - Middle-Click Drag
+
+    private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Only the middle button (button 2) — leave side buttons (3, 4) alone.
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
+            return Unmanaged.passRetained(event)
+        }
+
+        // Skip our own replay events so they don't recurse.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            return Unmanaged.passRetained(event)
+        }
+
+        guard isMiddleClickDragEnabled else {
+            return Unmanaged.passRetained(event)
+        }
+
+        if tilingPanel?.isVisible == true {
+            return Unmanaged.passRetained(event)
+        }
+
+        // Don't start a middle drag while a left drag is in flight.
+        if strategy.isActive {
+            return Unmanaged.passRetained(event)
+        }
+
+        let screenPoint = event.location
+
+        // Ignore clicks on the menu bar (mirrors handleMouseDown).
+        let menuBarHeight = Double(NSStatusBar.system.thickness)
+        if let mainScreen = NSScreen.screens.first {
+            let mainFrame = mainScreen.frame
+            if screenPoint.x >= mainFrame.origin.x &&
+               screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
+               screenPoint.y < menuBarHeight {
+                return Unmanaged.passRetained(event)
+            }
+        }
+
+        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            return Unmanaged.passRetained(event)
+        }
+
+        middleClickOrigin = screenPoint
+        strategy.reset()
+        return strategy.handleMouseDown(
+            pid: windowInfo.pid,
+            windowID: windowInfo.windowID,
+            windowFrame: windowInfo.frame,
+            event: event,
+            rewriteToLeftButton: true
+        )
+    }
+
+    private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2,
+              strategy.isActive,
+              middleClickOrigin != nil
+        else {
+            return Unmanaged.passRetained(event)
+        }
+        return strategy.handleMouseDragged(event: event)
+    }
+
+    private func handleOtherMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
+            return Unmanaged.passRetained(event)
+        }
+
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            return Unmanaged.passRetained(event)
+        }
+
+        guard strategy.isActive, middleClickOrigin != nil else {
+            return Unmanaged.passRetained(event)
+        }
+
+        let didDrag = strategy.didDrag
+        let origin = middleClickOrigin
+        middleClickOrigin = nil
+
+        let result = strategy.handleMouseUp(event: event)
+
+        // Click without drag: replay a synthesized middle-click at the original
+        // location so apps still see the click (browsers, IDEs, etc). Dispatch
+        // off the tap thread — posting from inside the callback can re-enter
+        // our own tap synchronously on the same run loop.
+        if !didDrag, let origin {
+            DispatchQueue.main.async { [weak self] in
+                self?.replayMiddleClick(at: origin)
+            }
+        }
+
+        return result
+    }
+
+    private func replayMiddleClick(at point: CGPoint) {
+        guard let source = CGEventSource(stateID: .hidSystemState) else { return }
+        source.userData = Self.synthesizedEventMarker
+
+        if let down = CGEvent(
+            mouseEventSource: source,
+            mouseType: .otherMouseDown,
+            mouseCursorPosition: point,
+            mouseButton: .center
+        ) {
+            down.post(tap: .cghidEventTap)
+        }
+        if let up = CGEvent(
+            mouseEventSource: source,
+            mouseType: .otherMouseUp,
+            mouseCursorPosition: point,
+            mouseButton: .center
+        ) {
+            up.post(tap: .cghidEventTap)
+        }
     }
 
     private func showTilingPanel(at point: NSPoint, for windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {

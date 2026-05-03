@@ -10,6 +10,7 @@ final class MenuBarController: NSObject {
     private let enabledKey = "AnyDragEnabled"
     private let modifierKey = "AnyDragModifier"
     private let launchAtLoginKey = "AnyDragLaunchAtLogin"
+    private let middleClickDragKey = "AnyDragMiddleClickDrag"
 
     init(dragEngine: DragEngine, updateController: UpdateController) {
         self.dragEngine = dragEngine
@@ -76,6 +77,12 @@ final class MenuBarController: NSObject {
         modifierItem.tag = 400
         menu.addItem(modifierItem)
 
+        // Middle-click drag (independent of modifier — works without one)
+        let middleClickItem = NSMenuItem(title: NSLocalizedString("Middle-click drag", comment: ""), action: #selector(toggleMiddleClickDrag(_:)), keyEquivalent: "")
+        middleClickItem.target = self
+        middleClickItem.tag = 700
+        menu.addItem(middleClickItem)
+
         menu.addItem(.separator())
 
         // Launch at Login
@@ -120,6 +127,9 @@ final class MenuBarController: NSObject {
             defaults.set(ModifierKey.option.rawValue, forKey: modifierKey)
             dragEngine.modifierKey = .option
         }
+
+        // Middle-click drag (default false — middle-click is commonly used by browsers/IDEs)
+        dragEngine.isMiddleClickDragEnabled = defaults.bool(forKey: middleClickDragKey)
     }
 
     // MARK: - Actions
@@ -135,6 +145,12 @@ final class MenuBarController: NSObject {
               let mod = ModifierKey(rawValue: rawValue) else { return }
         dragEngine.modifierKey = mod
         UserDefaults.standard.set(mod.rawValue, forKey: modifierKey)
+    }
+
+    @objc private func toggleMiddleClickDrag(_ sender: NSMenuItem) {
+        let newValue = !dragEngine.isMiddleClickDragEnabled
+        dragEngine.isMiddleClickDragEnabled = newValue
+        UserDefaults.standard.set(newValue, forKey: middleClickDragKey)
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
@@ -186,6 +202,11 @@ extension MenuBarController: NSMenuDelegate {
                     item.state = (rawValue == dragEngine.modifierKey.rawValue) ? .on : .off
                 }
             }
+        }
+
+        // Update middle-click drag toggle
+        if let middleClickItem = menu.item(withTag: 700) {
+            middleClickItem.state = dragEngine.isMiddleClickDragEnabled ? .on : .off
         }
 
         // Update launch at login

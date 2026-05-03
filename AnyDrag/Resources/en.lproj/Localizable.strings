@@ -1,6 +1,7 @@
 /* Menu Bar */
 "Enabled" = "Enabled";
 "Modifier Key" = "Modifier Key";
+"Middle-click drag" = "Middle-click drag";
 "Launch at Login" = "Launch at Login";
 "Check for Updates…" = "Check for Updates…";
 "Quit AnyDrag" = "Quit AnyDrag";
