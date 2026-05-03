@@ -31,3 +31,6 @@ build/
 .build/
 Packages/
 Package.resolved
+
+# Claude Code (per-user)
+.claude/settings.local.json
