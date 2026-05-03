@@ -171,6 +171,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [[ -f RELEASE_NOTES.html ]]; then
+            cp RELEASE_NOTES.html "$RUNNER_TEMP/release_notes.html"
+            exit 0
+          fi
           PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | grep -v "${GITHUB_REF_NAME}" | head -1)
           if [[ -n "$PREV_TAG" ]]; then
             NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
