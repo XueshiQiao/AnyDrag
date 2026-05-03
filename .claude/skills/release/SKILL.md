@@ -23,11 +23,20 @@ Edit `project.yml`:
 - `MARKETING_VERSION: "<old>"` → `MARKETING_VERSION: "$ARGUMENTS"`
 - `CURRENT_PROJECT_VERSION: "<old>"` → `CURRENT_PROJECT_VERSION: "<old+1>"`
 
-## Phase 2 — Bilingual cumulative release notes
+## Phase 2 — Cumulative release notes in every supported language
 
 Edit `RELEASE_NOTES.html` at repo root (CI's "Generate Release Notes" step prefers this file over auto-generation; if it doesn't exist, CI falls back to `gh api ... generate-notes` which produces EN-only generic text).
 
-Format (per memory `feedback_appcast_bilingual`): EN section first, then zh-Hans section.
+**Discover supported languages** by scanning the app's localization sources — never hardcode the language list. Run:
+
+```bash
+find AnyDrag/Resources -type d -name "*.lproj" -mindepth 1 -maxdepth 2 \
+  | sed 's|.*/||;s|\.lproj$||' | sort -u
+```
+
+If the app uses `Localizable.xcstrings` instead of `.lproj` folders, parse the `localizations` keys from that JSON. Either way, derive the full language list from source — every language the app ships UI in must get a section, no exceptions.
+
+**One `<h3>` + `<ul>` block per language**, in the order Apple lists them in the app's `Info.plist` or asset catalog (CFBundleLocalizations / xcstrings localizations), with English first as the lingua franca. Use the language's own native name in the heading (English / 简体中文 / 日本語 / Deutsch / …).
 
 ```html
 <h3>What's New in X.Y.x</h3>
@@ -41,11 +50,17 @@ Format (per memory `feedback_appcast_bilingual`): EN section first, then zh-Hans
   <li><b>功能名称</b> — 简体中文描述。贡献者用 @handle 标注。</li>
   ...
 </ul>
+
+<!-- Repeat for every additional language from the .lproj scan above -->
 ```
+
+The HTML body lands inside Sparkle's `<description><![CDATA[…]]></description>` and is rendered in the in-app update dialog — every section is shown to every user regardless of system language, so write each one as if it's the only one a particular reader will understand.
 
 **Cumulative rule:** for a minor version like 1.2.4, list all changes since the last MAJOR version (1.2.0), not just since the last patch. Users often skip patches.
 
 To gather the changeset: `git log <last-major-tag>..HEAD --no-merges --pretty=format:"- %s%n%b%n---"` — read the actual commit bodies to write accurate notes (don't just copy commit subjects).
+
+**Translation accuracy:** if you write the EN copy yourself, write each other language directly rather than translating word-for-word. Mirror the structure (same bullets, same order, same `<b>` headers) but use natural phrasing in each target language. If a contributor's `@handle` appears in EN, keep it identical in every other language — it's a GitHub URL, not a translatable string.
 
 ## Phase 3 — Commit, tag, push (triggers CI)
 
