@@ -50,6 +50,85 @@ enum ModifierKey: String, CaseIterable {
     }
 }
 
+// MARK: - Middle Action Model
+
+/// What the middle mouse button does. Mutually exclusive — the user picks one.
+enum MiddleAction: String, CaseIterable {
+    case off = "off"
+    case dragWindow = "drag"
+    case tileByDirection = "tile"
+
+    var displayName: String {
+        switch self {
+        case .off:              return NSLocalizedString("Off", comment: "")
+        case .dragWindow:       return NSLocalizedString("Drag window", comment: "")
+        case .tileByDirection:  return NSLocalizedString("Tile by direction", comment: "")
+        }
+    }
+}
+
+// MARK: - Tile Zone Model
+
+/// A target region on the screen, selected by drag direction.
+enum TileZone {
+    case full          // drag up
+    case centered      // drag down (~70% × 70%)
+    case left, right
+    case topLeft, topRight, bottomLeft, bottomRight
+
+    /// Map an 8-sector drag direction (in CG coords — Y increases downward)
+    /// to a tile zone. Returns nil if the drag distance is below threshold.
+    static func zone(forDx dx: CGFloat, dy: CGFloat, threshold: CGFloat) -> TileZone? {
+        guard hypot(dx, dy) >= threshold else { return nil }
+
+        // atan2 with Y-down gives clockwise angles: 0 = right, π/2 = down,
+        // π = left, -π/2 = up. Normalize to [0, 2π).
+        var angle = atan2(dy, dx)
+        if angle < 0 { angle += 2 * .pi }
+
+        // 8 sectors of 45°, centered on the cardinal/diagonal directions.
+        let sector = Int((angle + .pi / 8) / (.pi / 4)) % 8
+        switch sector {
+        case 0: return .right
+        case 1: return .bottomRight
+        case 2: return .centered     // "down" → centered window
+        case 3: return .bottomLeft
+        case 4: return .left
+        case 5: return .topLeft
+        case 6: return .full         // "up" → full screen
+        case 7: return .topRight
+        default: return nil
+        }
+    }
+
+    /// Compute the target rect within the screen's visible NSScreen-coord frame
+    /// (bottom-left origin). For .centered the window covers 85% × 85%.
+    func rect(in v: NSRect, centeredFraction: CGFloat = 0.85) -> NSRect {
+        switch self {
+        case .full:
+            return v
+        case .centered:
+            let w = v.width * centeredFraction
+            let h = v.height * centeredFraction
+            return NSRect(x: v.minX + (v.width - w) / 2,
+                          y: v.minY + (v.height - h) / 2,
+                          width: w, height: h)
+        case .left:
+            return NSRect(x: v.minX, y: v.minY, width: v.width / 2, height: v.height)
+        case .right:
+            return NSRect(x: v.midX, y: v.minY, width: v.width / 2, height: v.height)
+        case .topLeft:
+            return NSRect(x: v.minX, y: v.midY, width: v.width / 2, height: v.height / 2)
+        case .topRight:
+            return NSRect(x: v.midX, y: v.midY, width: v.width / 2, height: v.height / 2)
+        case .bottomLeft:
+            return NSRect(x: v.minX, y: v.minY, width: v.width / 2, height: v.height / 2)
+        case .bottomRight:
+            return NSRect(x: v.midX, y: v.minY, width: v.width / 2, height: v.height / 2)
+        }
+    }
+}
+
 // MARK: - DragEngine
 
 /// Intercepts mouse events via a CGEvent tap and delegates to TitleBarDragStrategy
@@ -64,9 +143,13 @@ final class DragEngine {
     // Marker carried on synthesized replay events so we ignore them in our own tap.
     private static let synthesizedEventMarker: Int64 = 0x416E794472616701  // "AnyDrag\x01"
 
+    /// Distance (in points) the middle button must travel before a tile zone is
+    /// committed. Pulled out as a constant so we can expose it as a setting later.
+    static let tileDirectionThreshold: CGFloat = 30
+
     var isEnabled: Bool = true
     var modifierKey: ModifierKey = .option
-    var isMiddleClickDragEnabled: Bool = false
+    var middleAction: MiddleAction = .off
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -75,10 +158,16 @@ final class DragEngine {
     private let strategy = TitleBarDragStrategy()
     private var savedFrames: [CGWindowID: CGRect] = [:]
     private var tilingPanel: TilingPanel?
+    private lazy var tileOverlay = TileOverlay()
 
     // Tracks the original screen location of a middle-button press so we can
     // replay a synthesized middle-click if the user releases without dragging.
     private var middleClickOrigin: CGPoint?
+
+    // Tile-by-direction state. Set in handleOtherMouseDown when middleAction == .tileByDirection,
+    // cleared in handleOtherMouseUp.
+    private var tileTargetWindow: (pid: pid_t, windowID: CGWindowID, frame: CGRect)?
+    private var currentTileZone: TileZone?
 
     // MARK: - Lifecycle
 
@@ -205,9 +294,16 @@ final class DragEngine {
             return nil
         }
 
-        // Clear any orphaned middle-drag origin (e.g. from a tap-disabled
+        // Clear any orphaned middle-gesture state (e.g. from a tap-disabled
         // gesture where we never received the otherMouseUp).
         middleClickOrigin = nil
+        if tileTargetWindow != nil {
+            tileTargetWindow = nil
+            currentTileZone = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.tileOverlay.hide()
+            }
+        }
         strategy.reset()
         return strategy.handleMouseDown(
             pid: windowInfo.pid,
@@ -273,7 +369,7 @@ final class DragEngine {
         return nil
     }
 
-    // MARK: - Middle-Click Drag
+    // MARK: - Middle Button (drag or tile-by-direction)
 
     private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         // Only the middle button (button 2) — leave side buttons (3, 4) alone.
@@ -286,7 +382,7 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
-        guard isMiddleClickDragEnabled else {
+        guard middleAction != .off else {
             return Unmanaged.passRetained(event)
         }
 
@@ -294,7 +390,7 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
-        // Don't start a middle drag while a left drag is in flight.
+        // Don't start a middle gesture while a left drag is in flight.
         if strategy.isActive {
             return Unmanaged.passRetained(event)
         }
@@ -316,22 +412,57 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
-        middleClickOrigin = screenPoint
-        strategy.reset()
-        return strategy.handleMouseDown(
-            pid: windowInfo.pid,
-            windowID: windowInfo.windowID,
-            windowFrame: windowInfo.frame,
-            event: event,
-            rewriteToLeftButton: true
-        )
+        switch middleAction {
+        case .off:
+            return Unmanaged.passRetained(event)
+
+        case .dragWindow:
+            middleClickOrigin = screenPoint
+            strategy.reset()
+            return strategy.handleMouseDown(
+                pid: windowInfo.pid,
+                windowID: windowInfo.windowID,
+                windowFrame: windowInfo.frame,
+                event: event,
+                rewriteToLeftButton: true
+            )
+
+        case .tileByDirection:
+            // Window stays put — we use the middle drag to pick a tile target.
+            middleClickOrigin = screenPoint
+            tileTargetWindow = windowInfo
+            currentTileZone = nil
+            return nil  // suppress the down; will replay middle-click on no-drag release
+        }
     }
 
     private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
-        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2,
-              strategy.isActive,
-              middleClickOrigin != nil
-        else {
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
+            return Unmanaged.passRetained(event)
+        }
+
+        // Tile-by-direction path: update the overlay based on direction, suppress the event.
+        if tileTargetWindow != nil, let origin = middleClickOrigin {
+            let dx = event.location.x - origin.x
+            let dy = event.location.y - origin.y
+            let zone = TileZone.zone(forDx: dx, dy: dy, threshold: Self.tileDirectionThreshold)
+            currentTileZone = zone
+
+            let cursorScreenPoint = event.location
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if let zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
+                    let target = zone.rect(in: screen.visibleFrame)
+                    self.tileOverlay.show(rect: target)
+                } else {
+                    self.tileOverlay.hide()
+                }
+            }
+            return nil
+        }
+
+        // Drag-window path (existing).
+        guard strategy.isActive, middleClickOrigin != nil else {
             return Unmanaged.passRetained(event)
         }
         return strategy.handleMouseDragged(event: event)
@@ -346,6 +477,28 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
+        // Tile-by-direction path.
+        if let target = tileTargetWindow, let origin = middleClickOrigin {
+            let zone = currentTileZone
+            let cursorScreenPoint = event.location
+            tileTargetWindow = nil
+            middleClickOrigin = nil
+            currentTileZone = nil
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.tileOverlay.hide()
+                if let zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
+                    self.applyTile(zone: zone, target: target, screen: screen)
+                } else {
+                    // Below threshold — replay the original middle-click so apps still see it.
+                    self.replayMiddleClick(at: origin)
+                }
+            }
+            return nil
+        }
+
+        // Drag-window path (existing).
         guard strategy.isActive, middleClickOrigin != nil else {
             return Unmanaged.passRetained(event)
         }
@@ -367,6 +520,42 @@ final class DragEngine {
         }
 
         return result
+    }
+
+    // MARK: - Tile Application
+
+    /// Snap the target window to the tile zone's rect on the given screen.
+    /// Saves the original frame in savedFrames so the existing double-click-restore works.
+    private func applyTile(zone: TileZone,
+                           target: (pid: pid_t, windowID: CGWindowID, frame: CGRect),
+                           screen: NSScreen) {
+        guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else { return }
+
+        let nsRect = zone.rect(in: screen.visibleFrame)
+        let cgRect = cgRectFromNSScreenRect(nsRect)
+
+        // Save current frame for double-click restore (matches performTileAction's behavior).
+        let currentFrame = getWindowFrame(axWindow) ?? target.frame
+        savedFrames[target.windowID] = currentFrame
+
+        setWindowFrame(axWindow, frame: cgRect)
+    }
+
+    /// Convert an NSScreen-coord rect (bottom-left origin) into a Quartz CG rect (top-left origin).
+    private func cgRectFromNSScreenRect(_ ns: NSRect) -> CGRect {
+        guard let primary = NSScreen.screens.first else { return ns }
+        let primaryHeight = primary.frame.height
+        return CGRect(x: ns.origin.x,
+                      y: primaryHeight - ns.origin.y - ns.height,
+                      width: ns.width, height: ns.height)
+    }
+
+    /// Find the NSScreen containing a given CG point (top-left origin, Y-down).
+    private func screen(containingCGPoint cg: CGPoint) -> NSScreen? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        let primaryHeight = primary.frame.height
+        let nsPoint = NSPoint(x: cg.x, y: primaryHeight - cg.y)
+        return NSScreen.screens.first { $0.frame.contains(nsPoint) } ?? primary
     }
 
     private func replayMiddleClick(at point: CGPoint) {

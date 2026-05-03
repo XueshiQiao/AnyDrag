@@ -1,7 +1,10 @@
 /* Menu Bar */
 "Enabled" = "Enabled";
 "Modifier Key" = "Modifier Key";
-"Middle-click drag" = "Middle-click drag";
+"Middle-click action" = "Middle-click action";
+"Off" = "Off";
+"Drag window" = "Drag window";
+"Tile by direction" = "Tile by direction";
 "Launch at Login" = "Launch at Login";
 "Check for Updates…" = "Check for Updates…";
 "Quit AnyDrag" = "Quit AnyDrag";
