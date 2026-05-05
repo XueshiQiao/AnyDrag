@@ -29,6 +29,22 @@ final class TitleBarDragStrategy {
     private var needsInitialMouseDown = false
     private var rewriteToLeftButton = false
 
+    /// Modifier flags stripped from injected/rewritten title-bar events.
+    ///
+    /// Only Control is stripped: AppKit converts Control+leftMouseDown to a
+    /// "secondary click" (Finder pops the toolbar context menu, etc.) at the
+    /// NSResponder layer, breaking the title-bar drag.
+    ///
+    /// Option was tried briefly but does NOT achieve full suppression of the
+    /// macOS "Hold option key while dragging windows to tile" feature: macOS
+    /// reads the physical Option key state independently of the event flags,
+    /// so stripping the flag only hides the overlay while the snap-on-release
+    /// still fires. Half-suppression is worse than passing through, so Option
+    /// is left intact. To fully suppress, we'd have to synthesize an Option
+    /// keyUp into the system before the drag (with side effects on other
+    /// apps' keyboard listeners) — not worth it.
+    private static let modifierFlagsToStrip: CGEventFlags = [.maskControl]
+
     func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
@@ -43,14 +59,30 @@ final class TitleBarDragStrategy {
         // Activate the target app and raise the window to front.
         // We suppress the mouseDown and defer the actual click to the first mouseDragged,
         // giving the window server ~8ms to finish reordering before the click arrives.
-        let appElement = AXUIElementCreateApplication(pid)
-        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        if pid == getpid() {
+            // Same-process AX raise crashes here: AXUIElementPerformAction(kAXRaiseAction)
+            // is dispatched in-process to -[NSWindow makeKeyAndOrderFront:], which is
+            // main-thread-only, but this strategy runs on the event-tap thread. Use
+            // the NSWindow APIs directly on main instead.
+            let targetNumber = Int(windowID)
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                // NSWindow.windowNumber is Int and can be negative for offscreen
+                // windows; compare on the Int side to avoid the unsigned trap.
+                if let window = NSApp.windows.first(where: { $0.windowNumber == targetNumber }) {
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
+        } else {
+            let appElement = AXUIElementCreateApplication(pid)
+            AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
 
-        if let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) {
-            let raiseResult = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-            if raiseResult != .success {
-                // Fallback for apps that don't support kAXRaiseAction (e.g. some Electron apps)
-                AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+            if let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) {
+                let raiseResult = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+                if raiseResult != .success {
+                    // Fallback for apps that don't support kAXRaiseAction (e.g. some Electron apps)
+                    AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+                }
             }
         }
 
@@ -63,6 +95,7 @@ final class TitleBarDragStrategy {
 
     func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
         didDrag = true
+        event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         if needsInitialMouseDown {
             needsInitialMouseDown = false
             // Convert this mouseDragged into a mouseDown at the title bar.
@@ -104,6 +137,7 @@ final class TitleBarDragStrategy {
             event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
         }
 
+        event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         let pos = event.location
         event.location = CGPoint(x: pos.x, y: pos.y + yOffset)
         isActive = false

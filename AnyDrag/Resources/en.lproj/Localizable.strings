@@ -1,11 +1,7 @@
 /* Menu Bar */
 "Enabled" = "Enabled";
-"Modifier Key" = "Modifier Key";
-"Middle-click action" = "Middle-click action";
-"Off" = "Off";
-"Drag window" = "Drag window";
-"Tile by direction" = "Tile by direction";
-"Launch at Login" = "Launch at Login";
+"Settings…" = "Settings…";
+"Feedback…" = "Feedback…";
 "Check for Updates…" = "Check for Updates…";
 "Quit AnyDrag" = "Quit AnyDrag";
 
@@ -19,3 +15,43 @@
 "Fill & Arrange" = "Fill & Arrange";
 "Full Screen" = "Full Screen";
 "Move to %@" = "Move to %@";
+
+/* Settings — window titles */
+"AnyDrag Settings" = "AnyDrag Settings";
+"About AnyDrag" = "About AnyDrag";
+"General" = "General";
+"About" = "About";
+
+/* Settings — Modifier section */
+"Modifier Key" = "Modifier Key";
+"Command" = "Command";
+"Shift" = "Shift";
+"Option" = "Option";
+"Control" = "Control";
+"fn" = "fn";
+/* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
+"modifier.preview.format" = "Hold %1$@ (%2$@) to use AnyDrag";
+"modifier.preview.empty" = "Choose at least one modifier key";
+
+/* Settings — Features section */
+"Features" = "Features";
+"Drag window" = "Drag window";
+"Maximize / Restore" = "Maximize / Restore";
+"Window tiling" = "Window tiling";
+"feature.drag.subtitle" = "Hold the modifier and drag anywhere on a window";
+"feature.maximize.subtitle" = "Hold the modifier and double-click to maximize or restore";
+"feature.tiling.subtitle" = "Hold the modifier and right-click to open the tiling panel";
+
+/* Settings — Middle-click action */
+"Middle-click action" = "Middle-click action";
+"Off" = "Off";
+"Tile by direction" = "Tile by direction";
+
+/* Settings — Launch at Login */
+"Launch at Login" = "Launch at Login";
+
+/* About pane */
+/* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
+"about.version.format" = "Version %1$@ (%2$@)";
+"about.copyright" = "© 2026 Xueshi Qiao";
+"GitHub Repository" = "GitHub Repository";

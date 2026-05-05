@@ -2,6 +2,8 @@ import Cocoa
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
+    private static let log = FileLog("AppDelegate")
+
     private let permissionManager = PermissionManager()
     private let updateController = UpdateController()
     private var dragEngine: DragEngine?
@@ -10,15 +12,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        NSLog("AnyDrag: AXIsProcessTrusted=\(AXIsProcessTrusted())")
+        Self.log.info("launch — AXIsProcessTrusted=\(AXIsProcessTrusted())")
         permissionManager.ensurePermissions { [weak self] in
-            NSLog("AnyDrag: permissions OK, starting")
+            Self.log.info("permissions OK, starting")
             self?.startApp()
         }
     }
 
     private func startApp() {
+        Preferences.migrateLegacyKeysIfNeeded()
+
         let engine = DragEngine()
+        Preferences.apply(to: engine)
         engine.start()
         dragEngine = engine
 

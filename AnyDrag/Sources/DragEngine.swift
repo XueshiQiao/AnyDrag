@@ -1,51 +1,69 @@
 import Cocoa
 import ApplicationServices
 
-// MARK: - Modifier Key Model
+// MARK: - Modifier Combination Model
 
-enum ModifierKey: String, CaseIterable {
-    case option = "option"
-    case command = "command"
-    case control = "control"
-    case fn = "fn"
-    case optionCommand = "option+command"
+/// User-selectable combination of modifier keys. Any non-empty subset of
+/// command/shift/option/control/fn is allowed.
+struct ModifierCombination: OptionSet, Equatable, Hashable {
+    let rawValue: UInt
+    init(rawValue: UInt) { self.rawValue = rawValue }
+
+    static let command = ModifierCombination(rawValue: 1 << 0)
+    static let shift   = ModifierCombination(rawValue: 1 << 1)
+    static let option  = ModifierCombination(rawValue: 1 << 2)
+    static let control = ModifierCombination(rawValue: 1 << 3)
+    static let fn      = ModifierCombination(rawValue: 1 << 4)
+
+    static let fnEventFlag = CGEventFlags.maskSecondaryFn
 
     var eventFlags: CGEventFlags {
-        switch self {
-        case .option:         return .maskAlternate
-        case .command:        return .maskCommand
-        case .control:        return .maskControl
-        case .fn:             return CGEventFlags(rawValue: 0x800000)
-        case .optionCommand:  return CGEventFlags(rawValue: CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskCommand.rawValue)
-        }
+        var f: CGEventFlags = []
+        if contains(.command) { f.insert(.maskCommand) }
+        if contains(.shift)   { f.insert(.maskShift) }
+        if contains(.option)  { f.insert(.maskAlternate) }
+        if contains(.control) { f.insert(.maskControl) }
+        if contains(.fn)      { f.insert(Self.fnEventFlag) }
+        return f
     }
 
-    var displayName: String {
-        switch self {
-        case .option:         return "Option"
-        case .command:        return "Command"
-        case .control:        return "Control"
-        case .fn:             return "fn"
-        case .optionCommand:  return "Option + Command"
-        }
-    }
-
+    /// Glyph display, e.g. "⌃⌥⇧⌘" or "fn⌘". Order follows Apple HIG (fn ⌃ ⌥ ⇧ ⌘).
     var symbol: String {
-        switch self {
-        case .option:         return "⌥"
-        case .command:        return "⌘"
-        case .control:        return "⌃"
-        case .fn:             return "fn"
-        case .optionCommand:  return "⌥⌘"
-        }
+        var s = ""
+        if contains(.fn)      { s += "fn" }
+        if contains(.control) { s += "⌃" }
+        if contains(.option)  { s += "⌥" }
+        if contains(.shift)   { s += "⇧" }
+        if contains(.command) { s += "⌘" }
+        return s.isEmpty ? "—" : s
     }
 
+    /// Localized name, e.g. "Control + Option + Command".
+    var displayName: String {
+        var parts: [String] = []
+        if contains(.fn)      { parts.append(NSLocalizedString("fn", comment: "")) }
+        if contains(.control) { parts.append(NSLocalizedString("Control", comment: "")) }
+        if contains(.option)  { parts.append(NSLocalizedString("Option", comment: "")) }
+        if contains(.shift)   { parts.append(NSLocalizedString("Shift", comment: "")) }
+        if contains(.command) { parts.append(NSLocalizedString("Command", comment: "")) }
+        return parts.isEmpty ? "—" : parts.joined(separator: " + ")
+    }
+
+    /// True when adding Option to the gesture is allowed (so users can combine
+    /// AnyDrag with the macOS "Hold Option while dragging windows to tile" feature).
     var supportsOptionAugmentation: Bool {
-        switch self {
-        case .option, .optionCommand:
-            return false
-        case .command, .control, .fn:
-            return true
+        !contains(.option)
+    }
+
+    /// Migrate the pre-1.3 `ModifierKey` string preference.
+    init?(legacyString: String) {
+        switch legacyString {
+        case "option":         self = .option
+        case "command":        self = .command
+        case "control":        self = .control
+        case "fn":             self = .fn
+        case "option+command": self = [.option, .command]
+        default:               return nil
         }
     }
 }
@@ -135,9 +153,8 @@ enum TileZone {
 /// when a configured modifier key is held during a click.
 final class DragEngine {
 
-    private static let secondaryFnMask = CGEventFlags(rawValue: 0x800000)
     private static let relevantModifierMask = CGEventFlags([
-        .maskAlternate, .maskCommand, .maskControl, .maskShift, secondaryFnMask
+        .maskAlternate, .maskCommand, .maskControl, .maskShift, ModifierCombination.fnEventFlag
     ])
 
     // Marker carried on synthesized replay events so we ignore them in our own tap.
@@ -147,8 +164,13 @@ final class DragEngine {
     /// committed. Pulled out as a constant so we can expose it as a setting later.
     static let tileDirectionThreshold: CGFloat = 30
 
+    private static let log = FileLog("DragEngine")
+
     var isEnabled: Bool = true
-    var modifierKey: ModifierKey = .option
+    var modifiers: ModifierCombination = .option
+    var dragEnabled: Bool = true
+    var maximizeEnabled: Bool = true
+    var tilingEnabled: Bool = true
     var middleAction: MiddleAction = .off
 
     private var eventTap: CFMachPort?
@@ -190,7 +212,7 @@ final class DragEngine {
             callback: eventTapCallback,
             userInfo: Unmanaged.passRetained(self).toOpaque()
         ) else {
-            NSLog("AnyDrag: Failed to create event tap. Check Accessibility permissions.")
+            Self.log.error("Failed to create event tap. Check Accessibility permissions.")
             return
         }
 
@@ -262,6 +284,11 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
+        // Both left-button features off → nothing to do here.
+        if !dragEnabled && !maximizeEnabled {
+            return Unmanaged.passRetained(event)
+        }
+
         // Check if the configured modifier key is held.
         // We also allow an extra Option key for non-Option shortcuts so
         // macOS native tiling can still kick in during an AnyDrag drag.
@@ -290,8 +317,13 @@ final class DragEngine {
         // Double-click with modifier: toggle maximize/restore
         let clickCount = event.getIntegerValueField(.mouseEventClickState)
         if clickCount == 2 {
+            guard maximizeEnabled else { return Unmanaged.passRetained(event) }
             toggleMaximize(windowID: windowInfo.windowID, pid: windowInfo.pid, windowFrame: windowInfo.frame)
             return nil
+        }
+
+        guard dragEnabled else {
+            return Unmanaged.passRetained(event)
         }
 
         // Clear any orphaned middle-gesture state (e.g. from a tap-disabled
@@ -337,6 +369,10 @@ final class DragEngine {
         // If tiling panel is visible, suppress right-click (avoid system context menu)
         if tilingPanel?.isVisible == true {
             return nil
+        }
+
+        guard tilingEnabled else {
+            return Unmanaged.passRetained(event)
         }
 
         guard matchesConfiguredModifier(event.flags) else {
@@ -594,13 +630,17 @@ final class DragEngine {
     private func matchesConfiguredModifier(_ flags: CGEventFlags) -> Bool {
         let cleanedFlags = flags.subtracting(.maskNonCoalesced)
         let activeModifiers = cleanedFlags.intersection(Self.relevantModifierMask)
-        let targetModifiers = modifierKey.eventFlags
+        let targetModifiers = modifiers.eventFlags
+
+        // Empty target = no modifier configured; never match (avoids matching
+        // every plain click).
+        guard !targetModifiers.isEmpty else { return false }
 
         if activeModifiers == targetModifiers {
             return true
         }
 
-        guard modifierKey.supportsOptionAugmentation else {
+        guard modifiers.supportsOptionAugmentation else {
             return false
         }
 
@@ -714,6 +754,15 @@ final class DragEngine {
     // MARK: - Maximize / Restore
 
     private func toggleMaximize(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
+        // Always run on main: same-process AX writes call NSWindow (which
+        // requires main); routing every maximize through main also keeps
+        // savedFrames mutations single-threaded with the tile paths.
+        DispatchQueue.main.async { [weak self] in
+            self?.toggleMaximizeImpl(windowID: windowID, pid: pid, windowFrame: windowFrame)
+        }
+    }
+
+    private func toggleMaximizeImpl(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
         guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else { return }
 
         // Activate the target app and raise the window

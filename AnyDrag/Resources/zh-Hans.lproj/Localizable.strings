@@ -1,21 +1,57 @@
 /* Menu Bar */
 "Enabled" = "启用";
-"Modifier Key" = "修饰键";
-"Middle-click action" = "鼠标中键动作";
-"Off" = "关闭";
-"Drag window" = "拖动窗口";
-"Tile by direction" = "按方向平铺";
-"Launch at Login" = "登录时启动";
+"Settings…" = "设置…";
+"Feedback…" = "反馈…";
 "Check for Updates…" = "检查更新…";
 "Quit AnyDrag" = "退出 AnyDrag";
 
 /* Usage Tips — %@ is the modifier key symbol */
-"tip.drag" = "%@ + 左键拖动：移动窗口";
-"tip.maximize" = "%@ + 左键双击：最大化 / 恢复";
-"tip.tiling" = "%@ + 右键：窗口布局";
+"tip.drag" = "%@ + 左键拖动:移动窗口";
+"tip.maximize" = "%@ + 左键双击:最大化 / 恢复";
+"tip.tiling" = "%@ + 右键:窗口布局";
 
 /* Tiling Panel */
 "Move & Resize" = "移动与调整大小";
 "Fill & Arrange" = "填充与排列";
 "Full Screen" = "全屏";
 "Move to %@" = "移动到 %@";
+
+/* Settings — window titles */
+"AnyDrag Settings" = "AnyDrag 设置";
+"About AnyDrag" = "关于 AnyDrag";
+"General" = "通用";
+"About" = "关于";
+
+/* Settings — Modifier section */
+"Modifier Key" = "修饰键";
+"Command" = "Command";
+"Shift" = "Shift";
+"Option" = "Option";
+"Control" = "Control";
+"fn" = "fn";
+/* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
+"modifier.preview.format" = "按住 %1$@ (%2$@) 使用 AnyDrag";
+"modifier.preview.empty" = "请至少选择一个修饰键";
+
+/* Settings — Features section */
+"Features" = "功能";
+"Drag window" = "拖动窗口";
+"Maximize / Restore" = "最大化 / 恢复";
+"Window tiling" = "窗口平铺";
+"feature.drag.subtitle" = "按住修饰键,在窗口任意处拖动";
+"feature.maximize.subtitle" = "按住修饰键,双击窗口最大化或恢复";
+"feature.tiling.subtitle" = "按住修饰键,右键打开平铺面板";
+
+/* Settings — Middle-click action */
+"Middle-click action" = "鼠标中键动作";
+"Off" = "关闭";
+"Tile by direction" = "按方向平铺";
+
+/* Settings — Launch at Login */
+"Launch at Login" = "登录时启动";
+
+/* About pane */
+/* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
+"about.version.format" = "版本 %1$@ (%2$@)";
+"about.copyright" = "© 2026 Xueshi Qiao";
+"GitHub Repository" = "GitHub 仓库";
