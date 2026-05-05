@@ -56,4 +56,5 @@
 /* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
 "about.version.format" = "Version %1$@ (%2$@)";
 "about.copyright" = "© 2026 Xueshi Qiao";
+"about.website.description" = "Check out all apps I created at:";
 "GitHub Repository" = "GitHub Repository";

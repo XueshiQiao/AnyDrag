@@ -65,10 +65,19 @@ final class AboutPaneViewController: NSViewController {
         stack.setCustomSpacing(20, after: checkUpdatesButton)
 
         // Links
-        stack.addArrangedSubview(linkButton(
+        let github = linkButton(
             title: NSLocalizedString("GitHub Repository", comment: ""),
             url: Self.githubURL
-        ))
+        )
+        stack.addArrangedSubview(github)
+        stack.setCustomSpacing(16, after: github)
+
+        let websiteDesc = NSTextField(labelWithString: NSLocalizedString("about.website.description", comment: ""))
+        websiteDesc.font = .systemFont(ofSize: 11)
+        websiteDesc.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(websiteDesc)
+        stack.setCustomSpacing(2, after: websiteDesc)
+
         stack.addArrangedSubview(linkButton(
             title: "xueshi.dev",
             url: Self.websiteURL
