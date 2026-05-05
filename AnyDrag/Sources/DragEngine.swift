@@ -166,7 +166,6 @@ final class DragEngine {
 
     private static let log = FileLog("DragEngine")
 
-    var isEnabled: Bool = true
     var modifiers: ModifierCombination = .option
     var dragEnabled: Bool = true
     var maximizeEnabled: Bool = true
@@ -249,10 +248,6 @@ final class DragEngine {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            return Unmanaged.passRetained(event)
-        }
-
-        guard isEnabled else {
             return Unmanaged.passRetained(event)
         }
 

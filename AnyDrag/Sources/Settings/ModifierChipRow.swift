@@ -2,7 +2,7 @@ import Cocoa
 
 /// Five toggleable chips (fn / ⌃ / ⌥ / ⇧ / ⌘) for picking the AnyDrag modifier
 /// combination. Replaces the row of NSButton checkboxes with a more compact,
-/// glyph-forward control. Multi-select; the parent enforces "at least one".
+/// glyph-forward control. Multi-select; empty selection is valid (means "off").
 final class ModifierChipRow: NSView {
 
     /// Currently-on modifiers. Setting this updates each chip's visual state.
@@ -11,8 +11,8 @@ final class ModifierChipRow: NSView {
     }
 
     /// Fired when the user toggles a chip. Return `true` to accept the new
-    /// combination, `false` to reject it (e.g. last-on guard) — the chip's
-    /// visual state will revert because we never optimistically flip it.
+    /// combination, `false` to reject it — the chip's visual state will revert
+    /// because we never optimistically flip it.
     var onChange: ((ModifierCombination) -> Bool)?
 
     private struct Spec {
@@ -36,7 +36,7 @@ final class ModifierChipRow: NSView {
         translatesAutoresizingMaskIntoConstraints = false
 
         setAccessibilityRole(.group)
-        setAccessibilityLabel(NSLocalizedString("Modifier Key", comment: ""))
+        setAccessibilityLabel(NSLocalizedString("Modifier Keys", comment: ""))
 
         let row = NSStackView()
         row.orientation = .horizontal

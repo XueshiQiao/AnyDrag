@@ -1,5 +1,4 @@
 /* Menu Bar */
-"Enabled" = "Enabled";
 "Settings…" = "Settings…";
 "Feedback…" = "Feedback…";
 "Check for Updates…" = "Check for Updates…";
@@ -23,7 +22,7 @@
 "About" = "About";
 
 /* Settings — Modifier section */
-"Modifier Key" = "Modifier Key";
+"Modifier Keys" = "Modifier Keys";
 "Command" = "Command";
 "Shift" = "Shift";
 "Option" = "Option";
@@ -31,7 +30,7 @@
 "fn" = "fn";
 /* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
 "modifier.preview.format" = "Hold %1$@ (%2$@) to use AnyDrag";
-"modifier.preview.empty" = "Choose at least one modifier key";
+"modifier.preview.empty" = "AnyDrag is off — choose a modifier key to enable";
 
 /* Settings — Features section */
 "Features" = "Features";

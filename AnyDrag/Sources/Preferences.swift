@@ -5,7 +5,6 @@ import Foundation
 enum Preferences {
 
     enum Key {
-        static let enabled         = "AnyDragEnabled"
         static let modifierFlags   = "AnyDragModifierFlags"
         static let dragEnabled     = "AnyDragDragEnabled"
         static let maximizeEnabled = "AnyDragMaximizeEnabled"
@@ -15,6 +14,7 @@ enum Preferences {
         // Legacy keys (read once on launch and rewritten into the new keys)
         static let legacyModifier         = "AnyDragModifier"           // string-based ModifierKey
         static let legacyMiddleClickDrag  = "AnyDragMiddleClickDrag"    // pre-MiddleAction bool
+        static let legacyEnabled          = "AnyDragEnabled"            // pre-1.3 master toggle
     }
 
     /// One-shot migration of pre-1.3 preferences. Idempotent — safe to call every launch.
@@ -36,6 +36,10 @@ enum Preferences {
             d.set(migrated.rawValue, forKey: Key.middleAction)
         }
         d.removeObject(forKey: Key.legacyMiddleClickDrag)
+
+        // Master enable toggle removed — drop the stored value so it doesn't
+        // linger as orphaned state for users upgrading from <= 1.3.
+        d.removeObject(forKey: Key.legacyEnabled)
     }
 
     /// Apply current UserDefaults to a freshly-created DragEngine. Reading
@@ -45,14 +49,14 @@ enum Preferences {
     static func apply(to engine: DragEngine) {
         let d = UserDefaults.standard
 
-        engine.isEnabled        = d.object(forKey: Key.enabled) as? Bool ?? true
         engine.dragEnabled      = d.object(forKey: Key.dragEnabled) as? Bool ?? true
         engine.maximizeEnabled  = d.object(forKey: Key.maximizeEnabled) as? Bool ?? true
         engine.tilingEnabled    = d.object(forKey: Key.tilingEnabled) as? Bool ?? true
 
+        // Empty is a valid persisted state (means "AnyDrag off"), so only the
+        // first-launch path falls back to .option.
         if let raw = d.object(forKey: Key.modifierFlags) as? UInt {
-            let combo = ModifierCombination(rawValue: raw)
-            engine.modifiers = combo.isEmpty ? .option : combo
+            engine.modifiers = ModifierCombination(rawValue: raw)
         } else {
             engine.modifiers = .option
         }

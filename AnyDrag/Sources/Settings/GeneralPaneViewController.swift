@@ -20,6 +20,15 @@ final class GeneralPaneViewController: NSViewController {
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
+    // Feature rows whose enabled state follows the modifier selection.
+    private var modifierGatedRows: [FeatureRowViews] = []
+
+    private struct FeatureRowViews {
+        let title: NSTextField
+        let subtitle: NSTextField
+        let toggle: NSSwitch
+    }
+
     init(dragEngine: DragEngine) {
         self.dragEngine = dragEngine
         super.init(nibName: nil, bundle: nil)
@@ -35,19 +44,17 @@ final class GeneralPaneViewController: NSViewController {
         container.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        // Modifier section
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("Modifier Key", comment: "")))
+        // Features section (modifier picker + per-feature toggles)
+        container.addArrangedSubview(sectionHeader(NSLocalizedString("Features", comment: "")))
+
+        container.addArrangedSubview(subLabel(NSLocalizedString("Modifier Keys", comment: "")))
 
         modifierChipRow.onChange = { [weak self] proposed in
             guard let self = self else { return false }
-            // At least one modifier required — refuse to toggle off the last.
-            if proposed.isEmpty {
-                NSSound.beep()
-                return false
-            }
             self.dragEngine.modifiers = proposed
             UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.modifierFlags)
             self.updateModifierPreview()
+            self.updateFeatureRowsEnabled()
             return true
         }
         container.addArrangedSubview(modifierChipRow)
@@ -56,28 +63,30 @@ final class GeneralPaneViewController: NSViewController {
         modifierPreview.textColor = .secondaryLabelColor
         container.addArrangedSubview(modifierPreview)
 
-        container.addArrangedSubview(separator())
+        // Vertical breathing room before the feature toggles.
+        container.setCustomSpacing(18, after: modifierPreview)
 
-        // Features section
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("Features", comment: "")))
-        container.addArrangedSubview(featureRow(
+        addFeatureRow(
+            to: container,
             title: NSLocalizedString("Drag window", comment: ""),
             subtitle: NSLocalizedString("feature.drag.subtitle", comment: ""),
             toggle: dragSwitch,
             action: #selector(dragToggled(_:))
-        ))
-        container.addArrangedSubview(featureRow(
+        )
+        addFeatureRow(
+            to: container,
             title: NSLocalizedString("Maximize / Restore", comment: ""),
             subtitle: NSLocalizedString("feature.maximize.subtitle", comment: ""),
             toggle: maximizeSwitch,
             action: #selector(maximizeToggled(_:))
-        ))
-        container.addArrangedSubview(featureRow(
+        )
+        addFeatureRow(
+            to: container,
             title: NSLocalizedString("Window tiling", comment: ""),
             subtitle: NSLocalizedString("feature.tiling.subtitle", comment: ""),
             toggle: tilingSwitch,
             action: #selector(tilingToggled(_:))
-        ))
+        )
 
         container.addArrangedSubview(separator())
 
@@ -97,12 +106,13 @@ final class GeneralPaneViewController: NSViewController {
         container.addArrangedSubview(separator())
 
         // Launch at Login
-        container.addArrangedSubview(featureRow(
+        let launchRow = featureRow(
             title: NSLocalizedString("Launch at Login", comment: ""),
             subtitle: nil,
             toggle: launchSwitch,
             action: #selector(launchAtLoginToggled(_:))
-        ))
+        )
+        container.addArrangedSubview(launchRow.view)
 
         let view = NSView()
         view.addSubview(container)
@@ -133,6 +143,8 @@ final class GeneralPaneViewController: NSViewController {
         maximizeSwitch.state = dragEngine.maximizeEnabled ? .on : .off
         tilingSwitch.state   = dragEngine.tilingEnabled ? .on : .off
 
+        updateFeatureRowsEnabled()
+
         // Middle action
         middleActionPicker.selection = dragEngine.middleAction
 
@@ -147,6 +159,18 @@ final class GeneralPaneViewController: NSViewController {
         } else {
             let format = NSLocalizedString("modifier.preview.format", comment: "")
             modifierPreview.stringValue = String(format: format, combo.symbol, combo.displayName)
+        }
+    }
+
+    /// When no modifier is selected, AnyDrag has nothing to listen for, so the
+    /// per-feature toggles are dimmed and disabled. Stored on/off values are
+    /// untouched — they snap back as soon as a modifier is re-added.
+    private func updateFeatureRowsEnabled() {
+        let enabled = !dragEngine.modifiers.isEmpty
+        for row in modifierGatedRows {
+            row.toggle.isEnabled = enabled
+            row.title.textColor = enabled ? .labelColor : .tertiaryLabelColor
+            row.subtitle.textColor = enabled ? .secondaryLabelColor : .tertiaryLabelColor
         }
     }
 
@@ -193,13 +217,34 @@ final class GeneralPaneViewController: NSViewController {
         return label
     }
 
+    private func subLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        return label
+    }
+
     private func separator() -> NSView {
         let line = NSBox()
         line.boxType = .separator
         return line
     }
 
-    private func featureRow(title: String, subtitle: String?, toggle: NSSwitch, action: Selector) -> NSView {
+    private func addFeatureRow(to container: NSStackView, title: String, subtitle: String?, toggle: NSSwitch, action: Selector) {
+        let row = featureRow(title: title, subtitle: subtitle, toggle: toggle, action: action)
+        container.addArrangedSubview(row.view)
+        if let subtitleLabel = row.subtitle {
+            modifierGatedRows.append(FeatureRowViews(title: row.title, subtitle: subtitleLabel, toggle: toggle))
+        }
+    }
+
+    private struct BuiltRow {
+        let view: NSView
+        let title: NSTextField
+        let subtitle: NSTextField?
+    }
+
+    private func featureRow(title: String, subtitle: String?, toggle: NSSwitch, action: Selector) -> BuiltRow {
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
 
@@ -208,11 +253,14 @@ final class GeneralPaneViewController: NSViewController {
         labelStack.alignment = .leading
         labelStack.spacing = 1
         labelStack.addArrangedSubview(titleLabel)
+
+        var subtitleLabel: NSTextField?
         if let subtitle = subtitle {
             let sub = NSTextField(labelWithString: subtitle)
             sub.font = .systemFont(ofSize: 11)
             sub.textColor = .secondaryLabelColor
             labelStack.addArrangedSubview(sub)
+            subtitleLabel = sub
         }
 
         toggle.target = self
@@ -228,6 +276,6 @@ final class GeneralPaneViewController: NSViewController {
         if row.arrangedSubviews.count >= 2 {
             row.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
         }
-        return row
+        return BuiltRow(view: row, title: titleLabel, subtitle: subtitleLabel)
     }
 }

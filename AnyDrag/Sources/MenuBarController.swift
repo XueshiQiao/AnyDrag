@@ -50,14 +50,6 @@ final class MenuBarController: NSObject {
 
         menu.addItem(.separator())
 
-        // Enabled (master toggle)
-        let enabledItem = NSMenuItem(title: NSLocalizedString("Enabled", comment: ""), action: #selector(toggleEnabled(_:)), keyEquivalent: "")
-        enabledItem.target = self
-        enabledItem.tag = 100
-        menu.addItem(enabledItem)
-
-        menu.addItem(.separator())
-
         // Settings…
         let settingsItem = NSMenuItem(title: NSLocalizedString("Settings…", comment: ""), action: #selector(openSettings(_:)), keyEquivalent: ",")
         settingsItem.target = self
@@ -94,12 +86,6 @@ final class MenuBarController: NSObject {
 
     // MARK: - Actions
 
-    @objc private func toggleEnabled(_ sender: NSMenuItem) {
-        let newValue = !dragEngine.isEnabled
-        dragEngine.isEnabled = newValue
-        UserDefaults.standard.set(newValue, forKey: Preferences.Key.enabled)
-    }
-
     @objc private func openSettings(_ sender: NSMenuItem) {
         preferencesWindowController.show()
     }
@@ -124,20 +110,18 @@ extension MenuBarController: NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         // Update usage tips with current modifier symbol; hide tips whose
-        // feature is currently disabled.
-        let sym = dragEngine.modifiers.symbol
+        // feature is currently disabled, and hide all tips when no modifier is
+        // selected (otherwise we'd render "Hold — and drag" with a placeholder).
+        let modifiers = dragEngine.modifiers
+        let sym = modifiers.symbol
+        let hasModifier = !modifiers.isEmpty
         for (i, entry) in tipKeys.enumerated() {
             guard let item = menu.item(withTag: 500 + i) else { continue }
-            let visible = entry.gate(dragEngine)
+            let visible = hasModifier && entry.gate(dragEngine)
             item.isHidden = !visible
             if visible {
                 item.title = String(format: NSLocalizedString(entry.key, comment: ""), sym)
             }
-        }
-
-        // Update master Enabled checkmark
-        if let enabledItem = menu.item(withTag: 100) {
-            enabledItem.state = dragEngine.isEnabled ? .on : .off
         }
 
         // Update check-for-updates availability
