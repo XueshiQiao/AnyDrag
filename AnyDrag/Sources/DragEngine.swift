@@ -167,8 +167,9 @@ final class DragEngine {
     private static let synthesizedEventMarker: Int64 = 0x416E794472616701  // "AnyDrag\x01"
 
     /// Distance (in points) the middle button must travel before a tile zone is
-    /// committed. Pulled out as a constant so we can expose it as a setting later.
-    static let tileDirectionThreshold: CGFloat = 30
+    /// committed. Doubles as the cancel-dot ring radius so the visible ring
+    /// matches the actual commit boundary — drag back inside it to cancel.
+    static let tileDirectionThreshold: CGFloat = TileCancelDot.radius
 
     private static let log = FileLog("DragEngine")
 
@@ -176,7 +177,14 @@ final class DragEngine {
     var dragEnabled: Bool = true
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
-    var middleAction: MiddleAction = .off
+    var middleAction: MiddleAction = .off {
+        didSet {
+            // If the user changes the middle-button action mid-gesture, abort
+            // the in-flight tile so a stale gesture can't apply on release.
+            guard oldValue != middleAction, tileTargetWindow != nil else { return }
+            abortTileGesture()
+        }
+    }
 
     // MARK: - Diagnose mode (session-only)
     //
@@ -211,6 +219,7 @@ final class DragEngine {
     private var savedFrames: [CGWindowID: CGRect] = [:]
     private var tilingPanel: TilingPanel?
     private lazy var tileOverlay = TileOverlay()
+    private lazy var tileCancelDot = TileCancelDot()
 
     // Tracks the original screen location of a middle-button press so we can
     // replay a synthesized middle-click if the user releases without dragging.
@@ -269,6 +278,19 @@ final class DragEngine {
         eventTap = nil
         runLoopSource = nil
         strategy.reset()
+        abortTileGesture()
+    }
+
+    /// Discard any in-flight tile-by-direction gesture and tear down its
+    /// overlays. Safe to call from any thread.
+    private func abortTileGesture() {
+        tileTargetWindow = nil
+        currentTileZone = nil
+        middleClickOrigin = nil
+        DispatchQueue.main.async { [weak self] in
+            self?.tileOverlay.hide()
+            self?.tileCancelDot.hide()
+        }
     }
 
     // MARK: - Event Handling
@@ -279,6 +301,10 @@ final class DragEngine {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
+            // The tap missed events while disabled — any in-flight tile
+            // gesture is now stranded. Drop it so we don't apply a stale
+            // tile on the next mouse-up.
+            abortTileGesture()
             return Unmanaged.passRetained(event)
         }
 
@@ -354,13 +380,10 @@ final class DragEngine {
 
         // Clear any orphaned middle-gesture state (e.g. from a tap-disabled
         // gesture where we never received the otherMouseUp).
-        middleClickOrigin = nil
         if tileTargetWindow != nil {
-            tileTargetWindow = nil
-            currentTileZone = nil
-            DispatchQueue.main.async { [weak self] in
-                self?.tileOverlay.hide()
-            }
+            abortTileGesture()
+        } else {
+            middleClickOrigin = nil
         }
         strategy.reset()
         return strategy.handleMouseDown(
@@ -457,6 +480,13 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
+        // Defense in depth: if a previous tile gesture lost its mouse-up (rare —
+        // tap-disabled events also clean up), drop the stranded state before
+        // starting a new one so the old overlay can't survive.
+        if tileTargetWindow != nil {
+            abortTileGesture()
+        }
+
         let screenPoint = event.location
 
         // Ignore clicks on the menu bar (mirrors handleMouseDown).
@@ -494,6 +524,9 @@ final class DragEngine {
             middleClickOrigin = screenPoint
             tileTargetWindow = windowInfo
             currentTileZone = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.tileCancelDot.show(atCGPoint: screenPoint)
+            }
             return nil  // suppress the down; will replay middle-click on no-drag release
         }
     }
@@ -516,8 +549,10 @@ final class DragEngine {
                 if let zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
                     let target = zone.rect(in: screen.visibleFrame)
                     self.tileOverlay.show(rect: target)
+                    self.tileCancelDot.setHighlighted(false)
                 } else {
                     self.tileOverlay.hide()
+                    self.tileCancelDot.setHighlighted(true)
                 }
             }
             return nil
@@ -550,6 +585,7 @@ final class DragEngine {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.tileOverlay.hide()
+                self.tileCancelDot.hide()
                 if let zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
                     self.applyTile(zone: zone, target: target, screen: screen)
                 } else {
