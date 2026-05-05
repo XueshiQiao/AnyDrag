@@ -46,6 +46,9 @@
 "Middle-click action" = "Middle-click action";
 "Off" = "Off";
 "Tile by direction" = "Tile by direction";
+"middleAction.off.subtitle" = "Middle-click passes through to the app.";
+"middleAction.drag.subtitle" = "Press and hold the middle button to drag any window.";
+"middleAction.tile.subtitle" = "Hold the middle button and drag in a direction to tile.";
 
 /* Settings — Launch at Login */
 "Launch at Login" = "Launch at Login";

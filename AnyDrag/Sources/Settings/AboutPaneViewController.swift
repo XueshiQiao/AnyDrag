@@ -59,6 +59,7 @@ final class AboutPaneViewController: NSViewController {
         checkUpdatesButton.bezelStyle = .rounded
         checkUpdatesButton.target = self
         checkUpdatesButton.action = #selector(checkForUpdates(_:))
+        checkUpdatesButton.focusRingType = .none
         stack.addArrangedSubview(checkUpdatesButton)
 
         stack.setCustomSpacing(20, after: checkUpdatesButton)

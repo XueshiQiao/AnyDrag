@@ -10,21 +10,7 @@ final class GeneralPaneViewController: NSViewController {
 
     private let dragEngine: DragEngine
 
-    // Modifier checkboxes, in HIG order: fn ⌃ ⌥ ⇧ ⌘
-    private struct ModifierRow {
-        let element: ModifierCombination
-        let title: String
-    }
-
-    private let modifierRows: [ModifierRow] = [
-        ModifierRow(element: .fn,      title: "fn"),
-        ModifierRow(element: .control, title: "⌃ \(NSLocalizedString("Control", comment: ""))"),
-        ModifierRow(element: .option,  title: "⌥ \(NSLocalizedString("Option", comment: ""))"),
-        ModifierRow(element: .shift,   title: "⇧ \(NSLocalizedString("Shift", comment: ""))"),
-        ModifierRow(element: .command, title: "⌘ \(NSLocalizedString("Command", comment: ""))"),
-    ]
-
-    private var modifierCheckboxes: [NSButton] = []
+    private let modifierChipRow = ModifierChipRow(initial: ModifierCombination())
     private let modifierPreview = NSTextField(labelWithString: "")
 
     private let dragSwitch     = NSSwitch()
@@ -32,7 +18,7 @@ final class GeneralPaneViewController: NSViewController {
     private let tilingSwitch   = NSSwitch()
     private let launchSwitch   = NSSwitch()
 
-    private let middleActionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
     init(dragEngine: DragEngine) {
         self.dragEngine = dragEngine
@@ -52,16 +38,19 @@ final class GeneralPaneViewController: NSViewController {
         // Modifier section
         container.addArrangedSubview(sectionHeader(NSLocalizedString("Modifier Key", comment: "")))
 
-        let modifierRow = NSStackView()
-        modifierRow.orientation = .horizontal
-        modifierRow.spacing = 12
-        for row in modifierRows {
-            let cb = NSButton(checkboxWithTitle: row.title, target: self, action: #selector(modifierToggled(_:)))
-            cb.tag = Int(row.element.rawValue)
-            modifierCheckboxes.append(cb)
-            modifierRow.addArrangedSubview(cb)
+        modifierChipRow.onChange = { [weak self] proposed in
+            guard let self = self else { return false }
+            // At least one modifier required — refuse to toggle off the last.
+            if proposed.isEmpty {
+                NSSound.beep()
+                return false
+            }
+            self.dragEngine.modifiers = proposed
+            UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.modifierFlags)
+            self.updateModifierPreview()
+            return true
         }
-        container.addArrangedSubview(modifierRow)
+        container.addArrangedSubview(modifierChipRow)
 
         modifierPreview.font = .systemFont(ofSize: 11)
         modifierPreview.textColor = .secondaryLabelColor
@@ -94,13 +83,16 @@ final class GeneralPaneViewController: NSViewController {
 
         // Middle-click action
         container.addArrangedSubview(sectionHeader(NSLocalizedString("Middle-click action", comment: "")))
-        for action in MiddleAction.allCases {
-            middleActionPopup.addItem(withTitle: action.displayName)
-            middleActionPopup.lastItem?.representedObject = action.rawValue
+        middleActionPicker.onChange = { [weak self] action in
+            guard let self = self else { return }
+            self.dragEngine.middleAction = action
+            UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
         }
-        middleActionPopup.target = self
-        middleActionPopup.action = #selector(middleActionChanged(_:))
-        container.addArrangedSubview(middleActionPopup)
+        container.addArrangedSubview(middleActionPicker)
+        // Stretch to the container's content width so the three cards span the pane.
+        middleActionPicker.trailingAnchor.constraint(
+            equalTo: container.trailingAnchor, constant: -24
+        ).isActive = true
 
         container.addArrangedSubview(separator())
 
@@ -132,11 +124,8 @@ final class GeneralPaneViewController: NSViewController {
     // MARK: - Refresh
 
     private func refreshFromState() {
-        // Modifier checkboxes
-        for cb in modifierCheckboxes {
-            let element = ModifierCombination(rawValue: UInt(cb.tag))
-            cb.state = dragEngine.modifiers.contains(element) ? .on : .off
-        }
+        // Modifier chips
+        modifierChipRow.selection = dragEngine.modifiers
         updateModifierPreview()
 
         // Feature switches
@@ -145,9 +134,7 @@ final class GeneralPaneViewController: NSViewController {
         tilingSwitch.state   = dragEngine.tilingEnabled ? .on : .off
 
         // Middle action
-        if let idx = MiddleAction.allCases.firstIndex(of: dragEngine.middleAction) {
-            middleActionPopup.selectItem(at: idx)
-        }
+        middleActionPicker.selection = dragEngine.middleAction
 
         // Launch at login
         launchSwitch.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
@@ -165,24 +152,6 @@ final class GeneralPaneViewController: NSViewController {
 
     // MARK: - Actions
 
-    @objc private func modifierToggled(_ sender: NSButton) {
-        var combo = ModifierCombination()
-        for cb in modifierCheckboxes where cb.state == .on {
-            combo.insert(ModifierCombination(rawValue: UInt(cb.tag)))
-        }
-
-        // At least one modifier required — refuse to remove the last one.
-        if combo.isEmpty {
-            sender.state = .on
-            NSSound.beep()
-            return
-        }
-
-        dragEngine.modifiers = combo
-        UserDefaults.standard.set(combo.rawValue, forKey: Preferences.Key.modifierFlags)
-        updateModifierPreview()
-    }
-
     @objc private func dragToggled(_ sender: NSSwitch) {
         let on = (sender.state == .on)
         dragEngine.dragEnabled = on
@@ -199,13 +168,6 @@ final class GeneralPaneViewController: NSViewController {
         let on = (sender.state == .on)
         dragEngine.tilingEnabled = on
         UserDefaults.standard.set(on, forKey: Preferences.Key.tilingEnabled)
-    }
-
-    @objc private func middleActionChanged(_ sender: NSPopUpButton) {
-        guard let raw = sender.selectedItem?.representedObject as? String,
-              let action = MiddleAction(rawValue: raw) else { return }
-        dragEngine.middleAction = action
-        UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
     }
 
     @objc private func launchAtLoginToggled(_ sender: NSSwitch) {
@@ -255,6 +217,7 @@ final class GeneralPaneViewController: NSViewController {
 
         toggle.target = self
         toggle.action = action
+        toggle.focusRingType = .none
 
         let row = NSStackView(views: [labelStack, NSView(), toggle])
         row.orientation = .horizontal

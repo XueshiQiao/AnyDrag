@@ -46,6 +46,9 @@
 "Middle-click action" = "鼠标中键动作";
 "Off" = "关闭";
 "Tile by direction" = "按方向平铺";
+"middleAction.off.subtitle" = "鼠标中键事件会透传给当前应用。";
+"middleAction.drag.subtitle" = "按住鼠标中键即可拖动任意窗口。";
+"middleAction.tile.subtitle" = "按住鼠标中键并向某个方向拖动即可平铺窗口。";
 
 /* Settings — Launch at Login */
 "Launch at Login" = "登录时启动";
