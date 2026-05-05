@@ -1,6 +1,12 @@
 import Cocoa
 import ApplicationServices
 
+extension Notification.Name {
+    /// Posted whenever the engine's `diagnoseEnabled` flag flips. Observers in
+    /// the menu bar and Settings pane react to it (icon swap, section show/hide).
+    static let anyDragDiagnoseModeChanged = Notification.Name("AnyDragDiagnoseModeChanged")
+}
+
 // MARK: - Modifier Combination Model
 
 /// User-selectable combination of modifier keys. Any non-empty subset of
@@ -171,6 +177,31 @@ final class DragEngine {
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
     var middleAction: MiddleAction = .off
+
+    // MARK: - Diagnose mode (session-only)
+    //
+    // Toggled by double-clicking the app icon on the About pane. Setting this
+    // to false snaps the configurable knobs back to their defaults so toggling
+    // off can never leave behind altered behaviour.
+    var diagnoseEnabled: Bool = false {
+        didSet {
+            guard oldValue != diagnoseEnabled else { return }
+            if !diagnoseEnabled {
+                titleBarYOffset = 3
+                showDebugDot = false
+            }
+        }
+    }
+
+    var titleBarYOffset: CGFloat {
+        get { strategy.titleBarYOffset }
+        set { strategy.titleBarYOffset = newValue }
+    }
+
+    var showDebugDot: Bool {
+        get { strategy.showDebugDot }
+        set { strategy.showDebugDot = newValue }
+    }
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?

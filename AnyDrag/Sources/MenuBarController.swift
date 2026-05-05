@@ -2,6 +2,11 @@ import Cocoa
 
 final class MenuBarController: NSObject {
 
+    private static let log = FileLog("MenuBarController")
+
+    private static let normalIconSymbol = "arrow.up.and.down.and.arrow.left.and.right"
+    private static let diagnoseIconSymbol = "wrench.adjustable.fill"
+
     private var statusItem: NSStatusItem!
     private let dragEngine: DragEngine
     private let updateController: UpdateController
@@ -15,6 +20,16 @@ final class MenuBarController: NSObject {
         self.updateController = updateController
         super.init()
         setupStatusItem()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(diagnoseModeChanged(_:)),
+            name: .anyDragDiagnoseModeChanged,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Setup
@@ -23,7 +38,7 @@ final class MenuBarController: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "AnyDrag")
+            button.image = NSImage(systemSymbolName: Self.normalIconSymbol, accessibilityDescription: "AnyDrag")
         }
 
         statusItem.menu = buildMenu()
@@ -83,6 +98,20 @@ final class MenuBarController: NSObject {
         ("tip.maximize", { $0.maximizeEnabled }),
         ("tip.tiling",   { $0.tilingEnabled }),
     ]
+
+    // MARK: - Diagnose mode reaction
+
+    @objc private func diagnoseModeChanged(_ note: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.updateStatusIcon()
+        }
+    }
+
+    private func updateStatusIcon() {
+        guard let button = statusItem.button else { return }
+        let symbol = dragEngine.diagnoseEnabled ? Self.diagnoseIconSymbol : Self.normalIconSymbol
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "AnyDrag")
+    }
 
     // MARK: - Actions
 

@@ -52,6 +52,13 @@
 /* Settings — Launch at Login */
 "Launch at Login" = "Launch at Login";
 
+/* Settings — Diagnostics (hidden; toggled by double-clicking the app icon on the About pane) */
+"Diagnostics" = "Diagnostics";
+"diagnostics.showDot" = "Show synthesized-click dot";
+"diagnostics.showDot.subtitle" = "Flash a marker where AnyDrag fires the title-bar click.";
+"diagnostics.titleBarYOffset" = "Title-bar Y offset";
+"diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default 3 px.";
+
 /* About pane */
 /* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
 "about.version.format" = "Version %1$@ (%2$@)";

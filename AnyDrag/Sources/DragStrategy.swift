@@ -45,13 +45,30 @@ final class TitleBarDragStrategy {
     /// apps' keyboard listeners) — not worth it.
     private static let modifierFlagsToStrip: CGEventFlags = [.maskControl]
 
+    private let debugDot = DebugDotOverlay()
+
+    /// Vertical offset from the window's top edge to the synthesized title-bar
+    /// click. The default works for stock AppKit windows; some custom-rendered
+    /// apps (e.g. WeChat) have non-draggable strips at the very top and need a
+    /// larger offset. Tunable through diagnose mode.
+    var titleBarYOffset: CGFloat = 3
+
+    /// When true, every drag flashes a marker at the synthesized click point.
+    /// Diagnose-mode aid; off in normal use.
+    var showDebugDot: Bool = false
+
     func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
-        // Drag point: cursor's X (on an exposed part of the window), Y at the very top of
-        // the title bar (3px from window top edge). This narrow strip is always draggable,
-        // even in apps with custom title bars, tabs, or toolbars at the top.
-        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + 3)
+        // Drag point: cursor's X (on an exposed part of the window), Y near the top of
+        // the title bar. The default 3px is a narrow strip that's always draggable on
+        // stock AppKit windows; the offset is tunable for apps with custom top regions.
+        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + titleBarYOffset)
+
+        // Diagnostic: show where we're targeting the synthesized click.
+        if showDebugDot {
+            debugDot.flash(at: dragPoint)
+        }
 
         // Only Y needs an offset — X stays at the cursor position
         yOffset = dragPoint.y - cursorPos.y

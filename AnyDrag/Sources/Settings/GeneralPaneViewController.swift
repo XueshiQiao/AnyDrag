@@ -29,12 +29,29 @@ final class GeneralPaneViewController: NSViewController {
         let toggle: NSSwitch
     }
 
+    // Diagnostics (visible only when dragEngine.diagnoseEnabled).
+    private let diagnosticsContainer = NSStackView()
+    private let showDotSwitch = NSSwitch()
+    private let yOffsetSlider = NSSlider()
+    private let yOffsetValueLabel = NSTextField(labelWithString: "")
+
     init(dragEngine: DragEngine) {
         self.dragEngine = dragEngine
         super.init(nibName: nil, bundle: nil)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(diagnoseModeChanged(_:)),
+            name: .anyDragDiagnoseModeChanged,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     override func loadView() {
         let container = NSStackView()
@@ -114,6 +131,13 @@ final class GeneralPaneViewController: NSViewController {
         )
         container.addArrangedSubview(launchRow.view)
 
+        // Diagnostics (only attached to the visible hierarchy when the
+        // diagnose flag is on, so the pane keeps its compact size in normal use).
+        buildDiagnosticsSection()
+        container.addArrangedSubview(diagnosticsContainer)
+        diagnosticsContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24).isActive = true
+        diagnosticsContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24).isActive = true
+
         let view = NSView()
         view.addSubview(container)
         NSLayoutConstraint.activate([
@@ -150,6 +174,10 @@ final class GeneralPaneViewController: NSViewController {
 
         // Launch at login
         launchSwitch.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
+
+        // Diagnostics
+        updateDiagnosticsVisibility(animated: false)
+        syncDiagnosticsControlsFromEngine()
     }
 
     private func updateModifierPreview() {
@@ -172,6 +200,124 @@ final class GeneralPaneViewController: NSViewController {
             row.title.textColor = enabled ? .labelColor : .tertiaryLabelColor
             row.subtitle.textColor = enabled ? .secondaryLabelColor : .tertiaryLabelColor
         }
+    }
+
+    // MARK: - Diagnostics
+
+    private func buildDiagnosticsSection() {
+        diagnosticsContainer.orientation = .vertical
+        diagnosticsContainer.alignment = .leading
+        diagnosticsContainer.spacing = 10
+        diagnosticsContainer.translatesAutoresizingMaskIntoConstraints = false
+        diagnosticsContainer.isHidden = true
+
+        // Top separator + section header
+        diagnosticsContainer.addArrangedSubview(separator())
+        diagnosticsContainer.addArrangedSubview(sectionHeader(NSLocalizedString("Diagnostics", comment: "")))
+
+        // Show-dot toggle
+        showDotSwitch.target = self
+        showDotSwitch.action = #selector(showDotToggled(_:))
+        showDotSwitch.focusRingType = .none
+        let dotRow = featureRow(
+            title: NSLocalizedString("diagnostics.showDot", comment: ""),
+            subtitle: NSLocalizedString("diagnostics.showDot.subtitle", comment: ""),
+            toggle: showDotSwitch,
+            action: #selector(showDotToggled(_:))
+        )
+        diagnosticsContainer.addArrangedSubview(dotRow.view)
+
+        // Y offset slider row
+        let title = NSTextField(labelWithString: NSLocalizedString("diagnostics.titleBarYOffset", comment: ""))
+        title.font = .systemFont(ofSize: NSFont.systemFontSize)
+
+        yOffsetValueLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        yOffsetValueLabel.textColor = .secondaryLabelColor
+        yOffsetValueLabel.alignment = .right
+        yOffsetValueLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        let titleRow = NSStackView(views: [title, NSView(), yOffsetValueLabel])
+        titleRow.orientation = .horizontal
+        titleRow.alignment = .centerY
+        titleRow.distribution = .fill
+        titleRow.spacing = 8
+        titleRow.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
+        diagnosticsContainer.addArrangedSubview(titleRow)
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+        titleRow.leadingAnchor.constraint(equalTo: diagnosticsContainer.leadingAnchor).isActive = true
+        titleRow.trailingAnchor.constraint(equalTo: diagnosticsContainer.trailingAnchor).isActive = true
+
+        yOffsetSlider.minValue = 0
+        yOffsetSlider.maxValue = 40
+        yOffsetSlider.numberOfTickMarks = 9        // 0, 5, 10, …, 40
+        yOffsetSlider.allowsTickMarkValuesOnly = false
+        yOffsetSlider.isContinuous = true
+        yOffsetSlider.target = self
+        yOffsetSlider.action = #selector(yOffsetSliderChanged(_:))
+        yOffsetSlider.focusRingType = .none
+        yOffsetSlider.translatesAutoresizingMaskIntoConstraints = false
+        diagnosticsContainer.addArrangedSubview(yOffsetSlider)
+        yOffsetSlider.leadingAnchor.constraint(equalTo: diagnosticsContainer.leadingAnchor).isActive = true
+        yOffsetSlider.trailingAnchor.constraint(equalTo: diagnosticsContainer.trailingAnchor).isActive = true
+
+        let hint = subLabel(NSLocalizedString("diagnostics.titleBarYOffset.hint", comment: ""))
+        hint.lineBreakMode = .byWordWrapping
+        hint.maximumNumberOfLines = 0
+        diagnosticsContainer.addArrangedSubview(hint)
+    }
+
+    private func updateDiagnosticsVisibility(animated: Bool) {
+        let shouldShow = dragEngine.diagnoseEnabled
+        guard diagnosticsContainer.isHidden == shouldShow else {
+            // Already in the right state.
+            return
+        }
+        diagnosticsContainer.isHidden = !shouldShow
+
+        // Resize the window to fit the new layout. The Settings window
+        // controller sizes panes by their fittingSize on tab switch; we have
+        // to nudge it ourselves when the General pane grows/shrinks.
+        guard let window = view.window else { return }
+        let size = view.fittingSize
+        let newContentRect = NSRect(origin: .zero, size: size)
+        let newFrame = window.frameRect(forContentRect: newContentRect)
+        let current = window.frame
+        let target = NSRect(
+            x: current.origin.x,
+            y: current.origin.y + current.height - newFrame.height,
+            width: newFrame.width,
+            height: newFrame.height
+        )
+        window.setFrame(target, display: true, animate: animated)
+    }
+
+    private func syncDiagnosticsControlsFromEngine() {
+        showDotSwitch.state = dragEngine.showDebugDot ? .on : .off
+        yOffsetSlider.doubleValue = Double(dragEngine.titleBarYOffset)
+        updateYOffsetValueLabel()
+    }
+
+    private func updateYOffsetValueLabel() {
+        let value = Int(yOffsetSlider.doubleValue.rounded())
+        yOffsetValueLabel.stringValue = "\(value) px"
+    }
+
+    @objc private func diagnoseModeChanged(_ note: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.syncDiagnosticsControlsFromEngine()
+            self?.updateDiagnosticsVisibility(animated: true)
+        }
+    }
+
+    @objc private func showDotToggled(_ sender: NSSwitch) {
+        dragEngine.showDebugDot = (sender.state == .on)
+    }
+
+    @objc private func yOffsetSliderChanged(_ sender: NSSlider) {
+        let snapped = sender.doubleValue.rounded()
+        sender.doubleValue = snapped
+        dragEngine.titleBarYOffset = CGFloat(snapped)
+        updateYOffsetValueLabel()
     }
 
     // MARK: - Actions

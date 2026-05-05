@@ -3,13 +3,22 @@ import Cocoa
 /// About pane: icon, name, version, copyright, update + repo + website links.
 final class AboutPaneViewController: NSViewController {
 
+    private static let log = FileLog("Settings.About")
+
+    private let dragEngine: DragEngine
     private let updateController: UpdateController
     private let checkUpdatesButton = NSButton(title: "", target: nil, action: nil)
 
     private static let githubURL  = URL(string: "https://github.com/XueshiQiao/AnyDrag")!
     private static let websiteURL = URL(string: "https://xueshi.dev")!
 
-    init(updateController: UpdateController) {
+    /// Hidden gesture: double-clicking the app icon toggles diagnose mode.
+    /// Once on, it stays on until the user double-clicks again or the app
+    /// restarts (the flag is session-only on the engine).
+    private static let diagnoseClickThreshold = 2
+
+    init(dragEngine: DragEngine, updateController: UpdateController) {
+        self.dragEngine = dragEngine
         self.updateController = updateController
         super.init(nibName: nil, bundle: nil)
     }
@@ -24,7 +33,7 @@ final class AboutPaneViewController: NSViewController {
         stack.edgeInsets = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        // Icon
+        // Icon (also the trigger for the diagnose-mode Easter egg)
         let iconView = NSImageView()
         iconView.image = NSApp.applicationIconImage
         iconView.imageScaling = .scaleProportionallyUpOrDown
@@ -33,6 +42,9 @@ final class AboutPaneViewController: NSViewController {
             iconView.widthAnchor.constraint(equalToConstant: 96),
             iconView.heightAnchor.constraint(equalToConstant: 96),
         ])
+        let iconClick = NSClickGestureRecognizer(target: self, action: #selector(iconClicked(_:)))
+        iconClick.numberOfClicksRequired = Self.diagnoseClickThreshold
+        iconView.addGestureRecognizer(iconClick)
         stack.addArrangedSubview(iconView)
 
         // App name
@@ -109,6 +121,25 @@ final class AboutPaneViewController: NSViewController {
     }
 
     // MARK: - Actions
+
+    @objc private func iconClicked(_ sender: NSClickGestureRecognizer) {
+        toggleDiagnoseMode()
+    }
+
+    private func toggleDiagnoseMode() {
+        let newValue = !dragEngine.diagnoseEnabled
+        dragEngine.diagnoseEnabled = newValue
+        if newValue {
+            // Default-on while diagnose is active: the dot is the main visual
+            // aid for tuning the offset.
+            dragEngine.showDebugDot = true
+        }
+        Self.log.info("diagnose mode → \(newValue)")
+        NotificationCenter.default.post(
+            name: .anyDragDiagnoseModeChanged,
+            object: nil
+        )
+    }
 
     @objc private func checkForUpdates(_ sender: Any?) {
         updateController.checkForUpdates(sender)
