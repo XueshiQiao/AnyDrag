@@ -1,35 +1,24 @@
 import Cocoa
+import ApplicationServices
 import ServiceManagement
 
 private let log = FileLog("Settings.General")
 
-/// General settings pane: modifier picker, per-feature toggles, middle-click
-/// mode, and launch-at-login. All controls are bound to UserDefaults via the
-/// `Preferences` helper and applied to the live `DragEngine`.
+/// General settings pane: language, launch-at-login, and the diagnostics
+/// section. Customization of how AnyDrag itself behaves (modifier keys,
+/// per-feature toggles, middle-click action) lives in the Advanced pane.
 final class GeneralPaneViewController: NSViewController {
 
     private let dragEngine: DragEngine
 
-    private let modifierChipRow = ModifierChipRow(initial: ModifierCombination())
-    private let modifierPreview = NSTextField(labelWithString: "")
+    private let launchSwitch = NSSwitch()
 
-    private let dragSwitch     = NSSwitch()
-    private let maximizeSwitch = NSSwitch()
-    private let tilingSwitch   = NSSwitch()
-    private let launchSwitch   = NSSwitch()
+    // Accessibility permission row
+    private let permissionDot = NSImageView()
+    private let permissionStatusLabel = NSTextField(labelWithString: "")
+    private let permissionGrantButton = NSButton()
 
-    private let middleActionPicker = MiddleActionCardPicker(initial: .off)
-
-    // Feature rows whose enabled state follows the modifier selection.
-    private var modifierGatedRows: [FeatureRowViews] = []
-
-    private struct FeatureRowViews {
-        let title: NSTextField
-        let subtitle: NSTextField
-        let toggle: NSSwitch
-    }
-
-    // Diagnostics (always visible).
+    // Diagnostics
     private let diagnosticsContainer = NSStackView()
     private let showDotSwitch = NSSwitch()
     private let yOffsetSlider = NSSlider()
@@ -39,9 +28,27 @@ final class GeneralPaneViewController: NSViewController {
     init(dragEngine: DragEngine) {
         self.dragEngine = dragEngine
         super.init(nibName: nil, bundle: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive(_:)),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func appDidBecomeActive(_ note: Notification) {
+        // Catches the user returning from System Settings after granting
+        // permission, so the row flips to "Granted" without a manual refresh.
+        DispatchQueue.main.async { [weak self] in
+            self?.updateAccessibilityRow()
+        }
+    }
 
     override func loadView() {
         let container = NSStackView()
@@ -51,66 +58,15 @@ final class GeneralPaneViewController: NSViewController {
         container.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        // Features section (modifier picker + per-feature toggles)
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("Features", comment: "")))
-
-        container.addArrangedSubview(subLabel(NSLocalizedString("Modifier Keys", comment: "")))
-
-        modifierChipRow.onChange = { [weak self] proposed in
-            guard let self = self else { return false }
-            self.dragEngine.modifiers = proposed
-            UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.modifierFlags)
-            self.updateModifierPreview()
-            self.updateFeatureRowsEnabled()
-            return true
-        }
-        container.addArrangedSubview(modifierChipRow)
-
-        modifierPreview.font = .systemFont(ofSize: 11)
-        modifierPreview.textColor = .secondaryLabelColor
-        container.addArrangedSubview(modifierPreview)
-
-        // Vertical breathing room before the feature toggles.
-        container.setCustomSpacing(18, after: modifierPreview)
-
-        addFeatureRow(
-            to: container,
-            title: NSLocalizedString("Drag window", comment: ""),
-            subtitle: NSLocalizedString("feature.drag.subtitle", comment: ""),
-            toggle: dragSwitch,
-            action: #selector(dragToggled(_:))
-        )
-        addFeatureRow(
-            to: container,
-            title: NSLocalizedString("Maximize / Restore", comment: ""),
-            subtitle: NSLocalizedString("feature.maximize.subtitle", comment: ""),
-            toggle: maximizeSwitch,
-            action: #selector(maximizeToggled(_:))
-        )
-        addFeatureRow(
-            to: container,
-            title: NSLocalizedString("Window tiling", comment: ""),
-            subtitle: NSLocalizedString("feature.tiling.subtitle", comment: ""),
-            toggle: tilingSwitch,
-            action: #selector(tilingToggled(_:))
-        )
-
+        // Language
+        container.addArrangedSubview(sectionHeader(NSLocalizedString("Language", comment: "")))
+        let langPopup = buildLanguagePopup()
+        container.addArrangedSubview(langPopup)
+        container.setCustomSpacing(18, after: langPopup)
         container.addArrangedSubview(separator())
 
-        // Middle-click action
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("Middle-click action", comment: "")))
-        middleActionPicker.onChange = { [weak self] action in
-            guard let self = self else { return }
-            self.dragEngine.middleAction = action
-            UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
-        }
-        container.addArrangedSubview(middleActionPicker)
-        // Stretch to the container's content width so the three cards span the pane.
-        middleActionPicker.trailingAnchor.constraint(
-            equalTo: container.trailingAnchor, constant: -24
-        ).isActive = true
-
-        container.addArrangedSubview(separator())
+        // Accessibility permission status
+        container.addArrangedSubview(buildAccessibilityRow())
 
         // Launch at Login
         let launchRow = featureRow(
@@ -121,6 +77,7 @@ final class GeneralPaneViewController: NSViewController {
         )
         container.addArrangedSubview(launchRow.view)
 
+        // Diagnostics
         buildDiagnosticsSection()
         container.addArrangedSubview(diagnosticsContainer)
         diagnosticsContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24).isActive = true
@@ -143,50 +100,110 @@ final class GeneralPaneViewController: NSViewController {
         refreshFromState()
     }
 
-    // MARK: - Refresh
-
     private func refreshFromState() {
-        // Modifier chips
-        modifierChipRow.selection = dragEngine.modifiers
-        updateModifierPreview()
-
-        // Feature switches
-        dragSwitch.state     = dragEngine.dragEnabled ? .on : .off
-        maximizeSwitch.state = dragEngine.maximizeEnabled ? .on : .off
-        tilingSwitch.state   = dragEngine.tilingEnabled ? .on : .off
-
-        updateFeatureRowsEnabled()
-
-        // Middle action
-        middleActionPicker.selection = dragEngine.middleAction
-
-        // Launch at login
         launchSwitch.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
-
-        // Diagnostics
+        updateAccessibilityRow()
         syncDiagnosticsControlsFromEngine()
     }
 
-    private func updateModifierPreview() {
-        let combo = dragEngine.modifiers
-        if combo.isEmpty {
-            modifierPreview.stringValue = NSLocalizedString("modifier.preview.empty", comment: "")
-        } else {
-            let format = NSLocalizedString("modifier.preview.format", comment: "")
-            modifierPreview.stringValue = String(format: format, combo.symbol, combo.displayName)
-        }
+    // MARK: - Accessibility permission
+
+    private func buildAccessibilityRow() -> NSView {
+        let titleLabel = NSTextField(labelWithString: NSLocalizedString("accessibility.row.title", comment: ""))
+        titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
+
+        let dotConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+        permissionDot.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(dotConfig)
+        permissionDot.imageScaling = .scaleProportionallyUpOrDown
+        permissionDot.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            permissionDot.widthAnchor.constraint(equalToConstant: 10),
+            permissionDot.heightAnchor.constraint(equalToConstant: 10),
+        ])
+
+        permissionStatusLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
+
+        permissionGrantButton.title = NSLocalizedString("accessibility.grantButton", comment: "")
+        permissionGrantButton.bezelStyle = .rounded
+        permissionGrantButton.controlSize = .small
+        permissionGrantButton.target = self
+        permissionGrantButton.action = #selector(grantTapped(_:))
+        permissionGrantButton.focusRingType = .none
+        permissionGrantButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        let statusStack = NSStackView(views: [permissionDot, permissionStatusLabel, permissionGrantButton])
+        statusStack.orientation = .horizontal
+        statusStack.alignment = .centerY
+        statusStack.spacing = 6
+
+        let row = NSStackView(views: [titleLabel, NSView(), statusStack])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.distribution = .fill
+        row.spacing = 8
+        row.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return row
     }
 
-    /// When no modifier is selected, AnyDrag has nothing to listen for, so the
-    /// per-feature toggles are dimmed and disabled. Stored on/off values are
-    /// untouched — they snap back as soon as a modifier is re-added.
-    private func updateFeatureRowsEnabled() {
-        let enabled = !dragEngine.modifiers.isEmpty
-        for row in modifierGatedRows {
-            row.toggle.isEnabled = enabled
-            row.title.textColor = enabled ? .labelColor : .tertiaryLabelColor
-            row.subtitle.textColor = enabled ? .secondaryLabelColor : .tertiaryLabelColor
+    private func updateAccessibilityRow() {
+        let granted = AXIsProcessTrusted()
+        permissionDot.contentTintColor = granted ? .systemGreen : .tertiaryLabelColor
+        permissionStatusLabel.stringValue = granted
+            ? NSLocalizedString("accessibility.granted", comment: "")
+            : NSLocalizedString("accessibility.notGranted", comment: "")
+        permissionStatusLabel.textColor = granted ? .secondaryLabelColor : .secondaryLabelColor
+        permissionGrantButton.isHidden = granted
+    }
+
+    @objc private func grantTapped(_ sender: NSButton) {
+        PermissionManager.openAccessibilitySettings()
+    }
+
+    // MARK: - Language
+
+    private func buildLanguagePopup() -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.translatesAutoresizingMaskIntoConstraints = false
+        popup.target = self
+        popup.action = #selector(languageChanged(_:))
+        popup.focusRingType = .none
+
+        let followItem = NSMenuItem(
+            title: NSLocalizedString("language.followSystem", comment: ""),
+            action: nil,
+            keyEquivalent: ""
+        )
+        followItem.representedObject = NSNull()
+        popup.menu?.addItem(followItem)
+
+        if !LocalizationOverride.supportedCodes.isEmpty {
+            popup.menu?.addItem(.separator())
+            for code in LocalizationOverride.supportedCodes {
+                let item = NSMenuItem(
+                    title: LocalizationOverride.nativeName(for: code),
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                item.representedObject = code
+                popup.menu?.addItem(item)
+            }
         }
+
+        let saved = UserDefaults.standard.string(forKey: Preferences.Key.languageOverride) ?? ""
+        if saved.isEmpty {
+            popup.select(followItem)
+        } else if let item = popup.menu?.items.first(where: { ($0.representedObject as? String) == saved }) {
+            popup.select(item)
+        } else {
+            popup.select(followItem)
+        }
+        return popup
+    }
+
+    @objc private func languageChanged(_ sender: NSPopUpButton) {
+        let code = sender.selectedItem?.representedObject as? String  // nil for "Follow System"
+        Preferences.setLanguageOverride(code)
     }
 
     // MARK: - Diagnostics
@@ -197,18 +214,15 @@ final class GeneralPaneViewController: NSViewController {
         diagnosticsContainer.spacing = 10
         diagnosticsContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        // Top separator + section header
         diagnosticsContainer.addArrangedSubview(separator())
         diagnosticsContainer.addArrangedSubview(sectionHeader(NSLocalizedString("Diagnostics", comment: "")))
 
-        // Advanced-setting warning
         let advancedNote = subLabel(NSLocalizedString("diagnostics.advanced.note", comment: ""))
         advancedNote.lineBreakMode = .byWordWrapping
         advancedNote.maximumNumberOfLines = 0
         advancedNote.preferredMaxLayoutWidth = 432
         diagnosticsContainer.addArrangedSubview(advancedNote)
 
-        // Show-dot toggle (defaults to off; user opts in)
         showDotSwitch.target = self
         showDotSwitch.action = #selector(showDotToggled(_:))
         showDotSwitch.focusRingType = .none
@@ -220,7 +234,6 @@ final class GeneralPaneViewController: NSViewController {
         )
         diagnosticsContainer.addArrangedSubview(dotRow.view)
 
-        // Y offset slider row — title, value label, reset button.
         let title = NSTextField(labelWithString: NSLocalizedString("diagnostics.titleBarYOffset", comment: ""))
         title.font = .systemFont(ofSize: NSFont.systemFontSize)
 
@@ -250,7 +263,7 @@ final class GeneralPaneViewController: NSViewController {
 
         yOffsetSlider.minValue = 0
         yOffsetSlider.maxValue = 40
-        yOffsetSlider.numberOfTickMarks = 9        // 0, 5, 10, …, 40
+        yOffsetSlider.numberOfTickMarks = 9
         yOffsetSlider.allowsTickMarkValuesOnly = false
         yOffsetSlider.isContinuous = true
         yOffsetSlider.target = self
@@ -302,25 +315,7 @@ final class GeneralPaneViewController: NSViewController {
         updateYOffsetValueLabel()
     }
 
-    // MARK: - Actions
-
-    @objc private func dragToggled(_ sender: NSSwitch) {
-        let on = (sender.state == .on)
-        dragEngine.dragEnabled = on
-        UserDefaults.standard.set(on, forKey: Preferences.Key.dragEnabled)
-    }
-
-    @objc private func maximizeToggled(_ sender: NSSwitch) {
-        let on = (sender.state == .on)
-        dragEngine.maximizeEnabled = on
-        UserDefaults.standard.set(on, forKey: Preferences.Key.maximizeEnabled)
-    }
-
-    @objc private func tilingToggled(_ sender: NSSwitch) {
-        let on = (sender.state == .on)
-        dragEngine.tilingEnabled = on
-        UserDefaults.standard.set(on, forKey: Preferences.Key.tilingEnabled)
-    }
+    // MARK: - Launch at Login
 
     @objc private func launchAtLoginToggled(_ sender: NSSwitch) {
         let service = SMAppService.mainApp
@@ -332,7 +327,6 @@ final class GeneralPaneViewController: NSViewController {
             }
         } catch {
             log.error("Failed to toggle launch at login: \(error)")
-            // Revert the visual state to match reality.
             sender.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
         }
     }
@@ -356,14 +350,6 @@ final class GeneralPaneViewController: NSViewController {
         let line = NSBox()
         line.boxType = .separator
         return line
-    }
-
-    private func addFeatureRow(to container: NSStackView, title: String, subtitle: String?, toggle: NSSwitch, action: Selector) {
-        let row = featureRow(title: title, subtitle: subtitle, toggle: toggle, action: action)
-        container.addArrangedSubview(row.view)
-        if let subtitleLabel = row.subtitle {
-            modifierGatedRows.append(FeatureRowViews(title: row.title, subtitle: subtitleLabel, toggle: toggle))
-        }
     }
 
     private struct BuiltRow {
@@ -400,7 +386,6 @@ final class GeneralPaneViewController: NSViewController {
         row.alignment = .centerY
         row.distribution = .fill
         row.spacing = 8
-        // Make the spacer view stretch.
         if row.arrangedSubviews.count >= 2 {
             row.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
         }

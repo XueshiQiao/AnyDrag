@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        // Install the user's language override before anything reads a
+        // localized string (e.g. the permission alert).
+        Preferences.applyLanguageOverride()
+
         Self.log.info("launch — AXIsProcessTrusted=\(AXIsProcessTrusted())")
         permissionManager.ensurePermissions { [weak self] in
             Self.log.info("permissions OK, starting")

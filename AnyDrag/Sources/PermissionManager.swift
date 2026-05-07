@@ -29,11 +29,11 @@ final class PermissionManager {
 
     private func showPermissionAlert() {
         let alert = NSAlert()
-        alert.messageText = "AnyDrag Needs Permissions"
-        alert.informativeText = permissionMessage()
+        alert.messageText = NSLocalizedString("permission.title", comment: "")
+        alert.informativeText = NSLocalizedString("permission.message", comment: "")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: NSLocalizedString("permission.openSettings", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("permission.quit", comment: ""))
 
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
@@ -43,13 +43,13 @@ final class PermissionManager {
         }
     }
 
-    private func permissionMessage() -> String {
-        return "AnyDrag requires Accessibility permission to detect modifier keys and move windows.\n\n" +
-            "Please grant the permission in System Settings, then return here. AnyDrag will detect the change automatically."
+    private func openAccessibilitySettings() {
+        Self.openAccessibilitySettings()
     }
 
-    private func openAccessibilitySettings() {
-        // Opens Privacy & Security > Accessibility
+    /// Open System Settings → Privacy & Security → Accessibility. Shared by
+    /// the launch-time permission alert and the in-app permission row.
+    static func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }

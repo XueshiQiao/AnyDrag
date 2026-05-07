@@ -17,10 +17,21 @@
 "Move to %@" = "Move to %@";
 
 /* Settings — window titles */
-"AnyDrag Settings" = "AnyDrag Settings";
+"AnyDrag Settings" = "Settings";
 "About AnyDrag" = "About AnyDrag";
 "General" = "General";
+"Advanced" = "Advanced";
 "About" = "About";
+
+/* Permission alert */
+"permission.title" = "AnyDrag Needs Permissions";
+"permission.message" = "AnyDrag requires Accessibility permission to detect modifier keys and move windows.\n\nPlease grant the permission in System Settings, then return here. AnyDrag will detect the change automatically.";
+"permission.openSettings" = "Open System Settings";
+"permission.quit" = "Quit";
+
+/* Settings — Language section */
+"Language" = "Language";
+"language.followSystem" = "Follow System";
 
 /* Settings — Modifier section */
 "Modifier Keys" = "Modifier Keys";
@@ -49,6 +60,12 @@
 "middleAction.off.subtitle" = "Middle-click passes through to the app.";
 "middleAction.drag.subtitle" = "Press and hold the middle button to drag any window.";
 "middleAction.tile.subtitle" = "Hold the middle button and drag in a direction to tile.";
+
+/* Settings — Accessibility permission row */
+"accessibility.row.title" = "Accessibility Permission";
+"accessibility.granted" = "Granted";
+"accessibility.notGranted" = "Not Granted";
+"accessibility.grantButton" = "Authorize";
 
 /* Settings — Launch at Login */
 "Launch at Login" = "Launch at Login";

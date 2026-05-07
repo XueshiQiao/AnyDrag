@@ -17,10 +17,21 @@
 "Move to %@" = "移动到 %@";
 
 /* Settings — window titles */
-"AnyDrag Settings" = "AnyDrag 设置";
+"AnyDrag Settings" = "设置";
 "About AnyDrag" = "关于 AnyDrag";
 "General" = "通用";
+"Advanced" = "高级";
 "About" = "关于";
+
+/* Permission alert */
+"permission.title" = "AnyDrag 需要授权";
+"permission.message" = "AnyDrag 需要「辅助功能」权限,用于检测修饰键和移动窗口。\n\n请在系统设置中授权,然后回到这里。AnyDrag 会自动检测到授权变化。";
+"permission.openSettings" = "打开系统设置";
+"permission.quit" = "退出";
+
+/* Settings — Language section */
+"Language" = "语言";
+"language.followSystem" = "跟随系统";
 
 /* Settings — Modifier section */
 "Modifier Keys" = "修饰键";
@@ -49,6 +60,12 @@
 "middleAction.off.subtitle" = "鼠标中键事件会透传给当前应用。";
 "middleAction.drag.subtitle" = "按住鼠标中键即可拖动任意窗口。";
 "middleAction.tile.subtitle" = "按住鼠标中键并向某个方向拖动即可平铺窗口。";
+
+/* Settings — Accessibility permission row */
+"accessibility.row.title" = "辅助功能权限";
+"accessibility.granted" = "已授权";
+"accessibility.notGranted" = "未授权";
+"accessibility.grantButton" = "授权";
 
 /* Settings — Launch at Login */
 "Launch at Login" = "登录时启动";

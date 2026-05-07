@@ -19,6 +19,23 @@ final class MenuBarController: NSObject {
         self.updateController = updateController
         super.init()
         setupStatusItem()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(languageChanged(_:)),
+            name: .anyDragLanguageChanged,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func languageChanged(_ note: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.statusItem.menu = self.buildMenu()
+        }
     }
 
     // MARK: - Setup

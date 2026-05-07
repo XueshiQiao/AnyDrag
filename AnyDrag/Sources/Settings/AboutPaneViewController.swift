@@ -99,7 +99,7 @@ final class AboutPaneViewController: NSViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            view.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
+            view.widthAnchor.constraint(greaterThanOrEqualToConstant: 480),
         ])
         self.view = view
     }

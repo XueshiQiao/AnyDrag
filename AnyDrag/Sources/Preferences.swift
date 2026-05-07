@@ -16,6 +16,9 @@ enum Preferences {
         static let titleBarYOffset = "AnyDragTitleBarYOffset"
         static let showDebugDot    = "AnyDragShowDebugDot"
 
+        // In-app language override. Empty/absent means "follow system".
+        static let languageOverride = "AnyDragLanguageOverride"
+
         // Legacy keys (read once on launch and rewritten into the new keys)
         static let legacyModifier         = "AnyDragModifier"           // string-based ModifierKey
         static let legacyMiddleClickDrag  = "AnyDragMiddleClickDrag"    // pre-MiddleAction bool
@@ -30,6 +33,28 @@ enum Preferences {
     /// clamped on launch so a manually edited UserDefaults entry can't push the
     /// engine outside what the UI can represent.
     static let titleBarYOffsetRange: ClosedRange<CGFloat> = 0...40
+
+    /// Read the persisted language override and install it. Call before any
+    /// localized string is read in the launch path so the very first reads see
+    /// the user's choice.
+    static func applyLanguageOverride() {
+        let raw = UserDefaults.standard.string(forKey: Key.languageOverride) ?? ""
+        LocalizationOverride.apply(code: raw.isEmpty ? nil : raw)
+    }
+
+    /// Persist the user's language pick (nil/empty == "Follow System"), apply
+    /// it to the live process, and broadcast `.anyDragLanguageChanged` so
+    /// visible surfaces re-render their labels.
+    static func setLanguageOverride(_ code: String?) {
+        let normalized: String? = (code?.isEmpty == false) ? code : nil
+        if let normalized {
+            UserDefaults.standard.set(normalized, forKey: Key.languageOverride)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Key.languageOverride)
+        }
+        LocalizationOverride.apply(code: normalized)
+        NotificationCenter.default.post(name: .anyDragLanguageChanged, object: nil)
+    }
 
     /// One-shot migration of pre-1.3 preferences. Idempotent — safe to call every launch.
     static func migrateLegacyKeysIfNeeded() {
