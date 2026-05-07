@@ -5,39 +5,35 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 1.2.6</title>
-      <description><![CDATA[<h3>What's New in 1.2.x</h3>
+      <title>Version 1.3.0</title>
+      <description><![CDATA[<h3>What's New in 1.3.0</h3>
 <ul>
-  <li><b>Cancel a middle-button tile drag</b> — During a middle-button tile-by-direction gesture, drag back into the small dot at the press origin to cancel — even after passing the trigger threshold.</li>
-  <li><b>Diagnostics always visible</b> — The "title-bar Y offset" knob (useful for apps like WeChat with non-standard top bars) and the synthesized-click marker now live under Settings → General → Diagnostics by default. Values persist across launches, with a Reset button to restore the default 3 px. Advanced setting — leave the values alone unless you need to tune them.</li>
-  <li><b>Refreshed app icon</b> — New design featuring stacked windows with a cursor.</li>
-  <li><b>Settings window</b> — A proper preference window (General + About tabs) replaces the menu-bar-only toggles. Configure modifier keys, per-feature switches, middle-click action, and launch-at-login from one place.</li>
-  <li><b>Cleaner Features section</b> — The modifier picker is folded into the Features list with a chip-style selector. The redundant menu-bar "Enabled" toggle is gone — uncheck all modifier keys (or all per-feature switches) to disable AnyDrag.</li>
-  <li><b>Middle-button tile by direction</b> — Press the middle mouse button on any window and drag in a direction to tile it: up = full screen, down = centered 85%, left/right = halves, corners = quarters. A translucent live preview shows the target zone before you release.</li>
-  <li><b>Middle-button drag</b> — Optional alternative to modifier+drag: press and hold the middle mouse button to move any window, no modifier required. Off by default; enable from Settings. (Thanks to <a href="https://github.com/goxq">@goxq</a>)</li>
-  <li><b>Option + modifier drag to tile</b> — If your AnyDrag modifier is not Option (e.g. fn, Command, Control), you can now hold Option as an extra key to trigger macOS native window tiling while dragging. (Thanks to <a href="https://github.com/goxq">@goxq</a>)</li>
-  <li><b>Sparkle auto-update</b> — AnyDrag checks for updates automatically via Sparkle.</li>
+  <li><b>In-app language picker</b> — Switch the AnyDrag UI between Follow System, English, and 简体中文 from Settings → General. Takes effect immediately, no relaunch.</li>
+  <li><b>Settings reorganized into three tabs</b> — General (language, accessibility permission, launch at login, diagnostics), Advanced (modifier keys, feature toggles, middle-click action), and About. Window width stays stable while you switch tabs.</li>
+  <li><b>Accessibility permission visible in Settings</b> — General tab shows a green dot when authorized, or a one-click Authorize button that opens System Settings when not. The status updates live as you toggle the permission.</li>
+  <li><b>Revoking AX permission no longer freezes the system</b> — In earlier versions, toggling off AnyDrag's Accessibility permission in System Settings would lock the entire macOS input pipeline (no mouse, no keyboard, hard reboot required). AnyDrag now detects the revocation and tears the event tap down cleanly. When permission is granted again it restarts on its own.</li>
+  <li><b>More Apps by Author</b> — New menu-bar item linking to xueshi.dev for quick access to other apps.</li>
+  <li><b>Middle-button tile drag is cancellable</b> — During a middle-button tile-by-direction gesture, drag back into the small dot at the press origin to cancel — even after passing the trigger threshold.</li>
+  <li><b>Diagnostics always visible</b> — The "title-bar Y offset" knob (useful for apps like WeChat with non-standard top bars) and the synthesized-click marker now live under Settings → General → Diagnostics by default. Values persist across launches, with a Reset button to restore the default 3 px.</li>
   <li><b>Bug fixes and stability improvements</b></li>
 </ul>
 
-<h3>1.2.x 更新内容</h3>
+<h3>1.3.0 更新内容</h3>
 <ul>
+  <li><b>应用内语言切换</b> — 在「设置 → 通用」中可在「跟随系统 / English / 简体中文」之间切换 AnyDrag 界面语言,切换立即生效,无需重启。</li>
+  <li><b>设置页重新组织为三个标签页</b> — 通用(语言、辅助功能权限、登录时启动、诊断)、高级(修饰键、功能开关、鼠标中键动作)、关于。切换标签时窗体宽度不再变化。</li>
+  <li><b>设置页中可直接看到辅助功能权限状态</b> — 通用页显示绿点 + 「已授权」,未授权时显示「授权」按钮一键跳转系统设置;权限变化实时刷新。</li>
+  <li><b>撤销辅助功能权限不再导致系统冻结</b> — 之前在系统设置里关闭 AnyDrag 的辅助功能权限会让整个 macOS 输入管道死锁,鼠标键盘全部失灵,只能强制重启。现在 AnyDrag 会立刻检测到权限撤销并干净地拆除事件 tap;重新授权时会自动恢复。</li>
+  <li><b>菜单栏新增「作者的更多应用」入口</b> — 跳转至 xueshi.dev,方便查看作者的其他应用。</li>
   <li><b>中键平铺手势可取消</b> — 按住中键进行方向平铺时,即使已经越过触发阈值,把光标拖回起点附近的小圆点上即可取消本次平铺。</li>
-  <li><b>诊断设置默认可见</b> — "标题栏 Y 偏移"(对微信等顶栏非标准的应用有用)和"模拟点击标记"现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增"重置"按钮可还原为默认的 3 px。属于高级选项,如非必要请保持默认值。</li>
-  <li><b>全新应用图标</b> — 全新设计的图标:叠层窗口与光标的组合。</li>
-  <li><b>设置窗口</b> — 新的设置窗口(通用 + 关于 两个标签页)取代了之前只能在菜单栏中切换的方式,可在一处调整修饰键、各功能开关、鼠标中键动作,以及登录时启动。</li>
-  <li><b>更清晰的"功能"分区</b> — 修饰键选择器并入"功能"列表,采用 chip 样式选择。原本菜单栏中的"启用"总开关已移除——取消勾选所有修饰键(或所有功能开关)即可禁用 AnyDrag。</li>
-  <li><b>鼠标中键方向平铺</b> — 在窗口上按住中键并朝某个方向拖动即可平铺:上 = 全屏,下 = 居中 85%,左右 = 半屏,四角 = 四分之一屏。释放前会显示半透明的目标区域预览。</li>
-  <li><b>鼠标中键拖动窗口</b> — 修饰键+拖动之外的可选方案:直接按住鼠标中键即可移动窗口,无需修饰键。默认关闭,可在设置中启用。(感谢 <a href="https://github.com/goxq">@goxq</a> 贡献)</li>
-  <li><b>Option + 修饰键拖动平铺</b> — 如果 AnyDrag 的修饰键不是 Option(如 fn、Command、Control),现在可以额外按住 Option 键,在拖动窗口时触发 macOS 原生窗口平铺功能。(感谢 <a href="https://github.com/goxq">@goxq</a> 贡献)</li>
-  <li><b>Sparkle 自动更新</b> — AnyDrag 现在通过 Sparkle 自动检查更新。</li>
+  <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Thu, 07 May 2026 02:21:37 +0000</pubDate>
-      <sparkle:version>5</sparkle:version>
-      <sparkle:shortVersionString>1.2.6</sparkle:shortVersionString>
+      <pubDate>Thu, 07 May 2026 13:32:45 +0000</pubDate>
+      <sparkle:version>6</sparkle:version>
+      <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.2.6/AnyDrag.dmg" length="3607054" type="application/octet-stream" sparkle:edSignature="f+SeS4pmV/rHXSPdcSeevGCJfyJKuXLtEDiXSjrkiN5AQmkAyy+6UyXIKrPjqTfphWhGzUa5dm3DaVU5to6ZBA==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v1.3.0/AnyDrag.dmg" length="3641559" type="application/octet-stream" sparkle:edSignature="cQBDyU4TVW6cSWQgIUBELZurDAiBWmN5maEQu+bMOzq/++qVuDhtFbbVUWrwAKW+tenBLcisuh7S/hwHmJKLAw==" />
     </item>
   </channel>
 </rss>
