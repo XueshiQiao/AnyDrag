@@ -71,8 +71,14 @@ final class PermissionManager {
     /// 250ms debounce on some machines, which is what produced the
     /// "totally inverted" bug). Attempting `CGEventTapCreate` is the only
     /// way to get a synchronous, non-stale answer.
+    ///
+    /// Important: the event mask must be a **mouse** event. Listening for
+    /// keyboard events (e.g. `keyDown`) makes macOS prompt the user for
+    /// **Input Monitoring** in addition to Accessibility — even if the
+    /// tap is throwaway. Our real tap only handles mouse events and only
+    /// needs Accessibility, so the probe matches that profile.
     static func probeAccessibilityTrust() -> Bool {
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let mask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
         let probe = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
