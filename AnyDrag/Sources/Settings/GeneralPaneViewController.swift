@@ -25,29 +25,42 @@ final class GeneralPaneViewController: NSViewController {
     private let yOffsetValueLabel = NSTextField(labelWithString: "")
     private let yOffsetResetButton = NSButton()
 
+    private var trustObserver: NSObjectProtocol?
+    private var trustRefreshTask: DispatchWorkItem?
+
     init(dragEngine: DragEngine) {
         self.dragEngine = dragEngine
         super.init(nibName: nil, bundle: nil)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidBecomeActive(_:)),
-            name: NSApplication.didBecomeActiveNotification,
-            object: nil
-        )
+        // Listen to the same distributed AX-trust-changed notification the
+        // engine uses. Fires only on actual AX state change (not on every
+        // app activation), and 250ms-debounced to work around the
+        // documented stale-read race where AXIsProcessTrusted() may briefly
+        // return the old value right after the notification.
+        trustObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .anyDragAXTrustChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleTrustRefresh()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        if let observer = trustObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+        trustRefreshTask?.cancel()
     }
 
-    @objc private func appDidBecomeActive(_ note: Notification) {
-        // Catches the user returning from System Settings after granting
-        // permission, so the row flips to "Granted" without a manual refresh.
-        DispatchQueue.main.async { [weak self] in
+    private func scheduleTrustRefresh() {
+        trustRefreshTask?.cancel()
+        let task = DispatchWorkItem { [weak self] in
             self?.updateAccessibilityRow()
         }
+        trustRefreshTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250), execute: task)
     }
 
     override func loadView() {
@@ -147,12 +160,16 @@ final class GeneralPaneViewController: NSViewController {
     }
 
     private func updateAccessibilityRow() {
-        let granted = AXIsProcessTrusted()
+        // Use the live probe (see `PermissionManager.probeAccessibilityTrust`).
+        // `AXIsProcessTrusted()` lags the actual state by several hundred
+        // ms after the user toggles AX in System Settings, which would
+        // otherwise display the wrong state until the cache settles.
+        let granted = PermissionManager.probeAccessibilityTrust()
         permissionDot.contentTintColor = granted ? .systemGreen : .tertiaryLabelColor
         permissionStatusLabel.stringValue = granted
             ? NSLocalizedString("accessibility.granted", comment: "")
             : NSLocalizedString("accessibility.notGranted", comment: "")
-        permissionStatusLabel.textColor = granted ? .secondaryLabelColor : .secondaryLabelColor
+        permissionStatusLabel.textColor = .secondaryLabelColor
         permissionGrantButton.isHidden = granted
     }
 

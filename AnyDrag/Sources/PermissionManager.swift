@@ -4,7 +4,11 @@ import ApplicationServices
 final class PermissionManager {
 
     var allGranted: Bool {
-        AXIsProcessTrusted()
+        // Use the live probe (see `probeAccessibilityTrust`) — the polling
+        // path that calls this every 2s after the alert needs to detect
+        // the user's grant as soon as it actually takes effect, not after
+        // the TCC cache catches up.
+        Self.probeAccessibilityTrust()
     }
 
     /// Blocks on a background timer until both permissions are granted, then calls `completion` on the main thread.
@@ -53,5 +57,34 @@ final class PermissionManager {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Probe the *actual* current Accessibility / event-tap authorization
+    /// by attempting to create a throwaway listen-only tap. Returns true
+    /// iff creation succeeds.
+    ///
+    /// Per Apple DTS guidance (developer.apple.com/forums/thread/727984),
+    /// `AXIsProcessTrusted()` and `CGPreflightListenEventAccess()` both
+    /// read a TCC cache that lags the real authorization state — right
+    /// after the user toggles AX in System Settings, those APIs return
+    /// the **previous** value for some hundreds of ms (longer than our
+    /// 250ms debounce on some machines, which is what produced the
+    /// "totally inverted" bug). Attempting `CGEventTapCreate` is the only
+    /// way to get a synchronous, non-stale answer.
+    static func probeAccessibilityTrust() -> Bool {
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let probe = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: mask,
+            callback: { _, _, event, _ in Unmanaged.passRetained(event) },
+            userInfo: nil
+        )
+        guard let probe = probe else { return false }
+        // We only wanted the perm check; tear the throwaway down.
+        CGEvent.tapEnable(tap: probe, enable: false)
+        CFMachPortInvalidate(probe)
+        return true
     }
 }

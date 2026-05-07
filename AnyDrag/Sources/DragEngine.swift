@@ -1,5 +1,13 @@
 import Cocoa
 import ApplicationServices
+import os
+
+extension Notification.Name {
+    /// Undocumented but stable distributed notification posted by macOS when
+    /// any app's Accessibility trust changes. Verified usage in many open-source
+    /// apps (Loop, MonitorControl, Shifty, GitHub Copilot for Xcode, …).
+    static let anyDragAXTrustChanged = Notification.Name("com.apple.accessibility.api")
+}
 
 // MARK: - Modifier Combination Model
 
@@ -175,7 +183,9 @@ final class DragEngine {
         didSet {
             // If the user changes the middle-button action mid-gesture, abort
             // the in-flight tile so a stale gesture can't apply on release.
-            guard oldValue != middleAction, tileTargetWindow != nil else { return }
+            guard oldValue != middleAction else { return }
+            let hasInFlight = cbState.withLock { $0.tileTarget != nil }
+            guard hasInFlight else { return }
             abortTileGesture()
         }
     }
@@ -190,9 +200,53 @@ final class DragEngine {
         set { strategy.showDebugDot = newValue }
     }
 
-    private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
+
+    /// Retained `self` pointer handed to the C event-tap callback. Created
+    /// once on first `start()` and never released until `deinit` — releasing
+    /// while a callback might still be on the stack would UAF (the callback
+    /// uses `takeUnretainedValue`). Cost: a one-time self-cycle while the
+    /// engine is alive. Safe because AnyDrag uses one DragEngine for the
+    /// process lifetime (held by `AppDelegate.dragEngine`); `deinit` is
+    /// effectively unreachable, which we accept rather than introducing
+    /// teardown coordination across threads.
+    private var tapUserInfo: UnsafeMutableRawPointer?
+
+    /// State shared between the tap-callback thread and main thread,
+    /// guarded by one unfair lock to avoid Swift data races. The fast-path
+    /// `handleEvent` reads `trusted` + bumps `eventCounter` per event;
+    /// `tap` and `tapRunLoop` are written by start/stop on main and the
+    /// new tap thread (only at startup), and read on main in `stop()`.
+    /// Tile-by-direction gesture fields are written by the tap thread on
+    /// every middle-button event AND by main from `abortTileGesture()`
+    /// inside `stop()`, so they live here too.
+    ///
+    /// The callback **never** reads `tap` from this state — that would
+    /// open a race where an in-flight callback from an old tap generation
+    /// could read a freshly-installed new tap and disable it. Instead,
+    /// any tap manipulation the callback wants to do is dispatched to
+    /// main, which reads the current `tap` under the lock.
+    private struct CallbackState {
+        var trusted: Bool = true
+        var tap: CFMachPort? = nil
+        var tapRunLoop: CFRunLoop? = nil
+        var eventCounter: Int = 0
+        // Middle-button tile-by-direction gesture state. Mutated by both
+        // the tap callback and main (from abortTileGesture / stop).
+        var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect)? = nil
+        var tileZone: TileZone? = nil
+        var middleClickOrigin: CGPoint? = nil
+    }
+    private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
+
+    private var trustNotificationObserver: NSObjectProtocol?
+    private var trustRestoreDebounceTask: DispatchWorkItem?
+    private var backstopTimer: Timer?
+
+    /// Wall-clock anchor for the backstop's events-per-second log. Only
+    /// touched on main, so no lock needed.
+    private var eventCounterStart: Date = Date()
 
     private let strategy = TitleBarDragStrategy()
     private var savedFrames: [CGWindowID: CGRect] = [:]
@@ -200,19 +254,40 @@ final class DragEngine {
     private lazy var tileOverlay = TileOverlay()
     private lazy var tileCancelDot = TileCancelDot()
 
-    // Tracks the original screen location of a middle-button press so we can
-    // replay a synthesized middle-click if the user releases without dragging.
-    private var middleClickOrigin: CGPoint?
-
-    // Tile-by-direction state. Set in handleOtherMouseDown when middleAction == .tileByDirection,
-    // cleared in handleOtherMouseUp.
-    private var tileTargetWindow: (pid: pid_t, windowID: CGWindowID, frame: CGRect)?
-    private var currentTileZone: TileZone?
+    // Middle-button tile state and click origin live in `cbState` (see
+    // `CallbackState` above) so they're race-free under the lock.
 
     // MARK: - Lifecycle
 
+    init() {
+        installTrustObserver()
+    }
+
+    deinit {
+        removeTrustObserver()
+        if let userInfo = tapUserInfo {
+            // Balance the `Unmanaged.passRetained(self)` from the first
+            // `start()`. Safe at deinit: by the time we get here, no
+            // callback can be running (deinit means refcount hit zero,
+            // which couldn't have happened while the tap held a retain).
+            Unmanaged<DragEngine>.fromOpaque(userInfo).release()
+        }
+    }
+
     func start() {
-        guard eventTap == nil else { return }
+        dispatchPrecondition(condition: .onQueue(.main))
+        Self.log.info("start(): entering")
+
+        let alreadyRunning = cbState.withLock { $0.tap != nil }
+        guard !alreadyRunning else {
+            Self.log.info("start(): already running, no-op")
+            return
+        }
+        // Don't pre-check via `AXIsProcessTrusted()` — its TCC cache lags
+        // System-Settings toggles by ~hundreds of ms (forum thread 727984),
+        // which produced an "inverted" trust state in earlier builds.
+        // Just attempt `CGEvent.tapCreate` and treat its result as the
+        // ground truth; we update the cache from the actual outcome.
 
         let eventMask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue) |
                                      (1 << CGEventType.leftMouseDragged.rawValue) |
@@ -222,50 +297,264 @@ final class DragEngine {
                                      (1 << CGEventType.otherMouseDragged.rawValue) |
                                      (1 << CGEventType.otherMouseUp.rawValue)
 
+        // Retain `self` exactly once across the engine's lifetime. Reused on
+        // re-start so we never accumulate unbalanced retains.
+        if tapUserInfo == nil {
+            tapUserInfo = Unmanaged.passRetained(self).toOpaque()
+        }
+        guard let userInfo = tapUserInfo else { return }
+
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: eventMask,
             callback: eventTapCallback,
-            userInfo: Unmanaged.passRetained(self).toOpaque()
+            userInfo: userInfo
         ) else {
-            Self.log.error("Failed to create event tap. Check Accessibility permissions.")
+            Self.log.warn("start(): tapCreate failed — AX not authorized")
+            // tapCreate is the source of truth; sync the cache to match
+            // so the fast path and UI both see the actual state.
+            cbState.withLock { $0.trusted = false }
             return
         }
 
-        eventTap = tap
+        // Tap created — we ARE authorized. Lock in the truth.
+        cbState.withLock { state in
+            state.tap = tap
+            state.trusted = true
+        }
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
 
-        // Run the event tap on a dedicated high-priority thread
-        let thread = Thread { [weak self] in
-            guard let source = self?.runLoopSource else { return }
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+        // Capture the tap thread's run loop so `stop()` can wake it.
+        // `source` is captured by value (closure local) so the tap thread
+        // never reads `self.runLoopSource` — keeping that field main-only.
+        // The semaphore ensures `start()` returns only after the tap
+        // thread has recorded its run loop into `cbState.tapRunLoop`.
+        let runLoopReady = DispatchSemaphore(value: 0)
+        let thread = Thread { [source, weak self] in
+            let runLoop = CFRunLoopGetCurrent()
+            self?.cbState.withLock { $0.tapRunLoop = runLoop }
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            runLoopReady.signal()
             CFRunLoopRun()
+            // Returns after CFRunLoopStop is called from stop().
+            Self.log.info("tap thread run loop exited")
         }
         thread.qualityOfService = .userInteractive
         thread.name = "com.anydrag.eventtap"
         thread.start()
         tapThread = thread
+
+        // Bounded wait so a wedged Thread.start can't hang main forever.
+        // 1 second is generous — the new thread does just CFRunLoopGetCurrent
+        // before signaling; if it can't manage that, the system is in a
+        // worse state than this lock can fix. On timeout we leak the
+        // partially-started thread (it'll be reaped at process exit) but
+        // do not block main.
+        let waitResult = runLoopReady.wait(timeout: .now() + 1.0)
+        guard waitResult == .success else {
+            Self.log.error("start(): tap thread did not signal readiness within 1s — aborting")
+            // Best-effort rollback so a half-started state can't trip stop().
+            cbState.withLock { state in
+                if let t = state.tap {
+                    CGEvent.tapEnable(tap: t, enable: false)
+                    CFMachPortInvalidate(t)
+                }
+                state.tap = nil
+                state.tapRunLoop = nil
+            }
+            if let source = runLoopSource { CFRunLoopSourceInvalidate(source) }
+            runLoopSource = nil
+            tapThread = nil
+            return
+        }
+
+        cbState.withLock { $0.eventCounter = 0 }
+        eventCounterStart = Date()
+        startBackstopTimer()
+
+        Self.log.info("start(): tap created OK")
     }
 
     func stop() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
+        dispatchPrecondition(condition: .onQueue(.main))
+        Self.log.info("stop(): tearing down event tap")
+
+        // Atomically pull the tap and run loop out of the shared state.
+        // After this exits the lock, the cbState reflects "no tap running"
+        // — a concurrent fast-path reader sees `tap = nil` and skips. The
+        // captured locals here are then used to actually invalidate things
+        // outside the lock, which is fine because CFMachPort/CFRunLoop
+        // operations are thread-safe per Apple docs.
+        let (tap, runLoop) = cbState.withLock { state -> (CFMachPort?, CFRunLoop?) in
+            let t = state.tap
+            let r = state.tapRunLoop
+            state.tap = nil
+            state.tapRunLoop = nil
+            return (t, r)
         }
-        eventTap = nil
+        if let tap = tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let source = runLoopSource {
+            CFRunLoopSourceInvalidate(source)
+        }
+        if let runLoop = runLoop {
+            CFRunLoopStop(runLoop)
+            CFRunLoopWakeUp(runLoop)
+        }
         runLoopSource = nil
+        tapThread = nil
+        // tapUserInfo intentionally NOT released — kept for next start().
+        // Released only in deinit (see init notes).
+
         strategy.reset()
         abortTileGesture()
+
+        backstopTimer?.invalidate()
+        backstopTimer = nil
+        trustRestoreDebounceTask?.cancel()
+        trustRestoreDebounceTask = nil
+
+        Self.log.info("stop(): teardown complete")
+    }
+
+    // MARK: - AX Trust Observation
+
+    private func installTrustObserver() {
+        let observer = DistributedNotificationCenter.default().addObserver(
+            forName: .anyDragAXTrustChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTrustNotification()
+        }
+        trustNotificationObserver = observer
+        Self.log.info("AX trust distributed notification observer installed")
+    }
+
+    private func removeTrustObserver() {
+        if let observer = trustNotificationObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+            trustNotificationObserver = nil
+        }
+    }
+
+    private func handleTrustNotification() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        Self.log.info("AX trust notification fired; scheduling probe in 250ms")
+        // The notification is just a "something changed" hint — for ANY
+        // app, not just us. Defer 250ms to let TCC settle, then probe via
+        // `CGEvent.tapCreate` (the only API that gives a non-stale answer
+        // post-toggle). One debounce path handles both grant and revoke.
+        trustRestoreDebounceTask?.cancel()
+        let task = DispatchWorkItem { [weak self] in
+            self?.recheckTrust(source: "notification")
+        }
+        trustRestoreDebounceTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250), execute: task)
+    }
+
+    /// Probe the actual AX state and reconcile cache + engine lifecycle.
+    /// Called from the notification handler and the backstop poll.
+    private func recheckTrust(source: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let trusted = PermissionManager.probeAccessibilityTrust()
+        Self.log.info("Trust probe [\(source)]: tapCreate \(trusted ? "succeeded" : "failed")")
+        applyTrustChange(trusted, source: source)
+    }
+
+    /// Update the cached trust state and start/stop the engine accordingly.
+    /// Safe to call repeatedly — no-op when the cached state already matches.
+    private func applyTrustChange(_ trusted: Bool, source: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let previous = cbState.withLock { state -> Bool in
+            let p = state.trusted
+            state.trusted = trusted
+            return p
+        }
+        guard previous != trusted else {
+            Self.log.debug("Trust unchanged (\(trusted)) from \(source); ignoring")
+            return
+        }
+        Self.log.warn("AX trust transition: \(previous) → \(trusted) [\(source)]")
+
+        if trusted {
+            start()
+        } else {
+            stop()
+        }
+    }
+
+    // MARK: - Backstop poll
+
+    /// Periodic AXIsProcessTrusted poll to catch missed distributed
+    /// notifications (the notification name is undocumented and not
+    /// guaranteed reliable). Also dumps event-rate stats to the log so we
+    /// can see actual callback frequency.
+    private func startBackstopTimer() {
+        backstopTimer?.invalidate()
+        backstopTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.backstopTick()
+        }
+    }
+
+    /// Belt-and-suspenders trust check at each AX-call entry point. Closes
+    /// the brief window where the cached `trustedLock` may still report
+    /// true while an `com.apple.accessibility.api` notification is in
+    /// flight. Cheap to call (single TCC query, microseconds) — these
+    /// sites are user-gesture-driven, not in any hot loop. If trust is
+    /// gone, schedules a full teardown.
+    private func axGuardOrAbort(_ site: String) -> Bool {
+        if AXIsProcessTrusted() { return true }
+        Self.log.warn("AX call site '\(site)' aborted — AXIsProcessTrusted=false")
+        DispatchQueue.main.async { [weak self] in
+            self?.applyTrustChange(false, source: "axGuard:\(site)")
+        }
+        return false
+    }
+
+    private func backstopTick() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        // Use the live probe (Apple DTS guidance) instead of
+        // `AXIsProcessTrusted()` so cache drift can't accumulate from
+        // stale TCC reads.
+        let actual = PermissionManager.probeAccessibilityTrust()
+        let snapshot = cbState.withLock { state -> (Bool, Int) in
+            let s = (state.trusted, state.eventCounter)
+            state.eventCounter = 0
+            return s
+        }
+        let cached = snapshot.0
+        let count = snapshot.1
+        let elapsed = Date().timeIntervalSince(eventCounterStart)
+        eventCounterStart = Date()
+        let perSec = elapsed > 0 ? Double(count) / elapsed : 0
+        Self.log.debug(String(
+            format: "Backstop: AX cache=%@, probe=%@, events=%d in %.1fs (%.1f/s)",
+            cached ? "true" : "false",
+            actual ? "true" : "false",
+            count, elapsed, perSec
+        ))
+
+        if actual != cached {
+            Self.log.warn("Backstop detected drift cache=\(cached) vs probe=\(actual) — applying")
+            applyTrustChange(actual, source: "backstop")
+        }
     }
 
     /// Discard any in-flight tile-by-direction gesture and tear down its
-    /// overlays. Safe to call from any thread.
+    /// overlays. Safe to call from any thread — tile fields are guarded
+    /// by `cbState`, and the overlay teardown is dispatched to main.
     private func abortTileGesture() {
-        tileTargetWindow = nil
-        currentTileZone = nil
-        middleClickOrigin = nil
+        cbState.withLock { state in
+            state.tileTarget = nil
+            state.tileZone = nil
+            state.middleClickOrigin = nil
+        }
         DispatchQueue.main.async { [weak self] in
             self?.tileOverlay.hide()
             self?.tileCancelDot.hide()
@@ -275,10 +564,48 @@ final class DragEngine {
     // MARK: - Event Handling
 
     fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Re-enable tap if the system disabled it (happens if callback was slow)
+        // Snapshot trust + bump the per-event counter under one lock. We
+        // do NOT read `state.tap` here — see the CallbackState comment for
+        // why (rapid-restart generation race). Any tap manipulation is
+        // dispatched to main, which holds the lock when reading tap.
+        let trusted = cbState.withLock { state -> Bool in
+            state.eventCounter &+= 1
+            return state.trusted
+        }
+
+        // Fast path: AX trust was revoked. Just pass the event through
+        // untouched; main is on the way to `stop()` (or the backstop will
+        // catch us). The system can route events around an unauthorized
+        // tap as long as we don't suppress or modify them.
+        //
+        // Note: this branch silently skips `tapDisabledBy*` handling
+        // when cache=false. That's intentional — `stop()` itself will
+        // call `CFMachPortInvalidate` and `abortTileGesture()`, so no
+        // cleanup is lost.
+        if !trusted {
+            return Unmanaged.passRetained(event)
+        }
+
+        // Tap disabled by the system (callback ran too long, or AX was
+        // revoked). Decide on main where we can probe and access the
+        // tap reference race-free.
         if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
-            if let tap = eventTap {
-                CGEvent.tapEnable(tap: tap, enable: true)
+            Self.log.info("tap-disabled event \(type) — dispatching probe to main")
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                let trusted = PermissionManager.probeAccessibilityTrust()
+                Self.log.info("tap-disabled probe: tapCreate \(trusted ? "succeeded" : "failed")")
+                if trusted {
+                    self.cbState.withLock { state in
+                        if let tap = state.tap {
+                            CGEvent.tapEnable(tap: tap, enable: true)
+                            Self.log.info("Re-enabled tap (probe says authorized)")
+                        }
+                    }
+                } else {
+                    Self.log.warn("tap-disabled and probe failed — calling applyTrustChange(false)")
+                    self.applyTrustChange(false, source: "tap-disabled")
+                }
             }
             // The tap missed events while disabled — any in-flight tile
             // gesture is now stranded. Drop it so we don't apply a stale
@@ -349,6 +676,9 @@ final class DragEngine {
         let clickCount = event.getIntegerValueField(.mouseEventClickState)
         if clickCount == 2 {
             guard maximizeEnabled else { return Unmanaged.passRetained(event) }
+            guard axGuardOrAbort("toggleMaximize") else {
+                return Unmanaged.passRetained(event)
+            }
             toggleMaximize(windowID: windowInfo.windowID, pid: windowInfo.pid, windowFrame: windowInfo.frame)
             return nil
         }
@@ -357,12 +687,19 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
+        guard axGuardOrAbort("strategy.handleMouseDown(left)") else {
+            return Unmanaged.passRetained(event)
+        }
+
         // Clear any orphaned middle-gesture state (e.g. from a tap-disabled
         // gesture where we never received the otherMouseUp).
-        if tileTargetWindow != nil {
+        let hadStaleTile = cbState.withLock { state -> Bool in
+            if state.tileTarget != nil { return true }
+            state.middleClickOrigin = nil
+            return false
+        }
+        if hadStaleTile {
             abortTileGesture()
-        } else {
-            middleClickOrigin = nil
         }
         strategy.reset()
         return strategy.handleMouseDown(
@@ -462,7 +799,8 @@ final class DragEngine {
         // Defense in depth: if a previous tile gesture lost its mouse-up (rare —
         // tap-disabled events also clean up), drop the stranded state before
         // starting a new one so the old overlay can't survive.
-        if tileTargetWindow != nil {
+        let hadStaleTile = cbState.withLock { $0.tileTarget != nil }
+        if hadStaleTile {
             abortTileGesture()
         }
 
@@ -488,7 +826,10 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
 
         case .dragWindow:
-            middleClickOrigin = screenPoint
+            guard axGuardOrAbort("strategy.handleMouseDown(middle)") else {
+                return Unmanaged.passRetained(event)
+            }
+            cbState.withLock { $0.middleClickOrigin = screenPoint }
             strategy.reset()
             return strategy.handleMouseDown(
                 pid: windowInfo.pid,
@@ -500,9 +841,11 @@ final class DragEngine {
 
         case .tileByDirection:
             // Window stays put — we use the middle drag to pick a tile target.
-            middleClickOrigin = screenPoint
-            tileTargetWindow = windowInfo
-            currentTileZone = nil
+            cbState.withLock { state in
+                state.middleClickOrigin = screenPoint
+                state.tileTarget = windowInfo
+                state.tileZone = nil
+            }
             DispatchQueue.main.async { [weak self] in
                 self?.tileCancelDot.show(atCGPoint: screenPoint)
             }
@@ -515,17 +858,27 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
-        // Tile-by-direction path: update the overlay based on direction, suppress the event.
-        if tileTargetWindow != nil, let origin = middleClickOrigin {
+        // Snapshot tile fields atomically; if a tile gesture is in flight,
+        // compute the new zone and write it back under the same lock so an
+        // abort-from-main running concurrently can't tear it.
+        struct TileSnap {
+            let origin: CGPoint
+            let zone: TileZone?
+        }
+        let tileSnap: TileSnap? = cbState.withLock { state -> TileSnap? in
+            guard state.tileTarget != nil, let origin = state.middleClickOrigin else { return nil }
             let dx = event.location.x - origin.x
             let dy = event.location.y - origin.y
             let zone = TileZone.zone(forDx: dx, dy: dy, threshold: Self.tileDirectionThreshold)
-            currentTileZone = zone
+            state.tileZone = zone
+            return TileSnap(origin: origin, zone: zone)
+        }
 
+        if let snap = tileSnap {
             let cursorScreenPoint = event.location
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if let zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
+                if let zone = snap.zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
                     let target = zone.rect(in: screen.visibleFrame)
                     self.tileOverlay.show(rect: target)
                     self.tileCancelDot.setHighlighted(false)
@@ -538,7 +891,8 @@ final class DragEngine {
         }
 
         // Drag-window path (existing).
-        guard strategy.isActive, middleClickOrigin != nil else {
+        let hasOrigin = cbState.withLock { $0.middleClickOrigin != nil }
+        guard strategy.isActive, hasOrigin else {
             return Unmanaged.passRetained(event)
         }
         return strategy.handleMouseDragged(event: event)
@@ -553,36 +907,51 @@ final class DragEngine {
             return Unmanaged.passRetained(event)
         }
 
-        // Tile-by-direction path.
-        if let target = tileTargetWindow, let origin = middleClickOrigin {
-            let zone = currentTileZone
+        // Tile-by-direction path. Pull all gesture state out under one
+        // lock so the read+clear pair is atomic with a concurrent
+        // `abortTileGesture` from main.
+        struct TileFinish {
+            let target: (pid: pid_t, windowID: CGWindowID, frame: CGRect)
+            let origin: CGPoint
+            let zone: TileZone?
+        }
+        let tileFinish: TileFinish? = cbState.withLock { state -> TileFinish? in
+            guard let target = state.tileTarget, let origin = state.middleClickOrigin else { return nil }
+            let zone = state.tileZone
+            state.tileTarget = nil
+            state.middleClickOrigin = nil
+            state.tileZone = nil
+            return TileFinish(target: target, origin: origin, zone: zone)
+        }
+        if let finish = tileFinish {
             let cursorScreenPoint = event.location
-            tileTargetWindow = nil
-            middleClickOrigin = nil
-            currentTileZone = nil
-
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.tileOverlay.hide()
                 self.tileCancelDot.hide()
-                if let zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
-                    self.applyTile(zone: zone, target: target, screen: screen)
+                if let zone = finish.zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
+                    self.applyTile(zone: zone, target: finish.target, screen: screen)
                 } else {
                     // Below threshold — replay the original middle-click so apps still see it.
-                    self.replayMiddleClick(at: origin)
+                    self.replayMiddleClick(at: finish.origin)
                 }
             }
             return nil
         }
 
-        // Drag-window path (existing).
-        guard strategy.isActive, middleClickOrigin != nil else {
+        // Drag-window path (existing). Pull and clear `middleClickOrigin`
+        // atomically so a concurrent abort can't observe a half-cleared state.
+        let dragOrigin: CGPoint? = cbState.withLock { state -> CGPoint? in
+            let o = state.middleClickOrigin
+            state.middleClickOrigin = nil
+            return o
+        }
+        guard strategy.isActive, dragOrigin != nil else {
             return Unmanaged.passRetained(event)
         }
 
         let didDrag = strategy.didDrag
-        let origin = middleClickOrigin
-        middleClickOrigin = nil
+        let origin = dragOrigin
 
         let result = strategy.handleMouseUp(event: event)
 
@@ -606,6 +975,7 @@ final class DragEngine {
     private func applyTile(zone: TileZone,
                            target: (pid: pid_t, windowID: CGWindowID, frame: CGRect),
                            screen: NSScreen) {
+        guard axGuardOrAbort("applyTile") else { return }
         guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else { return }
 
         let nsRect = zone.rect(in: screen.visibleFrame)
@@ -691,6 +1061,7 @@ final class DragEngine {
     }
 
     private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
+        guard axGuardOrAbort("performTileAction") else { return }
         guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else { return }
         guard let screen = screenVisibleFrame(for: windowInfo.frame) else { return }
 
@@ -804,6 +1175,7 @@ final class DragEngine {
     }
 
     private func toggleMaximizeImpl(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
+        guard axGuardOrAbort("toggleMaximizeImpl") else { return }
         guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else { return }
 
         // Activate the target app and raise the window
