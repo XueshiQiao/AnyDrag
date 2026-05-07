@@ -656,15 +656,9 @@ final class DragEngine {
 
         let screenPoint = event.location
 
-        // Ignore clicks on the menu bar
-        let menuBarHeight = Double(NSStatusBar.system.thickness)
-        if let mainScreen = NSScreen.screens.first {
-            let mainFrame = mainScreen.frame
-            if screenPoint.x >= mainFrame.origin.x &&
-               screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
-               screenPoint.y < menuBarHeight {
-                return Unmanaged.passRetained(event)
-            }
+        // Pass clicks on the primary screen's menu bar through.
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passRetained(event)
         }
 
         // Find the topmost normal window (layer 0) under the cursor
@@ -746,14 +740,9 @@ final class DragEngine {
 
         let screenPoint = event.location
 
-        let menuBarHeight = Double(NSStatusBar.system.thickness)
-        if let mainScreen = NSScreen.screens.first {
-            let mainFrame = mainScreen.frame
-            if screenPoint.x >= mainFrame.origin.x &&
-               screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
-               screenPoint.y < menuBarHeight {
-                return Unmanaged.passRetained(event)
-            }
+        // Pass clicks on the primary screen's menu bar through.
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passRetained(event)
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
@@ -806,15 +795,9 @@ final class DragEngine {
 
         let screenPoint = event.location
 
-        // Ignore clicks on the menu bar (mirrors handleMouseDown).
-        let menuBarHeight = Double(NSStatusBar.system.thickness)
-        if let mainScreen = NSScreen.screens.first {
-            let mainFrame = mainScreen.frame
-            if screenPoint.x >= mainFrame.origin.x &&
-               screenPoint.x <= mainFrame.origin.x + mainFrame.width &&
-               screenPoint.y < menuBarHeight {
-                return Unmanaged.passRetained(event)
-            }
+        // Pass clicks on the primary screen's menu bar through (mirrors handleMouseDown).
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passRetained(event)
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
@@ -1003,6 +986,27 @@ final class DragEngine {
         let primaryHeight = primary.frame.height
         let nsPoint = NSPoint(x: cg.x, y: primaryHeight - cg.y)
         return NSScreen.screens.first { $0.frame.contains(nsPoint) } ?? primary
+    }
+
+    /// Returns true if `cgPoint` falls inside the **primary** screen's
+    /// menu-bar zone (the top `NSStatusBar.system.thickness` pt strip).
+    /// Click handlers use this to pass menu-bar clicks through to the
+    /// system instead of treating them as window drags.
+    ///
+    /// The Y lower bound (`>= 0`) matters: CG coordinates are global with
+    /// the primary's top-left as origin, so a secondary display positioned
+    /// above the primary has CG y < 0. Without the lower bound, every
+    /// click on such a secondary display has y < menuBarHeight and was
+    /// silently passed through — breaking AnyDrag entirely on that
+    /// screen. (See issue #4.)
+    private static func isOnPrimaryMenuBar(_ cgPoint: CGPoint) -> Bool {
+        guard let primary = NSScreen.screens.first else { return false }
+        let primaryFrame = primary.frame
+        let menuBarHeight = NSStatusBar.system.thickness
+        return cgPoint.y >= 0 &&
+               cgPoint.y < menuBarHeight &&
+               cgPoint.x >= primaryFrame.origin.x &&
+               cgPoint.x <= primaryFrame.origin.x + primaryFrame.width
     }
 
     private func replayMiddleClick(at point: CGPoint) {
