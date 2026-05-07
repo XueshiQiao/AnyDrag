@@ -50,11 +50,11 @@ final class TitleBarDragStrategy {
     /// Vertical offset from the window's top edge to the synthesized title-bar
     /// click. The default works for stock AppKit windows; some custom-rendered
     /// apps (e.g. WeChat) have non-draggable strips at the very top and need a
-    /// larger offset. Tunable through diagnose mode.
+    /// larger offset. Tunable from Settings → General → Diagnostics.
     var titleBarYOffset: CGFloat = 3
 
     /// When true, every drag flashes a marker at the synthesized click point.
-    /// Diagnose-mode aid; off in normal use.
+    /// Diagnostics aid; off by default.
     var showDebugDot: Bool = false
 
     func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false) -> Unmanaged<CGEvent>? {

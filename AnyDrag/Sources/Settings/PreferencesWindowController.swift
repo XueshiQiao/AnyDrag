@@ -27,7 +27,7 @@ final class PreferencesWindowController: NSWindowController, NSToolbarDelegate, 
     private let updateController: UpdateController
 
     private lazy var generalVC = GeneralPaneViewController(dragEngine: dragEngine)
-    private lazy var aboutVC   = AboutPaneViewController(dragEngine: dragEngine, updateController: updateController)
+    private lazy var aboutVC   = AboutPaneViewController(updateController: updateController)
 
     private var currentTab: Tab = .general
 

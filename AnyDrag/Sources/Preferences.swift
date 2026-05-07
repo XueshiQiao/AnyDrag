@@ -11,11 +11,25 @@ enum Preferences {
         static let tilingEnabled   = "AnyDragTilingEnabled"
         static let middleAction    = "AnyDragMiddleAction"
 
+        // Diagnostics — persisted across launches now that the section is
+        // always visible in Settings.
+        static let titleBarYOffset = "AnyDragTitleBarYOffset"
+        static let showDebugDot    = "AnyDragShowDebugDot"
+
         // Legacy keys (read once on launch and rewritten into the new keys)
         static let legacyModifier         = "AnyDragModifier"           // string-based ModifierKey
         static let legacyMiddleClickDrag  = "AnyDragMiddleClickDrag"    // pre-MiddleAction bool
         static let legacyEnabled          = "AnyDragEnabled"            // pre-1.3 master toggle
     }
+
+    /// The default title-bar Y offset, in points. The reset button in the
+    /// Diagnostics section snaps the slider back to this value.
+    static let defaultTitleBarYOffset: CGFloat = 3
+
+    /// Range mirrored from the Diagnostics slider (0…40). Persisted values are
+    /// clamped on launch so a manually edited UserDefaults entry can't push the
+    /// engine outside what the UI can represent.
+    static let titleBarYOffsetRange: ClosedRange<CGFloat> = 0...40
 
     /// One-shot migration of pre-1.3 preferences. Idempotent — safe to call every launch.
     static func migrateLegacyKeysIfNeeded() {
@@ -67,5 +81,14 @@ enum Preferences {
         } else {
             engine.middleAction = .off
         }
+
+        if let raw = d.object(forKey: Key.titleBarYOffset) as? Double {
+            let clamped = min(max(CGFloat(raw), titleBarYOffsetRange.lowerBound), titleBarYOffsetRange.upperBound)
+            engine.titleBarYOffset = clamped
+        } else {
+            engine.titleBarYOffset = defaultTitleBarYOffset
+        }
+
+        engine.showDebugDot = d.object(forKey: Key.showDebugDot) as? Bool ?? false
     }
 }

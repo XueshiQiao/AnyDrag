@@ -52,12 +52,14 @@
 /* Settings — Launch at Login */
 "Launch at Login" = "登录时启动";
 
-/* Settings — Diagnostics (hidden; toggled by double-clicking the app icon on the About pane) */
+/* Settings — Diagnostics */
 "Diagnostics" = "诊断";
+"diagnostics.advanced.note" = "高级设置项,如非必要请保持默认值。";
 "diagnostics.showDot" = "显示模拟点击位置";
 "diagnostics.showDot.subtitle" = "在 AnyDrag 触发标题栏点击的位置闪一个标记。";
 "diagnostics.titleBarYOffset" = "标题栏 Y 偏移";
 "diagnostics.titleBarYOffset.hint" = "模拟点击距离窗口顶边的距离,默认 3 px。";
+"diagnostics.reset" = "重置";
 
 /* About pane */
 /* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
