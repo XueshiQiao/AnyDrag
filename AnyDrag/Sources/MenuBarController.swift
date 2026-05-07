@@ -59,16 +59,23 @@ final class MenuBarController: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        // Feedback
-        let feedbackItem = NSMenuItem(title: NSLocalizedString("Feedback…", comment: ""), action: #selector(openFeedback(_:)), keyEquivalent: "")
-        feedbackItem.target = self
-        menu.addItem(feedbackItem)
-
         // Check for Updates
         let updateItem = NSMenuItem(title: NSLocalizedString("Check for Updates…", comment: ""), action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         updateItem.target = self
         updateItem.tag = 600
         menu.addItem(updateItem)
+
+        menu.addItem(.separator())
+
+        // Feedback
+        let feedbackItem = NSMenuItem(title: NSLocalizedString("Feedback…", comment: ""), action: #selector(openFeedback(_:)), keyEquivalent: "")
+        feedbackItem.target = self
+        menu.addItem(feedbackItem)
+
+        // More Apps by Author → xueshi.dev
+        let moreAppsItem = NSMenuItem(title: NSLocalizedString("More Apps by Author…", comment: ""), action: #selector(openAuthorWebsite(_:)), keyEquivalent: "")
+        moreAppsItem.target = self
+        menu.addItem(moreAppsItem)
 
         menu.addItem(.separator())
 
@@ -101,6 +108,11 @@ final class MenuBarController: NSObject {
 
     @objc private func checkForUpdates(_ sender: NSMenuItem) {
         updateController.checkForUpdates(sender)
+    }
+
+    @objc private func openAuthorWebsite(_ sender: NSMenuItem) {
+        guard let url = URL(string: "https://xueshi.dev") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func quitApp(_ sender: NSMenuItem) {
