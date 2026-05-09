@@ -64,10 +64,26 @@ To gather the changeset: `git log <last-major-tag>..HEAD --no-merges --pretty=fo
 
 ## Phase 3 — Commit, tag, push (triggers CI)
 
+**Ordering matters.** If origin has moved while you were preparing the release (CI pushed the previous release's appcast, or someone else pushed), you MUST rebase **before** tagging — tags don't follow rebase. See the "Tags don't follow rebase" gotcha below for the failure mode.
+
+The safe sequence:
+
 ```bash
+# 1. Stage the release commit
 git add project.yml RELEASE_NOTES.html
 git commit -m "Release X.Y.Z: <one-line summary of headline features>"
+
+# 2. Sync with origin BEFORE tagging
+git fetch origin
+git pull --rebase origin main      # no-op if you're already up-to-date
+
+# 3. Tag AFTER rebase, on the up-to-date HEAD
 git tag vX.Y.Z
+
+# 4. Sanity check: tag and HEAD must point to the same commit
+[ "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)" ] || echo "TAG MISMATCH — DO NOT PUSH"
+
+# 5. Push main first, then tag — gives CI a clean view
 git push origin main
 git push origin vX.Y.Z
 ```
@@ -144,6 +160,8 @@ Report to the user:
 
 - **Don't merge feature branches via PR for solo releases.** `git cherry-pick` keeps the linear history that matches existing commit log style.
 - **Build number must increase every release** (memory `feedback_version_bump`). Sparkle compares `CFBundleVersion`, not `CFBundleShortVersionString`, to decide whether to offer an update.
+- **Tags don't follow rebase.** Hit live in 1.3.1: pre-release prep had a `git pull --rebase` *after* `git tag vX.Y.Z`, so the tag stayed at the pre-rebase orphan commit. Pushing it triggered CI; the build/sign/notarize/DMG steps all succeeded, but the "Sign DMG and Generate Appcast" step's final `git push origin HEAD:main` failed with `! [rejected] HEAD -> main (fetch first)` — the orphan commit's history didn't include origin/main's actual head. Because the GitHub Release creation runs *after* that push, the release was never created and `gh release view` returned "release not found". **Recovery**: delete the bad tag locally and remotely (`git push origin :refs/tags/vX.Y.Z; git tag -d vX.Y.Z`), retag at the correct post-rebase commit, push again. **Prevention**: tag *after* rebase, and always run the `[ "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)" ]` sanity check before pushing the tag.
+- **Pre-flight permission prompts on a clean state.** Your dev machine has already granted permissions a fresh user hasn't. Before tagging a release, **install the build into `/Applications` and launch as if you were a new user** — observe which permission prompts macOS actually shows. AnyDrag should only request Accessibility. Hit live in 1.3.0/1.3.1: a probe added to detect AX revocation listened for `keyDown` events, which made macOS prompt for **Input Monitoring** even though AnyDrag never reads keyboard input. The bug shipped because dev had previously granted Input Monitoring incidentally and never saw the prompt. **Code-level prevention**: when creating event taps for permission probing, use only the minimum capability the app actually needs (mouse for AnyDrag, never keyboard).
 - **Don't try to install a cask via raw URL or 2-segment tap form.** `brew install --cask https://...rb` and `brew install --cask user/repo` both fail in modern brew — see memory `feedback_brew_install_form`. Only the 3-segment form `XueshiQiao/tap/anydrag` works for this user's setup.
 - **Don't put the cask file in the AnyDrag main repo.** It belongs in `homebrew-tap`. The skill `macos-app-scaffold-enhance`'s template wrongly puts it in `Casks/` of the app repo — that won't install.
 - **`gh` is at `/opt/homebrew/bin/gh`.** PATH may not include it depending on shell setup; use the absolute path if `which gh` fails.
