@@ -234,7 +234,7 @@ final class DragEngine {
         var eventCounter: Int = 0
         // Middle-button tile-by-direction gesture state. Mutated by both
         // the tap callback and main (from abortTileGesture / stop).
-        var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect)? = nil
+        var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
         var tileZone: TileZone? = nil
         var middleClickOrigin: CGPoint? = nil
         // Throttle anchor for diagnostic "miss" logs (modifier mismatch,
@@ -680,6 +680,7 @@ final class DragEngine {
             guard axGuardOrAbort("toggleMaximize") else {
                 return Unmanaged.passRetained(event)
             }
+            Self.log.info("maximize toggle: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
             toggleMaximize(windowID: windowInfo.windowID, pid: windowInfo.pid, windowFrame: windowInfo.frame)
             return nil
         }
@@ -703,6 +704,7 @@ final class DragEngine {
             abortTileGesture()
         }
         strategy.reset()
+        Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
         return strategy.handleMouseDown(
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
@@ -824,6 +826,7 @@ final class DragEngine {
             }
             cbState.withLock { $0.middleClickOrigin = screenPoint }
             strategy.reset()
+            Self.log.info("middle drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
             return strategy.handleMouseDown(
                 pid: windowInfo.pid,
                 windowID: windowInfo.windowID,
@@ -842,6 +845,7 @@ final class DragEngine {
             DispatchQueue.main.async { [weak self] in
                 self?.tileCancelDot.show(atCGPoint: screenPoint)
             }
+            Self.log.info("tile gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
             return nil  // suppress the down; will replay middle-click on no-drag release
         }
     }
@@ -904,7 +908,7 @@ final class DragEngine {
         // lock so the read+clear pair is atomic with a concurrent
         // `abortTileGesture` from main.
         struct TileFinish {
-            let target: (pid: pid_t, windowID: CGWindowID, frame: CGRect)
+            let target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)
             let origin: CGPoint
             let zone: TileZone?
         }
@@ -966,13 +970,14 @@ final class DragEngine {
     /// Snap the target window to the tile zone's rect on the given screen.
     /// Saves the original frame in savedFrames so the existing double-click-restore works.
     private func applyTile(zone: TileZone,
-                           target: (pid: pid_t, windowID: CGWindowID, frame: CGRect),
+                           target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
                            screen: NSScreen) {
         guard axGuardOrAbort("applyTile") else { return }
         guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else {
             Self.log.warn("applyTile: findAXWindow returned nil for pid=\(target.pid) wid=\(target.windowID)")
             return
         }
+        Self.log.info("tile commit: app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)")
 
         let nsRect = zone.rect(in: screen.visibleFrame)
         let cgRect = cgRectFromNSScreenRect(nsRect)
@@ -1051,7 +1056,8 @@ final class DragEngine {
         }
     }
 
-    private func showTilingPanel(at point: NSPoint, for windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
+    private func showTilingPanel(at point: NSPoint, for windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
+        Self.log.info("tile panel: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
         tilingPanel?.dismiss()
 
         let panel = TilingPanel()
@@ -1084,7 +1090,7 @@ final class DragEngine {
         return activeModifiers == targetModifiers.union(.maskAlternate)
     }
 
-    private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
+    private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
         guard axGuardOrAbort("performTileAction") else { return }
         guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else {
             Self.log.warn("performTileAction: findAXWindow returned nil for pid=\(windowInfo.pid) wid=\(windowInfo.windowID)")
@@ -1378,7 +1384,10 @@ final class DragEngine {
 
     /// Finds the topmost normal window at the given screen point using CGWindowListCopyWindowInfo.
     /// Returns nil if no window is found. Skips the Dock and non-normal windows (layer != 0).
-    private func windowUnderCursor(at point: CGPoint) -> (pid: pid_t, windowID: CGWindowID, frame: CGRect)? {
+    /// `app` is the CG-reported process owner name (e.g. "Google Chrome", "Finder") — extracted
+    /// here so engagement-point logs can include it without a separate NSRunningApplication
+    /// lookup on the tap-callback thread.
+    private func windowUnderCursor(at point: CGPoint) -> (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? {
         guard let windowList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -1407,7 +1416,7 @@ final class DragEngine {
             )
 
             if bounds.contains(point) {
-                return (pid, windowID, bounds)
+                return (pid, windowID, bounds, ownerName)
             }
         }
         return nil
