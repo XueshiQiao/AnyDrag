@@ -1,3 +1,13 @@
+<h3>What's New in 1.3.3</h3>
+<ul>
+  <li><b>Improved diagnostics for "no reaction" reports</b> — When a click with the configured modifier doesn't engage AnyDrag, the log now records the observed vs. expected modifier so reports can be triaged in one round-trip. The app name of the window under the cursor is also captured at engagement points (drag start, maximize toggle, tile commit), so reports like "AnyDrag doesn't work in app X" can be matched to log evidence at a glance. Logs live at <code>~/Library/Logs/AnyDrag/AnyDrag.log</code>.</li>
+</ul>
+
+<h3>1.3.3 更新内容</h3>
+<ul>
+  <li><b>诊断日志增强,方便定位「按了没反应」类问题</b> — 当带修饰键的点击没能触发 AnyDrag 时,日志现在会记录实际按下的修饰键和配置的修饰键,反馈问题时不需要再来回追问。同时在拖动、最大化、平铺等触发点会记录目标 App 的名字,「在某某 App 里不工作」的反馈可以直接对照日志定位。日志位置:<code>~/Library/Logs/AnyDrag/AnyDrag.log</code>。</li>
+</ul>
+
 <h3>What's New in 1.3.2</h3>
 <ul>
   <li><b>Fix: spurious Input Monitoring permission prompt</b> — A trust probe added in 1.3.0 was listening for keyboard events with a throwaway tap, which made macOS prompt users for Input Monitoring even though AnyDrag never reads keyboard input. The probe now uses a mouse event, so only Accessibility is requested.</li>
