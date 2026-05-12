@@ -237,6 +237,10 @@ final class DragEngine {
         var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect)? = nil
         var tileZone: TileZone? = nil
         var middleClickOrigin: CGPoint? = nil
+        // Throttle anchor for diagnostic "miss" logs (modifier mismatch,
+        // no-window-under-cursor). Shared bucket; 1s window keeps the log
+        // readable when a user clicks rapidly.
+        var lastDiagMissAt: CFAbsoluteTime = 0
     }
     private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
 
@@ -376,6 +380,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) middle=\(self.middleAction.rawValue) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -651,6 +656,7 @@ final class DragEngine {
         // We also allow an extra Option key for non-Option shortcuts so
         // macOS native tiling can still kick in during an AnyDrag drag.
         guard matchesConfiguredModifier(event.flags) else {
+            logModifierMiss(flags: event.flags, button: "left")
             return Unmanaged.passRetained(event)
         }
 
@@ -663,6 +669,7 @@ final class DragEngine {
 
         // Find the topmost normal window (layer 0) under the cursor
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            logNoWindowMiss(button: "left", at: screenPoint)
             return Unmanaged.passRetained(event)
         }
 
@@ -735,6 +742,7 @@ final class DragEngine {
         }
 
         guard matchesConfiguredModifier(event.flags) else {
+            logModifierMiss(flags: event.flags, button: "right")
             return Unmanaged.passRetained(event)
         }
 
@@ -746,6 +754,7 @@ final class DragEngine {
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            logNoWindowMiss(button: "right", at: screenPoint)
             return Unmanaged.passRetained(event)
         }
 
@@ -801,6 +810,7 @@ final class DragEngine {
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            logNoWindowMiss(button: "middle", at: screenPoint)
             return Unmanaged.passRetained(event)
         }
 
@@ -959,7 +969,10 @@ final class DragEngine {
                            target: (pid: pid_t, windowID: CGWindowID, frame: CGRect),
                            screen: NSScreen) {
         guard axGuardOrAbort("applyTile") else { return }
-        guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else { return }
+        guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else {
+            Self.log.warn("applyTile: findAXWindow returned nil for pid=\(target.pid) wid=\(target.windowID)")
+            return
+        }
 
         let nsRect = zone.rect(in: screen.visibleFrame)
         let cgRect = cgRectFromNSScreenRect(nsRect)
@@ -1010,7 +1023,10 @@ final class DragEngine {
     }
 
     private func replayMiddleClick(at point: CGPoint) {
-        guard let source = CGEventSource(stateID: .hidSystemState) else { return }
+        guard let source = CGEventSource(stateID: .hidSystemState) else {
+            Self.log.warn("replayMiddleClick: CGEventSource creation failed — middle-click swallowed")
+            return
+        }
         source.userData = Self.synthesizedEventMarker
 
         if let down = CGEvent(
@@ -1020,6 +1036,8 @@ final class DragEngine {
             mouseButton: .center
         ) {
             down.post(tap: .cghidEventTap)
+        } else {
+            Self.log.warn("replayMiddleClick: failed to create mouseDown event")
         }
         if let up = CGEvent(
             mouseEventSource: source,
@@ -1028,6 +1046,8 @@ final class DragEngine {
             mouseButton: .center
         ) {
             up.post(tap: .cghidEventTap)
+        } else {
+            Self.log.warn("replayMiddleClick: failed to create mouseUp event")
         }
     }
 
@@ -1066,8 +1086,14 @@ final class DragEngine {
 
     private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect)) {
         guard axGuardOrAbort("performTileAction") else { return }
-        guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else { return }
-        guard let screen = screenVisibleFrame(for: windowInfo.frame) else { return }
+        guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else {
+            Self.log.warn("performTileAction: findAXWindow returned nil for pid=\(windowInfo.pid) wid=\(windowInfo.windowID)")
+            return
+        }
+        guard let screen = screenVisibleFrame(for: windowInfo.frame) else {
+            Self.log.warn("performTileAction: screenVisibleFrame returned nil for frame=\(windowInfo.frame)")
+            return
+        }
 
         // Save original frame for double-click restore
         let currentFrame = getWindowFrame(axWindow) ?? windowInfo.frame
@@ -1180,7 +1206,10 @@ final class DragEngine {
 
     private func toggleMaximizeImpl(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
         guard axGuardOrAbort("toggleMaximizeImpl") else { return }
-        guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else { return }
+        guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else {
+            Self.log.warn("toggleMaximizeImpl: findAXWindow returned nil for pid=\(pid) wid=\(windowID)")
+            return
+        }
 
         // Activate the target app and raise the window
         let appElement = AXUIElementCreateApplication(pid)
@@ -1275,6 +1304,13 @@ final class DragEngine {
         )
     }
 
+    /// Look up an AX window by matching its top-left corner against the given
+    /// CG window frame (5-point tolerance). Returns nil when no AX window's
+    /// position matches — call sites that warn on nil should expect occasional
+    /// benign hits: the window may have closed between CG enumeration and the
+    /// AX lookup, or the app may report a different AX position than CG bounds
+    /// (some Electron / custom-drawn apps do this). A nil here means the
+    /// user-initiated action couldn't proceed — worth logging, not always a bug.
     private func findAXWindow(pid: pid_t, windowFrame: CGRect) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
@@ -1375,6 +1411,55 @@ final class DragEngine {
             }
         }
         return nil
+    }
+
+    // MARK: - Diagnostics
+
+    /// Rate-limit anchor for the "miss" diagnostic logs. Returns true at most
+    /// once per second across the modifier-miss and no-window-miss paths
+    /// combined — they share one bucket so a stream of one can't drown out
+    /// the other indefinitely, and the user never gets a wall of debug lines
+    /// from rapid clicking.
+    private func shouldLogDiagMiss() -> Bool {
+        let now = CFAbsoluteTimeGetCurrent()
+        return cbState.withLock { state in
+            if now - state.lastDiagMissAt >= 1.0 {
+                state.lastDiagMissAt = now
+                return true
+            }
+            return false
+        }
+    }
+
+    /// Log when a click arrived with some modifier held but it didn't match
+    /// the configured combination. Silent for plain (no-modifier) clicks so
+    /// every button press doesn't enter this path.
+    private func logModifierMiss(flags: CGEventFlags, button: String) {
+        let observed = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
+        guard !observed.isEmpty else { return }
+        guard shouldLogDiagMiss() else { return }
+        Self.log.debug("modifier miss [\(button)Down]: observed=\(Self.describeFlags(observed)) target=\(self.modifiers.symbol)")
+    }
+
+    /// Log when the configured gesture matched but `windowUnderCursor` found
+    /// nothing — diagnoses "AnyDrag does nothing in app X" reports where
+    /// CGWindowListCopyWindowInfo can't see the target window's layer.
+    private func logNoWindowMiss(button: String, at point: CGPoint) {
+        guard shouldLogDiagMiss() else { return }
+        Self.log.debug("no window under cursor [\(button)Down] at (\(Int(point.x)), \(Int(point.y)))")
+    }
+
+    /// Render a CGEventFlags modifier set as the same glyph string the UI
+    /// shows for `ModifierCombination` (e.g. "⌃⌥"), so log lines line up
+    /// with what the user sees in Settings.
+    private static func describeFlags(_ flags: CGEventFlags) -> String {
+        var combo: ModifierCombination = []
+        if flags.contains(.maskCommand)                  { combo.insert(.command) }
+        if flags.contains(.maskShift)                    { combo.insert(.shift) }
+        if flags.contains(.maskAlternate)                { combo.insert(.option) }
+        if flags.contains(.maskControl)                  { combo.insert(.control) }
+        if flags.contains(ModifierCombination.fnEventFlag) { combo.insert(.fn) }
+        return combo.symbol
     }
 }
 
