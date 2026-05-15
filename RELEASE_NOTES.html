@@ -1,13 +1,13 @@
 <h3>What's New in 1.4.0</h3>
 <ul>
-  <li><b>Fix: Accessibility permission row stuck on "Granted" after revoke</b> — In Settings → General, the Accessibility row continued to display "🟢 Granted" indefinitely after the permission was toggled off in System Settings. AnyDrag now correctly reflects the current permission state within ~300 ms of the toggle. (Thanks to <a href="https://github.com/FisherRone">@FisherRone</a> for the careful reproduction and reporting in <a href="https://github.com/XueshiQiao/AnyDrag/issues/7">#7</a>.)</li>
+  <li><b>Fix: Accessibility permission row stuck on "Granted" after revoke</b> — In Settings → General, the Accessibility row continued to display "🟢 Granted" indefinitely after the permission was toggled off in System Settings. AnyDrag now correctly reflects the current permission state shortly after each toggle. (Thanks to <a href="https://github.com/FisherRone">@FisherRone</a> for the careful reproduction and reporting in <a href="https://github.com/XueshiQiao/AnyDrag/issues/7">#7</a>.)</li>
   <li><b>Fix: revoking Accessibility could freeze every mouse click system-wide</b> — The protection shipped in 1.3.0 regressed in 1.3.2: after a revoke, AnyDrag's recovery path was inadvertently resurrecting the unauthorized event tap instead of tearing it down, leaving it at the head of the system event chain swallowing every click. AnyDrag now detects the revoke reliably and removes the tap cleanly.</li>
   <li><b>Fix: launch permission alert could be silently skipped</b> — On macOS 14/15, AnyDrag's internal trust probe (a listen-only mouse event tap) would succeed even when Accessibility was actually denied, so the launch flow concluded "permissions OK" and never showed the request alert — the app appeared running but the event tap never started. The launch flow now uses the documented <code>AXIsProcessTrusted()</code> API as the single source of truth, so the alert appears when needed.</li>
 </ul>
 
 <h3>1.4.0 更新内容</h3>
 <ul>
-  <li><b>修复:撤销辅助功能权限后,设置页里依然显示「已授权」</b> — 在「设置 → 通用」中,即便已在系统设置里关掉 AnyDrag 的辅助功能权限,「辅助功能」一行还是会长时间显示「🟢 已授权」。现在切换权限后约 300 毫秒内界面就会同步到正确状态。(感谢 <a href="https://github.com/FisherRone">@FisherRone</a> 在 <a href="https://github.com/XueshiQiao/AnyDrag/issues/7">#7</a> 仔细复现并提交反馈)</li>
+  <li><b>修复:撤销辅助功能权限后,设置页里依然显示「已授权」</b> — 在「设置 → 通用」中,即便已在系统设置里关掉 AnyDrag 的辅助功能权限,「辅助功能」一行还是会长时间显示「🟢 已授权」。现在切换权限后界面会快速同步到正确状态。(感谢 <a href="https://github.com/FisherRone">@FisherRone</a> 在 <a href="https://github.com/XueshiQiao/AnyDrag/issues/7">#7</a> 仔细复现并提交反馈)</li>
   <li><b>修复:撤销辅助功能权限可能导致全系统鼠标点击被吞掉</b> — 1.3.0 修过的这个问题在 1.3.2 中悄悄回归:撤销权限后,引擎的恢复路径会反过来「复活」已经失去授权的事件 tap,把它留在系统事件链顶端吞掉所有点击事件。现在 AnyDrag 能可靠识别权限撤销并干净拆除 tap。</li>
   <li><b>修复:权限未授予时,启动权限请求弹窗可能被静默跳过</b> — 在 macOS 14/15 上,AnyDrag 之前用来探测权限的内部探针(一个 listen-only 鼠标事件 tap)在没有权限时也会创建成功,导致启动流程错误地认为「权限 OK」,既不弹请求也不报错——看起来 app 已经在运行,实际 event tap 根本没起来。启动流程现在改用文档化的 <code>AXIsProcessTrusted()</code> API 作为唯一权限事实,该弹的时候就会弹。</li>
 </ul>
