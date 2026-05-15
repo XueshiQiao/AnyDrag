@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modifier-drag resize for AnyDrag — design note</title>
+<style>
+  :root {
+    --bg: #faf9f5;
+    --surface: #ffffff;
+    --ink: #1f1e1c;
+    --ink-soft: #5a5751;
+    --ink-faint: #8a857c;
+    --rule: #e6e2d4;
+    --rule-soft: #efece1;
+    --code-bg: #f3f0e6;
+    --accent: #d97757;
+    --accent-soft: #f4e2d6;
+    --good: #4f8a5c;
+    --warn: #b6711c;
+    --bad: #b14338;
+    --serif: "Tiempos", "Source Serif Pro", "Iowan Old Style", Georgia, serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 80px 40px 120px;
+  }
+
+  header.hero { margin-bottom: 56px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 48px;
+    line-height: 1.1;
+    margin: 0 0 20px;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+  }
+  .lede {
+    font-family: var(--serif);
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 640px;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 30px;
+    line-height: 1.2;
+    margin: 64px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 17px;
+    margin: 36px 0 10px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 16px; }
+  p, li { color: var(--ink); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  a:hover { border-bottom-color: var(--accent); }
+
+  ul, ol { padding-left: 24px; margin: 0 0 16px; }
+  li { margin-bottom: 8px; }
+  li code { font-size: 0.92em; }
+
+  code {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  pre {
+    background: #1f1e1c;
+    color: #f6f3eb;
+    padding: 20px 24px;
+    border-radius: 8px;
+    overflow-x: auto;
+    line-height: 1.55;
+    font-size: 13.5px;
+    margin: 20px 0 28px;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+  .tok-comment  { color: #9b9081; font-style: italic; }
+  .tok-keyword  { color: #e89b6f; }
+  .tok-fn       { color: #f0d68a; }
+  .tok-string   { color: #b8d49d; }
+  .tok-num      { color: #d8b9e3; }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 32px;
+    margin: 32px 0 48px;
+    padding: 18px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .meta-row b { color: var(--ink); font-weight: 500; margin-right: 8px; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 18px 22px;
+    margin: 28px 0;
+    border-radius: 0 6px 6px 0;
+    color: var(--ink);
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: block;
+  }
+
+  .figure {
+    margin: 36px 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 28px 24px 18px;
+  }
+  .figure svg { display: block; width: 100%; height: auto; }
+  .figure .caption {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--rule);
+  }
+  .figure .caption b { color: var(--ink-soft); font-weight: 600; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 24px 0 32px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: var(--rule-soft);
+    font-size: 13px;
+    letter-spacing: 0.01em;
+  }
+  td code { font-size: 0.88em; }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .pill.good    { background: #e3f0e2; color: var(--good); }
+  .pill.warn    { background: #f5e7d0; color: var(--warn); }
+  .pill.bad     { background: #f5dad6; color: var(--bad); }
+  .pill.neutral { background: var(--rule-soft); color: var(--ink-soft); }
+
+  .footer {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  svg text { font-family: var(--sans); font-size: 12.5px; fill: var(--ink); }
+  svg .label-mono  { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-soft); }
+  svg .label-soft  { fill: var(--ink-soft); }
+  svg .label-faint { fill: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ╔══ HERO ═══════════════════════════════════════════════════════════╗ -->
+<header class="hero">
+  <div class="eyebrow">Engineering note · AnyDrag · 2026-05-15</div>
+  <h1>Modifier-drag resize, ported from PowerToys</h1>
+  <p class="lede">A user wrote in asking for the resize half of Windows&nbsp;11's PowerToys Grab&nbsp;and&nbsp;Move. The Windows implementation is short and clean; the macOS port is mostly a different system call, with one real UX decision to make.</p>
+</header>
+
+<div class="meta-row">
+  <span><b>Trigger</b>email to me@xueshi.dev</span>
+  <span><b>Reference</b><code>microsoft/PowerToys</code> · <code>src/modules/GrabAndMove</code></span>
+  <span><b>Status</b><span class="pill warn">PROPOSAL</span></span>
+</div>
+
+<!-- ╔══ §1 ═════════════════════════════════════════════════════════════╗ -->
+<h2>1 · The feature in one paragraph</h2>
+
+<p>PowerToys Grab&nbsp;and&nbsp;Move binds two gestures to a single modifier key (Alt by default, ⊞&nbsp;Win optional). <b>Modifier&nbsp;+&nbsp;left-drag</b> moves the window — what AnyDrag already does. <b>Modifier&nbsp;+&nbsp;right-drag</b> resizes the window from the edge or corner closest to where the drag started, so the user never has to aim for a thin border. The two gestures share modifier-tracking, target-window resolution, throttling, and overlay code; the new logic for resize is small.</p>
+
+<p>The Microsoft Learn docs <a href="https://learn.microsoft.com/en-us/windows/powertoys/grab-and-move">page</a> is consumer-facing. The implementation lives in one ~1&nbsp;500-line C++ file: <a href="https://github.com/microsoft/PowerToys/blob/main/src/modules/GrabAndMove/GrabAndMove/main.cpp"><code>src/modules/GrabAndMove/GrabAndMove/main.cpp</code></a>. Everything below is distilled from that file.</p>
+
+<!-- ╔══ §2 ═════════════════════════════════════════════════════════════╗ -->
+<h2>2 · The 8-anchor "nearest edge" pick</h2>
+
+<p>When the user presses modifier&nbsp;+&nbsp;right&nbsp;at point <code>pt</code> inside window rect <code>rc</code>, PowerToys picks <em>which</em> edge or corner is "grabbed" by enumerating eight anchor points — the four corners and the four edge midpoints — and selecting the one with the minimum squared distance to <code>pt</code>. That handle becomes <code>g_currentHandle</code> for the duration of the drag.</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 360" xmlns="http://www.w3.org/2000/svg" aria-label="8-anchor nearest-edge selection">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+
+  <text x="0" y="22" font-weight="600">Selecting the grabbed handle</text>
+  <text x="0" y="42" class="label-soft">cursor &amp; window rect → 8 candidate anchors → min distance² wins</text>
+
+  <!-- window rect -->
+  <rect x="180" y="80" width="440" height="240" fill="#ffffff" stroke="#5a5751" stroke-width="1.6" rx="4"/>
+  <text x="400" y="105" text-anchor="middle" class="label-soft">target window</text>
+
+  <!-- 8 anchors -->
+  <!-- corners -->
+  <circle cx="180" cy="80"  r="5" fill="#8a857c"/>
+  <circle cx="620" cy="80"  r="5" fill="#8a857c"/>
+  <circle cx="180" cy="320" r="5" fill="#8a857c"/>
+  <circle cx="620" cy="320" r="5" fill="#8a857c"/>
+  <!-- edge midpoints -->
+  <circle cx="400" cy="80"  r="5" fill="#8a857c"/>
+  <circle cx="620" cy="200" r="5" fill="#8a857c"/>
+  <circle cx="400" cy="320" r="5" fill="#8a857c"/>
+  <circle cx="180" cy="200" r="5" fill="#8a857c"/>
+
+  <!-- anchor labels -->
+  <text x="175" y="74"  text-anchor="end" class="label-mono">TL</text>
+  <text x="400" y="70"  text-anchor="middle" class="label-mono">TOP</text>
+  <text x="625" y="74"  class="label-mono">TR</text>
+  <text x="630" y="204" class="label-mono">R</text>
+  <text x="625" y="338" class="label-mono">BR</text>
+  <text x="400" y="345" text-anchor="middle" class="label-mono">BOT</text>
+  <text x="175" y="338" text-anchor="end" class="label-mono">BL</text>
+  <text x="172" y="204" text-anchor="end" class="label-mono">L</text>
+
+  <!-- cursor position -->
+  <g>
+    <circle cx="560" cy="160" r="8" fill="#d97757"/>
+    <circle cx="560" cy="160" r="14" fill="none" stroke="#d97757" stroke-width="1.2" opacity="0.4"/>
+    <text x="560" y="148" text-anchor="middle" class="label-mono" fill="#d97757">cursor (pt)</text>
+  </g>
+
+  <!-- candidate distances (dashed gray) -->
+  <line x1="560" y1="160" x2="180" y2="80"  stroke="#e6e2d4" stroke-dasharray="3 3"/>
+  <line x1="560" y1="160" x2="400" y2="80"  stroke="#e6e2d4" stroke-dasharray="3 3"/>
+  <line x1="560" y1="160" x2="620" y2="80"  stroke="#e6e2d4" stroke-dasharray="3 3"/>
+  <line x1="560" y1="160" x2="620" y2="320" stroke="#e6e2d4" stroke-dasharray="3 3"/>
+  <line x1="560" y1="160" x2="400" y2="320" stroke="#e6e2d4" stroke-dasharray="3 3"/>
+  <line x1="560" y1="160" x2="180" y2="320" stroke="#e6e2d4" stroke-dasharray="3 3"/>
+  <line x1="560" y1="160" x2="180" y2="200" stroke="#e6e2d4" stroke-dasharray="3 3"/>
+
+  <!-- winning distance (orange solid) -->
+  <line x1="560" y1="160" x2="620" y2="200" stroke="#d97757" stroke-width="2.2"/>
+  <circle cx="620" cy="200" r="8" fill="#d97757"/>
+  <text x="668" y="195" class="label-mono" fill="#d97757" font-weight="600">winner: RIGHT</text>
+  <text x="668" y="212" class="label-mono" fill="#d97757">→ cursor "↔"</text>
+</svg>
+<div class="caption"><b>Figure 1.</b> Eight candidates, one min-squared-distance comparison, no special cases. The same routine is called every mouse-move event during the drag — see §3.</div>
+</div>
+
+<p>The selection cost is trivial — eight squared-distance computations, then a min. PowerToys runs it inside the low-level mouse hook callback. Source: <code>GetClosestHandle()</code>, <code>main.cpp:515</code>.</p>
+
+<!-- ╔══ §3 ═════════════════════════════════════════════════════════════╗ -->
+<h2>3 · Live handle re-evaluation each frame</h2>
+
+<p>The non-obvious choice — and the thing that makes Grab and Move feel polished rather than sticky — is that PowerToys <em>re-runs</em> <code>GetClosestHandle</code> on every <code>WM_MOUSEMOVE</code>, not just at drag start. If the cursor crosses into a different "nearest" region mid-drag, the handle and cursor icon swap. So a user who starts dragging near the right edge but pulls diagonally up gets a clean transition from right-edge resize to top-right corner resize, with the cursor flipping from "↔" to "↗↙" at the boundary.</p>
+
+<div class="callout">
+<span class="label">Subtle, but load-bearing</span>
+<p>Without per-frame re-evaluation, the resize would feel "stuck" to whichever edge the drag started nearest. The user notices it instantly when comparing the two implementations side-by-side — even if they can't name what's different.</p>
+</div>
+
+<div class="figure">
+<svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg" aria-label="Live handle re-evaluation as cursor moves">
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+
+  <text x="0" y="22" font-weight="600">Cursor moves diagonally → handle switches mid-drag</text>
+
+  <!-- t=0 panel -->
+  <text x="155" y="56" text-anchor="middle" class="label-mono" font-weight="600">t = drag start</text>
+  <rect x="40" y="80" width="230" height="180" fill="#ffffff" stroke="#5a5751" stroke-width="1.3" rx="3"/>
+  <!-- highlight right edge -->
+  <line x1="270" y1="80" x2="270" y2="260" stroke="#d97757" stroke-width="4"/>
+  <circle cx="250" cy="170" r="6" fill="#d97757"/>
+  <text x="246" y="160" text-anchor="end" class="label-mono" fill="#d97757">cursor</text>
+  <text x="155" y="290" text-anchor="middle" class="label-mono">handle = <tspan font-weight="600">RIGHT</tspan></text>
+  <text x="155" y="306" text-anchor="middle" class="label-mono label-faint">cursor: ↔</text>
+
+  <!-- arrow between -->
+  <line x1="305" y1="170" x2="395" y2="170" stroke="#5a5751" stroke-width="1.4" marker-end="url(#arr3)"/>
+  <text x="350" y="158" text-anchor="middle" class="label-mono label-soft">cursor moves</text>
+  <text x="350" y="186" text-anchor="middle" class="label-mono label-faint">~200 ms later</text>
+
+  <!-- t=200ms panel -->
+  <text x="555" y="56" text-anchor="middle" class="label-mono" font-weight="600">t + 200 ms</text>
+  <rect x="440" y="80" width="230" height="180" fill="#ffffff" stroke="#5a5751" stroke-width="1.3" rx="3"/>
+  <!-- highlight top edge AND right edge (top-right corner) -->
+  <line x1="440" y1="80" x2="670" y2="80" stroke="#d97757" stroke-width="4"/>
+  <line x1="670" y1="80" x2="670" y2="260" stroke="#d97757" stroke-width="4"/>
+  <circle cx="640" cy="110" r="6" fill="#d97757"/>
+  <text x="635" y="104" text-anchor="end" class="label-mono" fill="#d97757">cursor</text>
+  <text x="555" y="290" text-anchor="middle" class="label-mono">handle = <tspan font-weight="600">TOP_RIGHT</tspan></text>
+  <text x="555" y="306" text-anchor="middle" class="label-mono label-faint">cursor: ↗↙</text>
+</svg>
+<div class="caption"><b>Figure 2.</b> Per-frame <code>GetClosestHandle</code> + cursor swap. The window rect itself reshapes between the two snapshots — re-evaluation uses the <em>current</em> rect, not the original.</div>
+</div>
+
+<!-- ╔══ §4 ═════════════════════════════════════════════════════════════╗ -->
+<h2>4 · Delta math, per handle</h2>
+
+<p>Once the handle is known, applying the mouse-move delta is a single <code>switch</code>. PowerToys' version:</p>
+
+<pre><code><span class="tok-keyword">int</span> dx = pt.x - g_resizeLast.x;
+<span class="tok-keyword">int</span> dy = pt.y - g_resizeLast.y;
+RECT nr = g_resizeWndRect;
+
+<span class="tok-keyword">switch</span> (g_currentHandle) {
+<span class="tok-keyword">case</span> TOP_LEFT:     nr.left  += dx; nr.top    += dy; <span class="tok-keyword">break</span>;
+<span class="tok-keyword">case</span> TOP:          nr.top   += dy;                  <span class="tok-keyword">break</span>;
+<span class="tok-keyword">case</span> TOP_RIGHT:    nr.right += dx; nr.top    += dy; <span class="tok-keyword">break</span>;
+<span class="tok-keyword">case</span> RIGHT:        nr.right += dx;                  <span class="tok-keyword">break</span>;
+<span class="tok-keyword">case</span> BOTTOM_RIGHT: nr.right += dx; nr.bottom += dy; <span class="tok-keyword">break</span>;
+<span class="tok-keyword">case</span> BOTTOM:       nr.bottom += dy;                 <span class="tok-keyword">break</span>;
+<span class="tok-keyword">case</span> BOTTOM_LEFT:  nr.left  += dx; nr.bottom += dy; <span class="tok-keyword">break</span>;
+<span class="tok-keyword">case</span> LEFT:         nr.left  += dx;                  <span class="tok-keyword">break</span>;
+}
+
+<span class="tok-comment">// Enforce MIN_WINDOW_WIDTH=150, MIN_WINDOW_HEIGHT=50.</span>
+<span class="tok-comment">// If the "moving" edge would cross past the opposite edge, clamp.</span></code></pre>
+
+<p>The minimum-size enforcement at the bottom matters: if the user drags the left edge to the right past <code>nr.right&nbsp;−&nbsp;150</code>, PowerToys snaps <code>nr.left</code> so the rect stays 150&nbsp;px wide rather than letting it invert or collapse. Same for height with 50&nbsp;px. Source: <code>main.cpp:1252&ndash;1279</code>.</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 360" xmlns="http://www.w3.org/2000/svg" aria-label="Which edges move per handle">
+  <text x="0" y="22" font-weight="600">Edges affected by each handle</text>
+
+  <!-- 3x3 grid; center cell empty -->
+  <!-- Cell template: 220x90 each, gap 16 -->
+  <g transform="translate(60, 60)">
+
+    <!-- helper: each cell shows a mini-rect with the affected edges in orange -->
+
+    <!-- TL -->
+    <g transform="translate(0, 0)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="30" y1="20" x2="150" y2="20" stroke="#d97757" stroke-width="3"/>
+      <line x1="30" y1="20" x2="30"  y2="60" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">TOP_LEFT</text>
+    </g>
+
+    <!-- TOP -->
+    <g transform="translate(220, 0)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="30" y1="20" x2="150" y2="20" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">TOP</text>
+    </g>
+
+    <!-- TR -->
+    <g transform="translate(440, 0)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="30"  y1="20" x2="150" y2="20" stroke="#d97757" stroke-width="3"/>
+      <line x1="150" y1="20" x2="150" y2="60" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">TOP_RIGHT</text>
+    </g>
+
+    <!-- LEFT -->
+    <g transform="translate(0, 100)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="30" y1="20" x2="30" y2="60" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="176" text-anchor="middle" class="label-mono"></text>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">LEFT</text>
+    </g>
+
+    <!-- CENTER (empty, marks move-only territory) -->
+    <g transform="translate(220, 100)">
+      <rect width="180" height="80" fill="none" stroke="#efece1" stroke-dasharray="4 4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#8a857c" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="90" y="46" text-anchor="middle" class="label-mono label-faint">(no resize)</text>
+      <text x="90" y="76" text-anchor="middle" class="label-mono label-faint">drag here = move</text>
+    </g>
+
+    <!-- RIGHT -->
+    <g transform="translate(440, 100)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="150" y1="20" x2="150" y2="60" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">RIGHT</text>
+    </g>
+
+    <!-- BL -->
+    <g transform="translate(0, 200)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="30" y1="60" x2="150" y2="60" stroke="#d97757" stroke-width="3"/>
+      <line x1="30" y1="20" x2="30"  y2="60" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">BOTTOM_LEFT</text>
+    </g>
+
+    <!-- BOT -->
+    <g transform="translate(220, 200)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="30" y1="60" x2="150" y2="60" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">BOTTOM</text>
+    </g>
+
+    <!-- BR -->
+    <g transform="translate(440, 200)">
+      <rect width="180" height="80" fill="none" stroke="#e6e2d4"/>
+      <rect x="30" y="20" width="120" height="40" fill="#ffffff" stroke="#5a5751" stroke-width="1.2"/>
+      <line x1="30"  y1="60" x2="150" y2="60" stroke="#d97757" stroke-width="3"/>
+      <line x1="150" y1="20" x2="150" y2="60" stroke="#d97757" stroke-width="3"/>
+      <text x="90" y="76" text-anchor="middle" class="label-mono">BOTTOM_RIGHT</text>
+    </g>
+
+  </g>
+</svg>
+<div class="caption"><b>Figure 3.</b> Orange edges grow/shrink with the cursor; black edges stay anchored. The center cell is illustrative — that's where modifier+left-drag (move) lives in AnyDrag.</div>
+</div>
+
+<!-- ╔══ §5 ═════════════════════════════════════════════════════════════╗ -->
+<h2>5 · Frame budget: throttle + async repaint</h2>
+
+<p>Mouse events arrive faster than any window server wants to repaint. PowerToys gates the per-frame work with <code>QueryPerformanceCounter</code>:</p>
+
+<pre><code><span class="tok-keyword">static constexpr</span> ULONGLONG THROTTLE_INTERVAL_MS = <span class="tok-num">16</span>;  <span class="tok-comment">// ~60 Hz</span>
+
+<span class="tok-keyword">if</span> (now - g_lastMoveTick &gt;= THROTTLE_INTERVAL_MS) {
+    g_lastMoveTick = now;
+    HandleDragResize(ms-&gt;pt);
+}</code></pre>
+
+<p>And the actual move call uses async repaint so the hook callback doesn't block on the target app's paint loop:</p>
+
+<pre><code>SetWindowPos(target, <span class="tok-num">nullptr</span>,
+             nr.left, nr.top, w, h,
+             SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);</code></pre>
+
+<p>The <code>SWP_ASYNCWINDOWPOS</code> flag matters because the resize calls into a different process — without it, a slow target app would stall the hook thread for everyone. The macOS equivalent (see §6) is also asynchronous in its own way.</p>
+
+<!-- ╔══ §6 ═════════════════════════════════════════════════════════════╗ -->
+<h2>6 · Mapping Windows primitives to macOS</h2>
+
+<p>Most of the design transfers cleanly. The one fundamental difference: PowerToys' move path uses <code>SetWindowPos</code>, which writes window geometry directly into the window manager. AnyDrag's move path bypasses even that by rewriting cursor coordinates into the title-bar zone and letting the window server do a native drag — a trick that has <em>no analogue for resize</em>. Resize must go through the Accessibility API per frame.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:34%">PowerToys (Windows)</th><th>AnyDrag (macOS)</th><th style="width:12%">Cost</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>WH_MOUSE_LL</code> + <code>WH_KEYBOARD_LL</code> hooks</td>
+      <td>Existing <code>CGEventTap</code> in <code>DragEngine</code> — already running, adds right-button mask</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+    <tr>
+      <td><code>GetClosestHandle(pt, rc)</code></td>
+      <td>Same algorithm. Pure math, no platform dependency.</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+    <tr>
+      <td><code>SetCursor(IDC_SIZE*)</code> per handle</td>
+      <td><code>NSCursor.resizeLeftRight</code> / <code>resizeUpDown</code> available publicly; diagonal cursors (<code>NWSE</code> / <code>NESW</code>) are <em>not</em> in the public API — used by Finder via private SPI <code>NSCursor(named: "resizenorthwestsoutheast")</code>. Workable but undocumented. Fallback: use only horizontal/vertical cursors and accept that corner-drag shows ↔.</td>
+      <td><span class="pill warn">QUIRK</span></td>
+    </tr>
+    <tr>
+      <td>Move via <code>SetWindowPos(SWP_NOSIZE)</code></td>
+      <td>Existing title-bar redirect — no IPC per frame, window server handles natively</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+    <tr>
+      <td>Resize via <code>SetWindowPos(w, h, SWP_ASYNCWINDOWPOS)</code></td>
+      <td><code>AXUIElementSetAttributeValue(_, kAXSizeAttribute, _)</code>, and for handles that move the top/left edges also <code>kAXPositionAttribute</code>. ~5–10 ms IPC per call to the target app. <em>This is the unavoidable cost.</em></td>
+      <td><span class="pill bad">SLOW</span></td>
+    </tr>
+    <tr>
+      <td>16 ms throttle</td>
+      <td>Same. The CGEventTap thread already runs at <code>userInteractive</code> QoS; the existing <code>QPC</code>-equivalent on macOS is <code>mach_absolute_time</code> or <code>CACurrentMediaTime</code>.</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+    <tr>
+      <td><code>WS_THICKFRAME</code> style check (refuse non-resizable windows)</td>
+      <td><code>AXUIElementCopyAttributeValue(_, kAXResizableAttribute as CFString, _)</code>. Bool. Most well-behaved apps expose it; some games and Electron apps lie. Acceptable best-effort.</td>
+      <td><span class="pill warn">QUIRK</span></td>
+    </tr>
+    <tr>
+      <td>Maximized → <code>SW_RESTORE</code> + cursor-relative reposition on first move</td>
+      <td>macOS "zoom" is different from maximize. AnyDrag's existing move path already restores zoomed windows; the resize path can mostly skip this — a zoomed window can be resized in place by setting <code>kAXSizeAttribute</code> directly, and macOS handles the un-zoom transition.</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+    <tr>
+      <td>Game Mode suppression (<code>QUNS_RUNNING_D3D_FULL_SCREEN</code>)</td>
+      <td>Not applicable on macOS — full-screen Spaces handle this naturally (no overlay above the full-screen app anyway).</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+    <tr>
+      <td>Excluded apps list</td>
+      <td>AnyDrag's existing <code>Preferences</code> store can hold a per-app exclude list keyed by bundle ID. Not in scope for v1.</td>
+      <td><span class="pill neutral">LATER</span></td>
+    </tr>
+    <tr>
+      <td>Semi-transparent overlay + X/Y/W/H readout</td>
+      <td><code>NSPanel</code>-based overlay — AnyDrag's existing <code>TileOverlay</code> is a working template. Geometry readout is one <code>NSTextField</code> updated per throttle tick.</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+    <tr>
+      <td>Alt-absorption (suppress window menu on Alt release after drag)</td>
+      <td>Not applicable — no equivalent menu-bar activation gesture on macOS Option key.</td>
+      <td><span class="pill good">FREE</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+<span class="label">Cost summary</span>
+<p>One genuinely new slow path (the per-frame AX call), one minor cursor-asset quirk, and one resizability probe that's best-effort. Everything else is either trivially portable or already implemented in AnyDrag's <code>DragEngine</code>.</p>
+</div>
+
+<!-- ╔══ §7 ═════════════════════════════════════════════════════════════╗ -->
+<h2>7 · The gesture conflict</h2>
+
+<p>AnyDrag already binds all three mouse buttons with the modifier:</p>
+
+<table>
+  <thead>
+    <tr><th>Button</th><th>Current behavior (modifier held)</th><th>Source</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>Left</b></td>
+      <td>Move window (title-bar redirect)</td>
+      <td><code>DragEngine.handleEvent</code> · <code>.leftMouseDown</code></td>
+    </tr>
+    <tr>
+      <td><b>Right</b></td>
+      <td>Open the <b>tile overlay</b> (halves / quarters / fill)</td>
+      <td><code>DragEngine.handleEvent</code> · <code>.rightMouseDown</code> · <code>TilingPanel</code></td>
+    </tr>
+    <tr>
+      <td><b>Middle</b></td>
+      <td>Configurable: off / drag / tile-by-direction</td>
+      <td><code>MiddleAction</code> enum</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The slot PowerToys uses for resize — <em>modifier + right-drag</em> — is the slot AnyDrag uses for the tile overlay. Both are unambiguously "the right-button drag with modifier held," so something has to give.</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 420" xmlns="http://www.w3.org/2000/svg" aria-label="Gesture options for binding resize">
+  <text x="0" y="22" font-weight="600">Four options for binding resize without breaking existing gestures</text>
+
+  <!-- Option A -->
+  <g transform="translate(0, 50)">
+    <rect width="380" height="160" fill="#ffffff" stroke="#e6e2d4" rx="8"/>
+    <text x="20" y="32" font-weight="600">A · Add a second modifier</text>
+    <text x="20" y="58" class="label-soft">e.g. modifier + ⇧ + right-drag = resize</text>
+    <text x="20" y="86" class="label-mono" fill="#5a5751">⌃ + right-drag</text>
+    <text x="200" y="86" class="label-mono" fill="#5a5751">→ tile overlay (unchanged)</text>
+    <text x="20" y="108" class="label-mono" fill="#d97757">⌃ + ⇧ + right-drag</text>
+    <text x="200" y="108" class="label-mono" fill="#d97757">→ resize</text>
+    <text x="20" y="140" class="label-mono label-faint">+ no breaking change · − key gymnastics</text>
+  </g>
+
+  <!-- Option B -->
+  <g transform="translate(420, 50)">
+    <rect width="380" height="160" fill="#ffffff" stroke="#e6e2d4" rx="8"/>
+    <text x="20" y="32" font-weight="600">B · Repurpose middle-button</text>
+    <text x="20" y="58" class="label-soft">add "resize" to <code>MiddleAction</code> enum</text>
+    <text x="20" y="86" class="label-mono" fill="#5a5751">⌃ + middle-drag</text>
+    <text x="200" y="86" class="label-mono" fill="#d97757">→ resize  (new mode)</text>
+    <text x="20" y="108" class="label-mono" fill="#5a5751">⌃ + right-drag</text>
+    <text x="200" y="108" class="label-mono" fill="#5a5751">→ tile overlay (unchanged)</text>
+    <text x="20" y="140" class="label-mono label-faint">+ clean separation · − needs middle button</text>
+  </g>
+
+  <!-- Option C -->
+  <g transform="translate(0, 230)">
+    <rect width="380" height="160" fill="#ffffff" stroke="#e6e2d4" rx="8"/>
+    <text x="20" y="32" font-weight="600">C · Right-button mode toggle</text>
+    <text x="20" y="58" class="label-soft">settings radio: tile <em>or</em> resize, not both</text>
+    <text x="20" y="86" class="label-mono" fill="#5a5751">⌃ + right-drag</text>
+    <text x="200" y="86" class="label-mono" fill="#d97757">→ tile <em>or</em> resize</text>
+    <text x="20" y="108" class="label-soft">(user picks one in Settings)</text>
+    <text x="20" y="140" class="label-mono label-faint">+ matches PowerToys verbatim · − loses tile-by-default</text>
+  </g>
+
+  <!-- Option D -->
+  <g transform="translate(420, 230)">
+    <rect width="380" height="160" fill="#ffffff" stroke="#d97757" stroke-width="2" rx="8"/>
+    <text x="20" y="32" font-weight="600" fill="#d97757">D · Drag-direction discriminates</text>
+    <text x="20" y="58" class="label-soft">first ~6 px of right-drag picks the mode</text>
+    <text x="20" y="86" class="label-mono" fill="#5a5751">⌃ + right-drag &gt;0 dist</text>
+    <text x="200" y="86" class="label-mono" fill="#d97757">→ resize from nearest edge</text>
+    <text x="20" y="108" class="label-mono" fill="#5a5751">⌃ + right-click (tap)</text>
+    <text x="200" y="108" class="label-mono" fill="#5a5751">→ tile overlay</text>
+    <text x="20" y="140" class="label-mono label-faint">+ both keep right-button · − two latencies to tune</text>
+  </g>
+</svg>
+<div class="caption"><b>Figure 4.</b> Trade-offs marked at the bottom of each card. Option D ringed in orange is the recommendation — see commentary below.</div>
+</div>
+
+<h3>Why D is the recommendation</h3>
+
+<p>Tile overlay already commits on a <em>click</em> (mouse-down → menu shows → click a zone → mouse-up). It barely uses the drag dimension. Resize fundamentally <em>is</em> a drag. So the gesture grammar already separates them: a tap-then-pick versus a press-and-drag. We can keep both on right-button with a small distance threshold (the same <code>tileDirectionThreshold = 30 px</code> AnyDrag already uses for middle-button tile-by-direction) as the discriminator. If the user releases without crossing the threshold, the tile overlay opens; if they cross it, the engine commits to a resize gesture and the overlay never shows. No settings UI change, no key gymnastics, no regression.</p>
+
+<div class="callout">
+<span class="label">Risk to verify</span>
+<p>Tile overlay opens on <em>mouse-down</em> today — it doesn't wait for movement. Switching to a "show overlay only after threshold not crossed" model would delay overlay appearance by the threshold-cross window, which feels sluggish if too long. Prototype the threshold (try 6–10 px) and ship the smallest value that doesn't false-positive on hand jitter.</p>
+</div>
+
+<!-- ╔══ §8 ═════════════════════════════════════════════════════════════╗ -->
+<h2>8 · Implementation skeleton</h2>
+
+<p>Putting the pieces together, the new code lives almost entirely inside <code>DragEngine.handleEvent</code> alongside the existing left/right/middle branches. Pseudo-Swift, eliding the locking and overlay plumbing:</p>
+
+<pre><code><span class="tok-keyword">enum</span> <span class="tok-fn">ResizeHandle</span> { <span class="tok-keyword">case</span> topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left }
+
+<span class="tok-keyword">struct</span> <span class="tok-fn">ResizeGesture</span> {
+    <span class="tok-keyword">let</span> target: AXUIElement
+    <span class="tok-keyword">let</span> startRect: CGRect
+    <span class="tok-keyword">let</span> startPoint: CGPoint
+    <span class="tok-keyword">var</span> currentRect: CGRect
+    <span class="tok-keyword">var</span> currentHandle: ResizeHandle
+    <span class="tok-keyword">var</span> lastUpdateAt: CFTimeInterval
+}
+
+<span class="tok-keyword">static func</span> <span class="tok-fn">closestHandle</span>(point: CGPoint, in rect: CGRect) -&gt; ResizeHandle {
+    <span class="tok-keyword">let</span> midX = rect.midX, midY = rect.midY
+    <span class="tok-keyword">let</span> anchors: [(CGPoint, ResizeHandle)] = [
+        (CGPoint(x: rect.minX, y: rect.minY), .topLeft),
+        (CGPoint(x: midX,      y: rect.minY), .top),
+        (CGPoint(x: rect.maxX, y: rect.minY), .topRight),
+        (CGPoint(x: rect.maxX, y: midY),      .right),
+        (CGPoint(x: rect.maxX, y: rect.maxY), .bottomRight),
+        (CGPoint(x: midX,      y: rect.maxY), .bottom),
+        (CGPoint(x: rect.minX, y: rect.maxY), .bottomLeft),
+        (CGPoint(x: rect.minX, y: midY),      .left),
+    ]
+    <span class="tok-keyword">return</span> anchors.<span class="tok-fn">min</span>(by: { a, b <span class="tok-keyword">in</span>
+        a.0.<span class="tok-fn">squaredDistance</span>(to: point) &lt; b.0.<span class="tok-fn">squaredDistance</span>(to: point)
+    })!.1
+}
+
+<span class="tok-comment">// Inside handleEvent, per mouse-move during an active resize:</span>
+<span class="tok-keyword">let</span> now = CACurrentMediaTime()
+<span class="tok-keyword">guard</span> now - gesture.lastUpdateAt &gt;= <span class="tok-num">0.016</span> <span class="tok-keyword">else</span> { <span class="tok-keyword">return</span> }
+gesture.lastUpdateAt = now
+
+gesture.currentHandle = closestHandle(point: cursor, in: gesture.currentRect)
+<span class="tok-fn">setCursorForHandle</span>(gesture.currentHandle)
+
+<span class="tok-keyword">var</span> r = gesture.currentRect
+<span class="tok-keyword">let</span> d = cursor - lastCursor
+<span class="tok-keyword">switch</span> gesture.currentHandle {
+<span class="tok-keyword">case</span> .topLeft:     r.origin.x += d.x; r.origin.y += d.y; r.size.width -= d.x; r.size.height -= d.y
+<span class="tok-keyword">case</span> .top:         r.origin.y += d.y;                    r.size.height -= d.y
+<span class="tok-keyword">case</span> .topRight:                       r.origin.y += d.y; r.size.width += d.x; r.size.height -= d.y
+<span class="tok-keyword">case</span> .right:                                              r.size.width += d.x
+<span class="tok-keyword">case</span> .bottomRight:                                        r.size.width += d.x; r.size.height += d.y
+<span class="tok-keyword">case</span> .bottom:                                                                  r.size.height += d.y
+<span class="tok-keyword">case</span> .bottomLeft:  r.origin.x += d.x;                    r.size.width -= d.x; r.size.height += d.y
+<span class="tok-keyword">case</span> .left:        r.origin.x += d.x;                    r.size.width -= d.x
+}
+r = <span class="tok-fn">clampToMinimum</span>(r, width: <span class="tok-num">150</span>, height: <span class="tok-num">50</span>)
+gesture.currentRect = r
+
+<span class="tok-comment">// One AX call for size, one for position if a top/left edge moved.</span>
+<span class="tok-fn">AXUIElementSetAttributeValue</span>(gesture.target, kAXSizeAttribute, r.size.<span class="tok-fn">asAXValue</span>())
+<span class="tok-keyword">if</span> handleMovesOrigin { <span class="tok-fn">AXUIElementSetAttributeValue</span>(gesture.target, kAXPositionAttribute, r.origin.<span class="tok-fn">asAXValue</span>()) }</code></pre>
+
+<!-- ╔══ §9 ═════════════════════════════════════════════════════════════╗ -->
+<h2>9 · What would break if you removed each piece</h2>
+
+<table>
+  <thead>
+    <tr><th>Remove…</th><th>Symptom</th><th>Severity</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>closestHandle</code> per-frame re-evaluation</td>
+      <td>Drag feels "stuck" to the starting edge. Crossing the rect diagonally produces a slow corner-drag that should have switched to a fast edge-drag.</td>
+      <td><span class="pill warn">MEDIUM</span></td>
+    </tr>
+    <tr>
+      <td>16 ms throttle</td>
+      <td>Every mouse event becomes a 5–10 ms AX IPC call. CPU spike during active drag, frame drops on the target app, possible UI hangs.</td>
+      <td><span class="pill bad">HIGH</span></td>
+    </tr>
+    <tr>
+      <td>Minimum-size clamp (150 × 50)</td>
+      <td>User can collapse a window to zero or invert it. AppKit recovers in most cases but some apps render garbage at <code>width = 0</code>.</td>
+      <td><span class="pill warn">MEDIUM</span></td>
+    </tr>
+    <tr>
+      <td><code>kAXResizableAttribute</code> probe</td>
+      <td>Resize attempt on a fixed-size dialog (e.g. About windows, alerts). AX call silently fails or partially succeeds — confusing.</td>
+      <td><span class="pill warn">MEDIUM</span></td>
+    </tr>
+    <tr>
+      <td>Cursor swap per handle</td>
+      <td>User has no visual feedback for which edge is being grabbed. Less polish, fully usable.</td>
+      <td><span class="pill neutral">LOW</span></td>
+    </tr>
+    <tr>
+      <td>Overlay + geometry readout</td>
+      <td>No live X/Y/W/H display during drag. Power users miss it; most users won't notice.</td>
+      <td><span class="pill neutral">LOW</span></td>
+    </tr>
+    <tr>
+      <td>Drag-distance threshold for the tile-vs-resize discriminator (Option D)</td>
+      <td>Resize gesture and tile-overlay gesture become ambiguous on right-button — user gets one when expecting the other. Blocks shipping.</td>
+      <td><span class="pill bad">HIGH</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ╔══ §10 ════════════════════════════════════════════════════════════╗ -->
+<h2>10 · Decisions needed before coding</h2>
+
+<ol>
+  <li><b>Gesture binding.</b> §7 recommends Option&nbsp;D (drag-distance discriminator), but A/B/C are all viable. Final call belongs to whoever owns the AnyDrag UX.</li>
+  <li><b>Cursor fidelity.</b> Use private SPI <code>NSCursor(named: "resizenorthwestsoutheast")</code> for diagonal cursors (Finder does), or ship with only ↔ and ↕ and accept a small regression for corner drags?</li>
+  <li><b>Overlay + geometry readout in v1, or v1.1?</b> Implementation is small but adds a settings toggle and translation strings. Reasonable to defer.</li>
+  <li><b>Per-app excluded-from-resize list.</b> PowerToys ships it; AnyDrag could reuse the existing <code>Preferences</code> store. Probably v1.1.</li>
+  <li><b>Should resize be a feature toggle in Advanced settings</b> (like the existing <code>maximizeEnabled</code>, <code>tilingEnabled</code> toggles)? Default on or off?</li>
+</ol>
+
+<!-- ╔══ FOOTER ═════════════════════════════════════════════════════════╗ -->
+<div class="footer">
+  <span>AnyDrag · resize-design · 2026-05-15</span>
+  <span>research: <code>microsoft/PowerToys@main</code> · <code>docs/resize-design.html</code></span>
+</div>
+
+</div>
+</body>
+</html>
