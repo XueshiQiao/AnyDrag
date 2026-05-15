@@ -3,15 +3,10 @@ import ApplicationServices
 
 final class PermissionManager {
 
-    var allGranted: Bool {
-        // Use the live probe (see `probeAccessibilityTrust`) — the polling
-        // path that calls this every 2s after the alert needs to detect
-        // the user's grant as soon as it actually takes effect, not after
-        // the TCC cache catches up.
-        Self.probeAccessibilityTrust()
-    }
+    var allGranted: Bool { AXIsProcessTrusted() }
 
-    /// Blocks on a background timer until both permissions are granted, then calls `completion` on the main thread.
+    /// Blocks on a background timer until Accessibility is granted, then
+    /// calls `completion` on the main thread.
     func ensurePermissions(completion: @escaping () -> Void) {
         if allGranted {
             completion()
@@ -59,38 +54,27 @@ final class PermissionManager {
         }
     }
 
-    /// Probe the *actual* current Accessibility / event-tap authorization
-    /// by attempting to create a throwaway listen-only tap. Returns true
-    /// iff creation succeeds.
-    ///
-    /// Per Apple DTS guidance (developer.apple.com/forums/thread/727984),
-    /// `AXIsProcessTrusted()` and `CGPreflightListenEventAccess()` both
-    /// read a TCC cache that lags the real authorization state — right
-    /// after the user toggles AX in System Settings, those APIs return
-    /// the **previous** value for some hundreds of ms (longer than our
-    /// 250ms debounce on some machines, which is what produced the
-    /// "totally inverted" bug). Attempting `CGEventTapCreate` is the only
-    /// way to get a synchronous, non-stale answer.
-    ///
-    /// Important: the event mask must be a **mouse** event. Listening for
-    /// keyboard events (e.g. `keyDown`) makes macOS prompt the user for
-    /// **Input Monitoring** in addition to Accessibility — even if the
-    /// tap is throwaway. Our real tap only handles mouse events and only
-    /// needs Accessibility, so the probe matches that profile.
-    static func probeAccessibilityTrust() -> Bool {
-        let mask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
-        let probe = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: mask,
-            callback: { _, _, event, _ in Unmanaged.passRetained(event) },
-            userInfo: nil
-        )
-        guard let probe = probe else { return false }
-        // We only wanted the perm check; tear the throwaway down.
-        CGEvent.tapEnable(tap: probe, enable: false)
-        CFMachPortInvalidate(probe)
-        return true
-    }
+    // MARK: - Trust oracle
+    //
+    // We used to maintain a separate `probeAccessibilityTrust()` that
+    // attempted a throwaway `CGEvent.tapCreate(.listenOnly, leftMouseDown,
+    // .cgSessionEventTap)` and treated success as "AX granted". The idea
+    // (commit d381c14) was that tap creation gives a synchronous answer
+    // without the TCC cache lag that `AXIsProcessTrusted()` has on grant.
+    //
+    // On macOS 14/15 that probe is unreliable in *both* directions:
+    //   - It returns true even when AX has never been granted (likely
+    //     because listen-only mouse taps no longer require AX — the tap
+    //     creates fine, it just receives no events).
+    //   - It returns true after a mid-run revoke for the lifetime of the
+    //     process (the WindowServer's per-process AX trust is pinned at
+    //     launch, so `CGEvent.tapCreate` keeps succeeding until relaunch).
+    //
+    // The original symptom that motivated the probe — `AXIsProcessTrusted`
+    // lagging the System Settings toggle by hundreds of ms and showing an
+    // inverted UI — is now absorbed by the 250/1000/2500 ms notification
+    // staircase in `DragEngine.handleTrustNotification` /
+    // `GeneralPaneViewController.scheduleTrustRefresh` plus the always-on
+    // 5 s backstop. So `AXIsProcessTrusted()` is the single source of
+    // truth everywhere; the probe and its helpers are gone.
 }

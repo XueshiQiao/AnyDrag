@@ -245,7 +245,14 @@ final class DragEngine {
     private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
 
     private var trustNotificationObserver: NSObjectProtocol?
-    private var trustRestoreDebounceTask: DispatchWorkItem?
+    /// Staircase of delayed probes scheduled after each
+    /// `com.apple.accessibility.api` notification. We probe at multiple
+    /// offsets because `AXIsProcessTrusted()` — the only API that detects
+    /// a *revoke* for non-sandboxed processes — has variable TCC settle
+    /// latency. A single 250ms probe used to miss slow revokes, leaving
+    /// our unauthorized `.defaultTap` at the head of the event chain and
+    /// freezing system-wide clicks.
+    private var trustRestoreDebounceTasks: [DispatchWorkItem] = []
     private var backstopTimer: Timer?
 
     /// Wall-clock anchor for the backstop's events-per-second log. Only
@@ -419,12 +426,19 @@ final class DragEngine {
         strategy.reset()
         abortTileGesture()
 
-        backstopTimer?.invalidate()
-        backstopTimer = nil
-        trustRestoreDebounceTask?.cancel()
-        trustRestoreDebounceTask = nil
+        // Backstop deliberately kept alive across stop(). `AXIsProcessTrusted`
+        // has TCC settle latency that can exceed the 2.5 s notification
+        // staircase. Without a running backstop, a false-revoke from
+        // `tapDisabledBy*` (or a legitimate re-grant later in the
+        // session) would never be observed automatically — the engine
+        // would stay stopped until the next distributed AX notification
+        // or app restart. Five-second ticks reading `AXIsProcessTrusted`
+        // cost essentially nothing and recover the engine without user
+        // intervention.
+        trustRestoreDebounceTasks.forEach { $0.cancel() }
+        trustRestoreDebounceTasks.removeAll()
 
-        Self.log.info("stop(): teardown complete")
+        Self.log.info("stop(): teardown complete (backstop left running)")
     }
 
     // MARK: - AX Trust Observation
@@ -450,25 +464,34 @@ final class DragEngine {
 
     private func handleTrustNotification() {
         dispatchPrecondition(condition: .onQueue(.main))
-        Self.log.info("AX trust notification fired; scheduling probe in 250ms")
+        Self.log.info("AX trust notification fired; scheduling check staircase")
         // The notification is just a "something changed" hint — for ANY
-        // app, not just us. Defer 250ms to let TCC settle, then probe via
-        // `CGEvent.tapCreate` (the only API that gives a non-stale answer
-        // post-toggle). One debounce path handles both grant and revoke.
-        trustRestoreDebounceTask?.cancel()
-        let task = DispatchWorkItem { [weak self] in
-            self?.recheckTrust(source: "notification")
+        // app, not just us. We need to discover whether *our* trust just
+        // flipped. `AXIsProcessTrusted` reads TCC state and lags the
+        // System Settings toggle by a variable amount (hundreds of ms,
+        // sometimes longer on slow machines), so we re-check at a
+        // staircase of delays — 250ms catches fast settles, 2500ms covers
+        // the slow tail. The always-on 5s backstop catches anything past
+        // 2500ms.
+        trustRestoreDebounceTasks.forEach { $0.cancel() }
+        trustRestoreDebounceTasks.removeAll()
+        let delaysMs: [Int] = [250, 1000, 2500]
+        for delay in delaysMs {
+            let task = DispatchWorkItem { [weak self] in
+                self?.recheckTrust(source: "notification+\(delay)ms")
+            }
+            trustRestoreDebounceTasks.append(task)
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: task)
         }
-        trustRestoreDebounceTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250), execute: task)
     }
 
     /// Probe the actual AX state and reconcile cache + engine lifecycle.
     /// Called from the notification handler and the backstop poll.
     private func recheckTrust(source: String) {
         dispatchPrecondition(condition: .onQueue(.main))
-        let trusted = PermissionManager.probeAccessibilityTrust()
-        Self.log.info("Trust probe [\(source)]: tapCreate \(trusted ? "succeeded" : "failed")")
+        let prior = cbState.withLock { $0.trusted }
+        let trusted = AXIsProcessTrusted()
+        Self.log.info("Trust check [\(source)]: prior=\(prior) → AXIsProcessTrusted=\(trusted)")
         applyTrustChange(trusted, source: source)
     }
 
@@ -496,10 +519,17 @@ final class DragEngine {
 
     // MARK: - Backstop poll
 
-    /// Periodic AXIsProcessTrusted poll to catch missed distributed
-    /// notifications (the notification name is undocumented and not
-    /// guaranteed reliable). Also dumps event-rate stats to the log so we
-    /// can see actual callback frequency.
+    /// Periodic trust poll, (re)created on every successful `start()` and
+    /// **deliberately kept alive across `stop()` calls** for the engine's
+    /// lifetime. Two responsibilities:
+    ///
+    /// 1. While trusted: catch missed `com.apple.accessibility.api`
+    ///    distributed notifications (the name is undocumented and not
+    ///    guaranteed reliable) and dump event-rate stats for diagnostics.
+    /// 2. While untrusted (post-revoke): catch a re-grant — or a false
+    ///    positive from the `tapDisabledBy*` recovery path — that the
+    ///    notification staircase missed. Without this, the engine would
+    ///    stay wedged until the next AX notification or app restart.
     private func startBackstopTimer() {
         backstopTimer?.invalidate()
         backstopTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
@@ -508,9 +538,9 @@ final class DragEngine {
     }
 
     /// Belt-and-suspenders trust check at each AX-call entry point. Closes
-    /// the brief window where the cached `trustedLock` may still report
-    /// true while an `com.apple.accessibility.api` notification is in
-    /// flight. Cheap to call (single TCC query, microseconds) — these
+    /// the brief window where the cached `cbState.trusted` may still
+    /// report true while an `com.apple.accessibility.api` notification is
+    /// in flight. Cheap to call (single TCC query, microseconds) — these
     /// sites are user-gesture-driven, not in any hot loop. If trust is
     /// gone, schedules a full teardown.
     private func axGuardOrAbort(_ site: String) -> Bool {
@@ -524,10 +554,6 @@ final class DragEngine {
 
     private func backstopTick() {
         dispatchPrecondition(condition: .onQueue(.main))
-        // Use the live probe (Apple DTS guidance) instead of
-        // `AXIsProcessTrusted()` so cache drift can't accumulate from
-        // stale TCC reads.
-        let actual = PermissionManager.probeAccessibilityTrust()
         let snapshot = cbState.withLock { state -> (Bool, Int) in
             let s = (state.trusted, state.eventCounter)
             state.eventCounter = 0
@@ -535,18 +561,19 @@ final class DragEngine {
         }
         let cached = snapshot.0
         let count = snapshot.1
+        let actual = AXIsProcessTrusted()
         let elapsed = Date().timeIntervalSince(eventCounterStart)
         eventCounterStart = Date()
         let perSec = elapsed > 0 ? Double(count) / elapsed : 0
         Self.log.debug(String(
-            format: "Backstop: AX cache=%@, probe=%@, events=%d in %.1fs (%.1f/s)",
+            format: "Backstop: AX cache=%@, actual=%@, events=%d in %.1fs (%.1f/s)",
             cached ? "true" : "false",
             actual ? "true" : "false",
             count, elapsed, perSec
         ))
 
         if actual != cached {
-            Self.log.warn("Backstop detected drift cache=\(cached) vs probe=\(actual) — applying")
+            Self.log.warn("Backstop detected drift cache=\(cached) vs actual=\(actual) — applying")
             applyTrustChange(actual, source: "backstop")
         }
     }
@@ -595,20 +622,31 @@ final class DragEngine {
         // revoked). Decide on main where we can probe and access the
         // tap reference race-free.
         if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
-            Self.log.info("tap-disabled event \(type) — dispatching probe to main")
+            Self.log.info("tap-disabled event \(type) — dispatching trust check to main")
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                let trusted = PermissionManager.probeAccessibilityTrust()
-                Self.log.info("tap-disabled probe: tapCreate \(trusted ? "succeeded" : "failed")")
+                // We're here because the OS just killed our tap. The tap
+                // can only exist if we were previously trusted, so this
+                // is unambiguously a revoke-direction check — consult
+                // `AXIsProcessTrusted()` directly. The listen-only mouse
+                // probe used here previously *lied on revoke* (succeeded
+                // because WindowServer pins per-process trust at launch),
+                // which made us re-enable an unauthorized `.defaultTap`
+                // at the head of the event chain and freeze all clicks
+                // system-wide. TCC has had plenty of time to settle by
+                // the time we receive a tap-disabled event, so the bare
+                // `AXIsProcessTrusted()` read is the right oracle here.
+                let trusted = AXIsProcessTrusted()
+                Self.log.info("tap-disabled trust check: AXIsProcessTrusted=\(trusted)")
                 if trusted {
                     self.cbState.withLock { state in
                         if let tap = state.tap {
                             CGEvent.tapEnable(tap: tap, enable: true)
-                            Self.log.info("Re-enabled tap (probe says authorized)")
+                            Self.log.info("Re-enabled tap (still authorized)")
                         }
                     }
                 } else {
-                    Self.log.warn("tap-disabled and probe failed — calling applyTrustChange(false)")
+                    Self.log.warn("tap-disabled and AX revoked — calling applyTrustChange(false)")
                     self.applyTrustChange(false, source: "tap-disabled")
                 }
             }
