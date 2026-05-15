@@ -2,6 +2,8 @@
 
 [English](README.md)
 
+**拖动丝滑跟手，宛如原生标题栏 —— macOS 上其他修饰键拖动工具都做不到。**
+
 按住修饰键，拖动窗口任意位置即可移动窗口，无需拖拽标题栏。
 
 <!-- ![AnyDrag 演示](demo.png) -->
@@ -63,6 +65,10 @@ open AnyDrag.xcodeproj
 ```
 
 然后在 Xcode 中构建并运行（⌘R）。
+
+## 已知问题
+
+- 与系统三指拖移联用时，drag-end 会有一帧 snap 闪烁。
 
 ## 许可
 

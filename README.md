@@ -2,6 +2,8 @@
 
 [中文文档](README_CN.md)
 
+**Drags as smoothly as a native title bar — no other modifier-drag tool on macOS matches it.**
+
 Move any window by holding a modifier key and dragging anywhere on the window — no need to grab the title bar.
 
 <!-- ![AnyDrag Demo](demo.png) -->
@@ -63,6 +65,10 @@ open AnyDrag.xcodeproj
 ```
 
 Then build and run in Xcode (⌘R).
+
+## Known Issues
+
+- When used together with macOS three-finger drag, there is a one-frame snap flicker at drag-end.
 
 ## License
 
