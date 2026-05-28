@@ -13,8 +13,9 @@ enum Preferences {
 
         // Diagnostics — persisted across launches now that the section is
         // always visible in Settings.
-        static let titleBarYOffset = "AnyDragTitleBarYOffset"
-        static let showDebugDot    = "AnyDragShowDebugDot"
+        static let titleBarYOffset    = "AnyDragTitleBarYOffset"
+        static let showDebugDot       = "AnyDragShowDebugDot"
+        static let resizeCornerInset  = "AnyDragResizeCornerInset"
 
         // In-app language override. Empty/absent means "follow system".
         static let languageOverride = "AnyDragLanguageOverride"
@@ -46,6 +47,17 @@ enum Preferences {
     /// clamped on launch so a manually edited UserDefaults entry can't push the
     /// engine outside what the UI can represent.
     static let titleBarYOffsetRange: ClosedRange<CGFloat> = 0...40
+
+    /// Default resize-corner inset. The synthesized resize click lands this
+    /// many points INSIDE the window's corner so it falls inside the rounded
+    /// outer shape rather than in the transparent halo at the geometric
+    /// frame corner. 5 works for Safari / Finder / Notes-class apps as well
+    /// as Chromium — verified by hand against both families.
+    static let defaultResizeCornerInset: CGFloat = 5
+
+    /// Slider range for the resize-corner inset (0…30 px). Persisted values
+    /// are clamped to this range on launch.
+    static let resizeCornerInsetRange: ClosedRange<CGFloat> = 0...30
 
     /// Read the persisted language override and install it. Call before any
     /// localized string is read in the launch path so the very first reads see
@@ -129,6 +141,13 @@ enum Preferences {
             engine.titleBarYOffset = clamped
         } else {
             engine.titleBarYOffset = defaultTitleBarYOffset
+        }
+
+        if let raw = d.object(forKey: Key.resizeCornerInset) as? Double {
+            let clamped = min(max(CGFloat(raw), resizeCornerInsetRange.lowerBound), resizeCornerInsetRange.upperBound)
+            engine.resizeCornerInset = clamped
+        } else {
+            engine.resizeCornerInset = defaultResizeCornerInset
         }
 
         engine.showDebugDot = d.object(forKey: Key.showDebugDot) as? Bool ?? false

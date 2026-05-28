@@ -77,6 +77,8 @@
 "diagnostics.showDot.subtitle" = "Flash a marker where AnyDrag fires the title-bar click.";
 "diagnostics.titleBarYOffset" = "Title-bar Y offset";
 "diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default 3 px.";
+"diagnostics.resizeCornerInset" = "Resize corner inset";
+"diagnostics.resizeCornerInset.hint" = "How far inside the window's corner the resize click lands. Larger values for apps with rounded outer corners (Safari, Finder). Default 5 px.";
 "diagnostics.reset" = "Reset";
 
 /* About pane */

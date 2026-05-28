@@ -24,6 +24,9 @@ final class GeneralPaneViewController: NSViewController {
     private let yOffsetSlider = NSSlider()
     private let yOffsetValueLabel = NSTextField(labelWithString: "")
     private let yOffsetResetButton = NSButton()
+    private let resizeInsetSlider = NSSlider()
+    private let resizeInsetValueLabel = NSTextField(labelWithString: "")
+    private let resizeInsetResetButton = NSButton()
 
     private var trustObserver: NSObjectProtocol?
     private var trustRefreshTasks: [DispatchWorkItem] = []
@@ -299,12 +302,60 @@ final class GeneralPaneViewController: NSViewController {
         hint.lineBreakMode = .byWordWrapping
         hint.maximumNumberOfLines = 0
         diagnosticsContainer.addArrangedSubview(hint)
+
+        // ─── Resize corner inset slider ────────────────────────────────
+        let riTitle = NSTextField(labelWithString: NSLocalizedString("diagnostics.resizeCornerInset", comment: ""))
+        riTitle.font = .systemFont(ofSize: NSFont.systemFontSize)
+
+        resizeInsetValueLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        resizeInsetValueLabel.textColor = .secondaryLabelColor
+        resizeInsetValueLabel.alignment = .right
+        resizeInsetValueLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        resizeInsetResetButton.title = NSLocalizedString("diagnostics.reset", comment: "")
+        resizeInsetResetButton.target = self
+        resizeInsetResetButton.action = #selector(resizeInsetResetTapped(_:))
+        resizeInsetResetButton.bezelStyle = .rounded
+        resizeInsetResetButton.controlSize = .small
+        resizeInsetResetButton.focusRingType = .none
+        resizeInsetResetButton.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        let riTitleRow = NSStackView(views: [riTitle, NSView(), resizeInsetValueLabel, resizeInsetResetButton])
+        riTitleRow.orientation = .horizontal
+        riTitleRow.alignment = .centerY
+        riTitleRow.distribution = .fill
+        riTitleRow.spacing = 8
+        riTitleRow.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
+        diagnosticsContainer.addArrangedSubview(riTitleRow)
+        riTitleRow.translatesAutoresizingMaskIntoConstraints = false
+        riTitleRow.leadingAnchor.constraint(equalTo: diagnosticsContainer.leadingAnchor).isActive = true
+        riTitleRow.trailingAnchor.constraint(equalTo: diagnosticsContainer.trailingAnchor).isActive = true
+
+        resizeInsetSlider.minValue = Double(Preferences.resizeCornerInsetRange.lowerBound)
+        resizeInsetSlider.maxValue = Double(Preferences.resizeCornerInsetRange.upperBound)
+        resizeInsetSlider.numberOfTickMarks = 7
+        resizeInsetSlider.allowsTickMarkValuesOnly = false
+        resizeInsetSlider.isContinuous = true
+        resizeInsetSlider.target = self
+        resizeInsetSlider.action = #selector(resizeInsetSliderChanged(_:))
+        resizeInsetSlider.focusRingType = .none
+        resizeInsetSlider.translatesAutoresizingMaskIntoConstraints = false
+        diagnosticsContainer.addArrangedSubview(resizeInsetSlider)
+        resizeInsetSlider.leadingAnchor.constraint(equalTo: diagnosticsContainer.leadingAnchor).isActive = true
+        resizeInsetSlider.trailingAnchor.constraint(equalTo: diagnosticsContainer.trailingAnchor).isActive = true
+
+        let riHint = subLabel(NSLocalizedString("diagnostics.resizeCornerInset.hint", comment: ""))
+        riHint.lineBreakMode = .byWordWrapping
+        riHint.maximumNumberOfLines = 0
+        diagnosticsContainer.addArrangedSubview(riHint)
     }
 
     private func syncDiagnosticsControlsFromEngine() {
         showDotSwitch.state = dragEngine.showDebugDot ? .on : .off
         yOffsetSlider.doubleValue = Double(dragEngine.titleBarYOffset)
         updateYOffsetValueLabel()
+        resizeInsetSlider.doubleValue = Double(dragEngine.resizeCornerInset)
+        updateResizeInsetValueLabel()
     }
 
     private func updateYOffsetValueLabel() {
@@ -312,6 +363,13 @@ final class GeneralPaneViewController: NSViewController {
         yOffsetValueLabel.stringValue = "\(value) px"
         let isAtDefault = CGFloat(value) == Preferences.defaultTitleBarYOffset
         yOffsetResetButton.isEnabled = !isAtDefault
+    }
+
+    private func updateResizeInsetValueLabel() {
+        let value = Int(resizeInsetSlider.doubleValue.rounded())
+        resizeInsetValueLabel.stringValue = "\(value) px"
+        let isAtDefault = CGFloat(value) == Preferences.defaultResizeCornerInset
+        resizeInsetResetButton.isEnabled = !isAtDefault
     }
 
     @objc private func showDotToggled(_ sender: NSSwitch) {
@@ -334,6 +392,22 @@ final class GeneralPaneViewController: NSViewController {
         dragEngine.titleBarYOffset = defaultValue
         UserDefaults.standard.set(Double(defaultValue), forKey: Preferences.Key.titleBarYOffset)
         updateYOffsetValueLabel()
+    }
+
+    @objc private func resizeInsetSliderChanged(_ sender: NSSlider) {
+        let snapped = sender.doubleValue.rounded()
+        sender.doubleValue = snapped
+        dragEngine.resizeCornerInset = CGFloat(snapped)
+        UserDefaults.standard.set(snapped, forKey: Preferences.Key.resizeCornerInset)
+        updateResizeInsetValueLabel()
+    }
+
+    @objc private func resizeInsetResetTapped(_ sender: NSButton) {
+        let defaultValue = Preferences.defaultResizeCornerInset
+        resizeInsetSlider.doubleValue = Double(defaultValue)
+        dragEngine.resizeCornerInset = defaultValue
+        UserDefaults.standard.set(Double(defaultValue), forKey: Preferences.Key.resizeCornerInset)
+        updateResizeInsetValueLabel()
     }
 
     // MARK: - Launch at Login

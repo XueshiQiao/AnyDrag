@@ -77,6 +77,8 @@
 "diagnostics.showDot.subtitle" = "在 AnyDrag 触发标题栏点击的位置闪一个标记。";
 "diagnostics.titleBarYOffset" = "标题栏 Y 偏移";
 "diagnostics.titleBarYOffset.hint" = "模拟点击距离窗口顶边的距离,默认 3 px。";
+"diagnostics.resizeCornerInset" = "Resize 角内缩量";
+"diagnostics.resizeCornerInset.hint" = "Resize 模拟点击距离窗口角的内缩距离。圆角较大的 app(Safari、Finder)需要更大的值。默认 5 px。";
 "diagnostics.reset" = "重置";
 
 /* About pane */

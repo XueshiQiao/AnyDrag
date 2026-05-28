@@ -193,6 +193,11 @@ final class DragEngine {
         set { strategy.titleBarYOffset = newValue }
     }
 
+    var resizeCornerInset: CGFloat {
+        get { resizeStrategy.cornerInset }
+        set { resizeStrategy.cornerInset = newValue }
+    }
+
     var showDebugDot: Bool {
         get { strategy.showDebugDot }
         set { strategy.showDebugDot = newValue }
