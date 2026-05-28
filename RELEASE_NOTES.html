@@ -1,3 +1,19 @@
+<h3>What's New in 26.05.102</h3>
+<ul>
+  <li><b>Resize any window from anywhere</b> — Hold the same modifier you use for moving (Option by default) and right-click-drag to resize the window from the nearest corner. No more aiming for the thin window edge. The drag uses the same window-server trick AnyDrag already uses for moves — no Accessibility setSize per frame — so the resize is native-feeling and tracks the cursor 1:1. Thanks to heero for the feature suggestion.</li>
+  <li><b>Corner Bracket indicator</b> — A small L-shaped accent-colored glow appears at the active corner during a resize, so you can see which corner the gesture grabbed. Tracks the live window frame, and stops automatically at the dock, screen edge, or any axis the app refuses to resize (e.g. System Settings' fixed width). You can turn it off independently from Settings → Advanced → Window Resize for a quieter UI; doing so also disables the ~30 Hz Accessibility polling that keeps the bracket aligned, for a small performance saving.</li>
+  <li><b>Advanced settings reorganized</b> — Now split into three sections: <b>Window Drag</b>, <b>Window Resize</b>, and <b>Middle-click action</b>. The two new resize switches live in the middle section. The existing <b>Show synthesized-click dot</b> diagnostic switch in General → Diagnostics now flashes a marker for both the move and the resize gestures.</li>
+  <li><b>Resize corner inset diagnostic slider</b> — Under Settings → General → Diagnostics. Controls how far inside the window's corner the synthesized resize click lands; default 5 px works across stock AppKit (Safari, Finder, TextEdit) and Chromium-based apps (Chrome, VS Code). Apps with unusual rounded outer corners can dial it up if their first attempt misses.</li>
+</ul>
+
+<h3>26.05.102 更新内容</h3>
+<ul>
+  <li><b>任意窗口、任意位置开始缩放</b> — 按住和移动窗口同一个修饰键(默认 Option)+ 鼠标右键拖动,即可从最近的窗口角缩放,不再需要瞄准那一两像素宽的窗口边缘。底层与"任意位置拖动移动窗口"使用同一套 window server 技巧——每帧不调一次 AX setSize——所以缩放手感原生顺滑,跟随光标 1:1。感谢 heero 提出这个功能建议。</li>
+  <li><b>角标指示线</b> — 缩放过程中在被抓的窗口角显示一个 L 形发光指示,让你看清楚抓的是哪个角。跟踪窗口实际位置,遇到 Dock、屏幕边缘、或 app 拒绝缩放的方向(如系统设置的固定宽度)会自动停住。可在「设置 → 高级 → 窗口缩放」里独立关闭,关闭后同时会停掉为绘制指示线而做的约 30 Hz Accessibility 轮询,性能略好。</li>
+  <li><b>高级设置面板重组</b> — 现在分成三块:<b>窗口拖动</b>、<b>窗口缩放</b>、<b>鼠标中键动作</b>。两个新的缩放开关在中间这块。「通用 → 诊断」里原有的<b>「显示模拟点击位置」</b>开关现在同时控制移动和缩放两个手势的标记显示。</li>
+  <li><b>「Resize 角内缩量」诊断滑杆</b> — 在「设置 → 通用 → 诊断」。控制模拟点击距离窗口角的内缩距离;默认 5 px 在原生 AppKit (Safari、Finder、TextEdit) 和 Chromium 系应用 (Chrome、VS Code) 上都能用。圆角异常的 app 第一次没成功的话可以手动调大。</li>
+</ul>
+
 <h3>What's New in 26.05.101</h3>
 <ul>
   <li><b>Re-release of 26.05.100</b> — Fixes an appcast metadata bug that prevented existing 1.4.x users from receiving the 26.05.100 update prompt (Sparkle saw a garbled version field and reported "You're up to date" instead of offering the update). All features and fixes from 26.05.100 are included — see below.</li>
