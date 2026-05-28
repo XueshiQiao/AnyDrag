@@ -127,6 +127,19 @@ final class ResizeStrategy {
     /// Chromium apps.
     var cornerInset: CGFloat = 5
 
+    /// User-facing toggle: show the Corner Bracket overlay during resize?
+    /// When false the resize still works (CGEvent rewrite is independent
+    /// of the feedback), but we also skip the AX size/position polling
+    /// done to keep the bracket tracking the window — the polling exists
+    /// only to drive the overlay, so turning the overlay off frees the
+    /// CPU budget it spent.
+    var cornerBracketEnabled: Bool = true
+
+    /// User-facing toggle, shared with the title-bar move debug dot in
+    /// `TitleBarDragStrategy`: show a red marker at the synthesized click
+    /// position. Defaults off; the Settings switch flips both strategies.
+    var showDebugDot: Bool = false
+
     /// Pluggable visual indicator. Swap with `NoResizeFeedback` to disable,
     /// or future implementations (anchor dot, geometry HUD) to vary.
     private let feedback: ResizeFeedback
@@ -165,14 +178,18 @@ final class ResizeStrategy {
         // Open the feedback overlay immediately so the user sees confirmation
         // before any drag (mirrors the cursor change the window server will
         // produce on the synthesized first-drag mouseDown). NSPanel touches
-        // must happen on main.
-        feedbackOpen = true
+        // must happen on main. Both halves (bracket overlay, debug dot) are
+        // independently gated by their user settings; when both are off the
+        // dispatch is a cheap no-op.
+        let bracketOn = cornerBracketEnabled
+        let dotOn = showDebugDot
+        if bracketOn { feedbackOpen = true }
         let feedback = self.feedback
         let dot = self.dragPointDot
         let anchor = dragPoint
         DispatchQueue.main.async {
-            feedback.begin(windowFrame: windowFrame, corner: corner)
-            dot.show(atCGPoint: anchor)
+            if bracketOn { feedback.begin(windowFrame: windowFrame, corner: corner) }
+            if dotOn { dot.show(atCGPoint: anchor) }
         }
 
         // Activate the target app and raise its window. Same defer-the-click
@@ -196,16 +213,22 @@ final class ResizeStrategy {
                 if raiseResult != .success {
                     AXUIElementSetAttributeValue(foundAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
                 }
-                axWindow = foundAXWindow
+                // Only cache the window for polling if the bracket is
+                // actually going to use it — keeps the AX poll loop
+                // dormant when the user has the overlay turned off.
+                if cornerBracketEnabled { axWindow = foundAXWindow }
             }
         }
         // Seed the observed frame with the input frame so the very first
         // drag event has something to render before the AX poll kicks in.
         // `Date()` instead of `.distantPast` so the first poll fires
         // `axPollInterval` into the gesture (gives the resize a moment to
-        // engage natively before we start reading back).
-        observedFrame = windowFrame
-        lastAXPoll = Date()
+        // engage natively before we start reading back). Only relevant
+        // when the bracket is on; otherwise we never read these.
+        if cornerBracketEnabled {
+            observedFrame = windowFrame
+            lastAXPoll = Date()
+        }
 
         isActive = true
         didDrag = false
@@ -254,9 +277,13 @@ final class ResizeStrategy {
         // rewrite event.location below. Pre-compute here so the closure
         // captures a snapshot.
         let serverPoint = CGPoint(x: pos.x + xOffset, y: pos.y + yOffset)
-        DispatchQueue.main.async {
-            feedback.update(windowFrame: bracketFrame)
-            dot.show(atCGPoint: serverPoint)
+        let bracketOn = cornerBracketEnabled
+        let dotOn = showDebugDot
+        if bracketOn || dotOn {
+            DispatchQueue.main.async {
+                if bracketOn { feedback.update(windowFrame: bracketFrame) }
+                if dotOn { dot.show(atCGPoint: serverPoint) }
+            }
         }
 
         if needsInitialMouseDown {
@@ -315,12 +342,15 @@ final class ResizeStrategy {
     }
 
     private func closeFeedback() {
-        guard feedbackOpen else { return }
+        // The debug dot is shown independently of the bracket (gated by
+        // `showDebugDot`), so hide it unconditionally — `dot.hide` is a
+        // cheap no-op when it isn't visible.
+        let dot = self.dragPointDot
+        let hadFeedback = feedbackOpen
         feedbackOpen = false
         let feedback = self.feedback
-        let dot = self.dragPointDot
         DispatchQueue.main.async {
-            feedback.end()
+            if hadFeedback { feedback.end() }
             dot.hide()
         }
     }

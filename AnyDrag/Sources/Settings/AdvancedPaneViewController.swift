@@ -13,6 +13,8 @@ final class AdvancedPaneViewController: NSViewController {
     private let dragSwitch     = NSSwitch()
     private let maximizeSwitch = NSSwitch()
     private let tilingSwitch   = NSSwitch()
+    private let resizeSwitch   = NSSwitch()
+    private let cornerBracketSwitch = NSSwitch()
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
@@ -39,8 +41,8 @@ final class AdvancedPaneViewController: NSViewController {
         container.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        // Features
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("Features", comment: "")))
+        // Window Drag
+        container.addArrangedSubview(sectionHeader(NSLocalizedString("section.windowDrag", comment: "")))
         container.addArrangedSubview(subLabel(NSLocalizedString("Modifier Keys", comment: "")))
 
         modifierChipRow.onChange = { [weak self] proposed in
@@ -86,6 +88,25 @@ final class AdvancedPaneViewController: NSViewController {
 
         container.addArrangedSubview(separator())
 
+        // Window Resize
+        container.addArrangedSubview(sectionHeader(NSLocalizedString("section.windowResize", comment: "")))
+        addFeatureRow(
+            to: container,
+            title: NSLocalizedString("feature.resize", comment: ""),
+            subtitle: NSLocalizedString("feature.resize.subtitle", comment: ""),
+            toggle: resizeSwitch,
+            action: #selector(resizeToggled(_:))
+        )
+        addFeatureRow(
+            to: container,
+            title: NSLocalizedString("feature.cornerBracket", comment: ""),
+            subtitle: NSLocalizedString("feature.cornerBracket.subtitle", comment: ""),
+            toggle: cornerBracketSwitch,
+            action: #selector(cornerBracketToggled(_:))
+        )
+
+        container.addArrangedSubview(separator())
+
         // Middle-click action
         container.addArrangedSubview(sectionHeader(NSLocalizedString("Middle-click action", comment: "")))
         middleActionPicker.onChange = { [weak self] action in
@@ -123,9 +144,11 @@ final class AdvancedPaneViewController: NSViewController {
         modifierChipRow.selection = dragEngine.modifiers
         updateModifierPreview()
 
-        dragSwitch.state     = dragEngine.dragEnabled ? .on : .off
-        maximizeSwitch.state = dragEngine.maximizeEnabled ? .on : .off
-        tilingSwitch.state   = dragEngine.tilingEnabled ? .on : .off
+        dragSwitch.state            = dragEngine.dragEnabled ? .on : .off
+        maximizeSwitch.state        = dragEngine.maximizeEnabled ? .on : .off
+        tilingSwitch.state          = dragEngine.tilingEnabled ? .on : .off
+        resizeSwitch.state          = dragEngine.resizeEnabled ? .on : .off
+        cornerBracketSwitch.state   = dragEngine.cornerBracketEnabled ? .on : .off
 
         updateFeatureRowsEnabled()
 
@@ -185,6 +208,26 @@ final class AdvancedPaneViewController: NSViewController {
         }
     }
 
+    @objc private func resizeToggled(_ sender: NSSwitch) {
+        let on = (sender.state == .on)
+        let previous = dragEngine.resizeEnabled
+        dragEngine.resizeEnabled = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.resizeEnabled)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "resize_enabled", value: String(on))
+        }
+    }
+
+    @objc private func cornerBracketToggled(_ sender: NSSwitch) {
+        let on = (sender.state == .on)
+        let previous = dragEngine.cornerBracketEnabled
+        dragEngine.cornerBracketEnabled = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.cornerBracketEnabled)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "corner_bracket_enabled", value: String(on))
+        }
+    }
+
     // MARK: - View builders
 
     private func sectionHeader(_ text: String) -> NSTextField {
@@ -235,6 +278,13 @@ final class AdvancedPaneViewController: NSViewController {
             let sub = NSTextField(labelWithString: subtitle)
             sub.font = .systemFont(ofSize: 11)
             sub.textColor = .secondaryLabelColor
+            // Allow up to 2 lines — long descriptions (e.g. the corner
+            // bracket's perf hint) overflow a single line and would
+            // otherwise push the toggle off the row.
+            sub.lineBreakMode = .byWordWrapping
+            sub.maximumNumberOfLines = 2
+            sub.preferredMaxLayoutWidth = 360
+            sub.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             labelStack.addArrangedSubview(sub)
             subtitleLabel = sub
         }
@@ -242,6 +292,10 @@ final class AdvancedPaneViewController: NSViewController {
         toggle.target = self
         toggle.action = action
         toggle.focusRingType = .none
+        // Toggle never compresses or moves; the label stack absorbs all the
+        // width variation.
+        toggle.setContentHuggingPriority(.required, for: .horizontal)
+        toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let row = NSStackView(views: [labelStack, NSView(), toggle])
         row.orientation = .horizontal

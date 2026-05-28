@@ -177,6 +177,10 @@ final class DragEngine {
     var dragEnabled: Bool = true
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
+    /// Master toggle for the modifier+right-drag → resize gesture.
+    /// When false, the right-click still opens TilingPanel as before but
+    /// the drag-to-resize path is skipped.
+    var resizeEnabled: Bool = true
     var middleAction: MiddleAction = .off {
         didSet {
             // If the user changes the middle-button action mid-gesture, abort
@@ -198,9 +202,19 @@ final class DragEngine {
         set { resizeStrategy.cornerInset = newValue }
     }
 
+    var cornerBracketEnabled: Bool {
+        get { resizeStrategy.cornerBracketEnabled }
+        set { resizeStrategy.cornerBracketEnabled = newValue }
+    }
+
+    /// Shared "show synthesized-click dot" toggle. Drives the title-bar
+    /// move strategy AND the resize strategy — one setting, two markers.
     var showDebugDot: Bool {
         get { strategy.showDebugDot }
-        set { strategy.showDebugDot = newValue }
+        set {
+            strategy.showDebugDot = newValue
+            resizeStrategy.showDebugDot = newValue
+        }
     }
 
     private var runLoopSource: CFRunLoopSource?
@@ -846,7 +860,9 @@ final class DragEngine {
             return nil
         }
 
-        guard tilingEnabled else {
+        // Pass through only when BOTH features are off — having either one on
+        // means we want to suppress the right-click and engage our handlers.
+        guard tilingEnabled || resizeEnabled else {
             return Unmanaged.passUnretained(event)
         }
 
@@ -865,6 +881,18 @@ final class DragEngine {
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
             logNoWindowMiss(button: "right", at: screenPoint)
             return Unmanaged.passUnretained(event)
+        }
+
+        // Resize-from-anywhere disabled: skip the suppress-and-watch path
+        // and just open TilingPanel immediately, the way right-click did
+        // before the resize feature existed.
+        if !resizeEnabled {
+            let mouseLocation = NSEvent.mouseLocation
+            let captured = windowInfo
+            DispatchQueue.main.async { [weak self] in
+                self?.showTilingPanel(at: mouseLocation, for: captured)
+            }
+            return nil
         }
 
         guard axGuardOrAbort("resizeStrategy.handleMouseDown(right)") else {
@@ -924,10 +952,12 @@ final class DragEngine {
             state.rightOrigin = nil
             return (target, origin)
         }
-        if let pending {
+        if let pending, tilingEnabled {
             // `NSEvent.mouseLocation` gives us NS-coords (bottom-left origin);
             // the original right-down code used that, so mirror it here for
-            // consistent panel positioning.
+            // consistent panel positioning. Skip when tiling is off — the
+            // user only enabled resize, so a no-drag click should be a
+            // no-op rather than popping a panel they don't want.
             let mouseLocation = NSEvent.mouseLocation
             let target = pending.target
             DispatchQueue.main.async { [weak self] in

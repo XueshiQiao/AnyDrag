@@ -9,6 +9,8 @@ enum Preferences {
         static let dragEnabled     = "AnyDragDragEnabled"
         static let maximizeEnabled = "AnyDragMaximizeEnabled"
         static let tilingEnabled   = "AnyDragTilingEnabled"
+        static let resizeEnabled   = "AnyDragResizeEnabled"
+        static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
         static let middleAction    = "AnyDragMiddleAction"
 
         // Diagnostics — persisted across launches now that the section is
@@ -120,6 +122,8 @@ enum Preferences {
         engine.dragEnabled      = d.object(forKey: Key.dragEnabled) as? Bool ?? true
         engine.maximizeEnabled  = d.object(forKey: Key.maximizeEnabled) as? Bool ?? true
         engine.tilingEnabled    = d.object(forKey: Key.tilingEnabled) as? Bool ?? true
+        engine.resizeEnabled    = d.object(forKey: Key.resizeEnabled) as? Bool ?? true
+        engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
 
         // Empty is a valid persisted state (means "AnyDrag off"), so only the
         // first-launch path falls back to .option.

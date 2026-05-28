@@ -301,6 +301,9 @@ final class GeneralPaneViewController: NSViewController {
         let hint = subLabel(NSLocalizedString("diagnostics.titleBarYOffset.hint", comment: ""))
         hint.lineBreakMode = .byWordWrapping
         hint.maximumNumberOfLines = 0
+        // Without a width hint, wordWrap-mode NSTextField intrinsic-sizes to
+        // a single long line and pushes the container wider than the pane.
+        hint.preferredMaxLayoutWidth = 420
         diagnosticsContainer.addArrangedSubview(hint)
 
         // ─── Resize corner inset slider ────────────────────────────────
@@ -347,6 +350,7 @@ final class GeneralPaneViewController: NSViewController {
         let riHint = subLabel(NSLocalizedString("diagnostics.resizeCornerInset.hint", comment: ""))
         riHint.lineBreakMode = .byWordWrapping
         riHint.maximumNumberOfLines = 0
+        riHint.preferredMaxLayoutWidth = 420
         diagnosticsContainer.addArrangedSubview(riHint)
     }
 
@@ -468,6 +472,12 @@ final class GeneralPaneViewController: NSViewController {
             let sub = NSTextField(labelWithString: subtitle)
             sub.font = .systemFont(ofSize: 11)
             sub.textColor = .secondaryLabelColor
+            // Allow up to 2 lines so long descriptions don't push the toggle
+            // out of the row.
+            sub.lineBreakMode = .byWordWrapping
+            sub.maximumNumberOfLines = 2
+            sub.preferredMaxLayoutWidth = 360
+            sub.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             labelStack.addArrangedSubview(sub)
             subtitleLabel = sub
         }
@@ -475,6 +485,8 @@ final class GeneralPaneViewController: NSViewController {
         toggle.target = self
         toggle.action = action
         toggle.focusRingType = .none
+        toggle.setContentHuggingPriority(.required, for: .horizontal)
+        toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let row = NSStackView(views: [labelStack, NSView(), toggle])
         row.orientation = .horizontal

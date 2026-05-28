@@ -46,6 +46,12 @@
 
 /* Settings — Features section */
 "Features" = "功能";
+"section.windowDrag"   = "窗口拖动";
+"section.windowResize" = "窗口缩放";
+"feature.resize"            = "缩放窗口";
+"feature.resize.subtitle"   = "按住修饰键 + 右键拖动,从最近的窗口角进行缩放。";
+"feature.cornerBracket"          = "角标指示线";
+"feature.cornerBracket.subtitle" = "缩放时在被抓的窗口角显示发光指示线。关掉可获得更好性能——开启时每秒约读取 30 次窗口位置。";
 "Drag window" = "拖动窗口";
 "Maximize / Restore" = "最大化 / 恢复";
 "Window tiling" = "窗口平铺";
@@ -74,7 +80,7 @@
 "Diagnostics" = "诊断";
 "diagnostics.advanced.note" = "高级设置项,如非必要请保持默认值。";
 "diagnostics.showDot" = "显示模拟点击位置";
-"diagnostics.showDot.subtitle" = "在 AnyDrag 触发标题栏点击的位置闪一个标记。";
+"diagnostics.showDot.subtitle" = "在拖动(标题栏)和缩放(窗口角)的模拟点击位置显示标记。";
 "diagnostics.titleBarYOffset" = "标题栏 Y 偏移";
 "diagnostics.titleBarYOffset.hint" = "模拟点击距离窗口顶边的距离,默认 3 px。";
 "diagnostics.resizeCornerInset" = "Resize 角内缩量";

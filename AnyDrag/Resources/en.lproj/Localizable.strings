@@ -46,6 +46,12 @@
 
 /* Settings — Features section */
 "Features" = "Features";
+"section.windowDrag"   = "Window Drag";
+"section.windowResize" = "Window Resize";
+"feature.resize"            = "Resize from anywhere";
+"feature.resize.subtitle"   = "Hold the modifier + right-click and drag to resize from the nearest window corner.";
+"feature.cornerBracket"          = "Corner Bracket";
+"feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";
 "Drag window" = "Drag window";
 "Maximize / Restore" = "Maximize / Restore";
 "Window tiling" = "Window tiling";
@@ -74,7 +80,7 @@
 "Diagnostics" = "Diagnostics";
 "diagnostics.advanced.note" = "Advanced setting — leave the values as they are unless you need to tune them.";
 "diagnostics.showDot" = "Show synthesized-click dot";
-"diagnostics.showDot.subtitle" = "Flash a marker where AnyDrag fires the title-bar click.";
+"diagnostics.showDot.subtitle" = "Show a marker at the synthesized click point during drag (title bar) and resize (window corner).";
 "diagnostics.titleBarYOffset" = "Title-bar Y offset";
 "diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default 3 px.";
 "diagnostics.resizeCornerInset" = "Resize corner inset";
