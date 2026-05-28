@@ -6,10 +6,24 @@ import AppKit
 // middle-button tile-by-direction gesture. Uses a borderless, non-activating,
 // mouse-transparent panel so it never steals focus or eats events from the
 // CGEvent tap.
+//
+// The preview is rendered with a layer-backed view (backgroundColor + rounded
+// border) rather than an NSView `draw(_:)` override. A `draw(_:)`-based
+// buffered window allocates a CPU-side bitmap backing store the size of the
+// window in *device pixels* — for a full-screen preview on a 5K display that's
+// ~59 MB, reallocated every time the previewed zone changes (the source of a
+// reported multi-tens-of-MB spike during the slide). A solid-color rounded
+// layer is composited without any per-pixel bitmap, so the overlay now costs a
+// few KB regardless of the previewed zone's size.
 
 final class TileOverlay: NSPanel {
 
-    private let fillView = TileOverlayFillView()
+    private static let cornerRadius: CGFloat = 14
+    private static let borderWidth: CGFloat = 2
+    /// Margin between the previewed zone edge and the drawn shape. Applied to
+    /// the window frame (was the drawing inset in the old `draw(_:)` version),
+    /// so the visible result is unchanged.
+    private static let edgeInset: CGFloat = 4
 
     init() {
         super.init(
@@ -27,12 +41,39 @@ final class TileOverlay: NSPanel {
         hidesOnDeactivate = false
         isMovable = false
 
-        contentView = fillView
+        let fill = NSView()
+        fill.wantsLayer = true
+        if let layer = fill.layer {
+            layer.cornerRadius = Self.cornerRadius
+            layer.borderWidth = Self.borderWidth
+            layer.masksToBounds = true
+        }
+        contentView = fill
     }
 
     /// Show or move the overlay so it covers the given rect (NSScreen coords).
     func show(rect: NSRect) {
-        setFrame(rect, display: true)
+        // Guard degenerate zones: a rect narrower/shorter than the inset would
+        // produce a zero/negative-size frame (undefined for NSPanel).
+        let frame = rect.insetBy(dx: Self.edgeInset, dy: Self.edgeInset)
+        guard frame.width > 0, frame.height > 0 else {
+            hide()
+            return
+        }
+        // Resolve the dynamic accent color in the overlay's own appearance so it
+        // stays correct across light/dark and live accent changes, then push it
+        // to the layer. Cheap, and accent rarely changes mid-gesture.
+        if let view = contentView, let layer = view.layer {
+            view.effectiveAppearance.performAsCurrentDrawingAppearance {
+                // Translucent fill — accent tinted, matching the old draw values.
+                layer.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+                // Slightly stronger edge for visibility on light backgrounds.
+                layer.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.85).cgColor
+            }
+        }
+        // `display: false` — the layer composites itself; forcing a synchronous
+        // draw pass would only matter for a `draw(_:)`-based view.
+        setFrame(frame, display: false)
         if !isVisible {
             orderFrontRegardless()
         }
@@ -46,32 +87,4 @@ final class TileOverlay: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-}
-
-// MARK: - Fill View
-
-private final class TileOverlayFillView: NSView {
-
-    override var isFlipped: Bool { false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let cornerRadius: CGFloat = 14
-        let inset: CGFloat = 4
-        let rect = bounds.insetBy(dx: inset, dy: inset)
-
-        // Translucent fill — accent color tinted, semi-transparent like macOS native tile preview.
-        let fill = NSColor.controlAccentColor.withAlphaComponent(0.25)
-        // Slightly stronger edge for visibility on light backgrounds.
-        let stroke = NSColor.controlAccentColor.withAlphaComponent(0.85)
-
-        let path = NSBezierPath(roundedRect: rect,
-                                xRadius: cornerRadius,
-                                yRadius: cornerRadius)
-        fill.setFill()
-        path.fill()
-
-        path.lineWidth = 2
-        stroke.setStroke()
-        path.stroke()
-    }
 }
