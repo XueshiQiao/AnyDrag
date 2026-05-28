@@ -88,7 +88,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-Tagging triggers `.github/workflows/build.yml` which: builds → signs → notarizes → staples → creates DMG → signs DMG with Sparkle EdDSA → writes `appcast.xml` (using `RELEASE_NOTES.html`) → commits appcast back to `main` → publishes GitHub Release with the DMG attached.
+Tagging triggers `.github/workflows/build.yml` which: builds → signs → notarizes → staples → creates DMG → signs DMG with Sparkle EdDSA → writes `appcast.xml` (using `RELEASE_NOTES.html`) → commits appcast back to `main` → publishes GitHub Release with the DMG attached. The GitHub Release body is auto-populated from `RELEASE_NOTES.html` too: the "Prepare GitHub Release notes" step extracts **this version's** section (the `What's New in X.Y.Z` block through every localized sub-block, up to the next version's heading) and passes it as `body_path`, so the Sparkle notes and the GitHub Release stay in lockstep. If that section isn't found, it falls back to GitHub's auto-generated notes. Practical upshot: you no longer hand-edit the GitHub Release — just write `RELEASE_NOTES.html` (Phase 2) and the per-version block flows to both surfaces.
 
 ## Phase 4 — Watch CI
 

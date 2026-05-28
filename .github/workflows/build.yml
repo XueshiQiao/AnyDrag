@@ -256,11 +256,46 @@ jobs:
           name: AnyDrag-macOS
           path: build/Release/AnyDrag.dmg
 
+      - name: Prepare GitHub Release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Reuse the same notes that drive the Sparkle appcast: extract THIS
+          # version's section out of the cumulative RELEASE_NOTES.html and use
+          # it as the GitHub Release body. Keeps the two in lockstep instead of
+          # falling back to GitHub's auto-generated commit list.
+          BODY_FILE="$RUNNER_TEMP/github_release_body.md"
+          : > "$BODY_FILE"
+          if [[ -f RELEASE_NOTES.html ]]; then
+            VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+            # Start at this version's "What's New in <version>" heading; stop at
+            # the next version's "What's New in" heading. Every localized block
+            # for this version (e.g. the "<version> 更新内容" section) sits in
+            # between and is captured. GitHub renders the inline HTML.
+            awk -v ver="$VERSION" '
+              /<h3>What.s New in / {
+                if (index($0, "New in " ver "</h3>") > 0) { cap = 1 }
+                else if (cap == 1) { cap = 0 }
+              }
+              cap { print }
+            ' RELEASE_NOTES.html > "$BODY_FILE"
+          fi
+          if [[ -s "$BODY_FILE" ]]; then
+            echo "RELEASE_BODY_READY=true" >> "$GITHUB_ENV"
+            echo "--- GitHub Release body ---"
+            cat "$BODY_FILE"
+          else
+            # No notes file, or this version has no section yet — let the
+            # Release step fall back to GitHub's auto-generated notes.
+            echo "RELEASE_BODY_READY=false" >> "$GITHUB_ENV"
+            echo "No per-version section found in RELEASE_NOTES.html; using auto-generated notes."
+          fi
+
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: build/Release/AnyDrag.dmg
-          generate_release_notes: true
+          body_path: ${{ env.RELEASE_BODY_READY == 'true' && format('{0}/github_release_body.md', runner.temp) || '' }}
+          generate_release_notes: ${{ env.RELEASE_BODY_READY != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
