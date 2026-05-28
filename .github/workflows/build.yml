@@ -19,6 +19,7 @@ jobs:
     env:
       HAS_APPLE_SECRETS: ${{ secrets.MAC_CERTS_P12_BASE64 != '' }}
       HAS_SPARKLE_KEY: ${{ secrets.SPARKLE_EDDSA_KEY != '' }}
+      HAS_HOMEBREW_PAT: ${{ secrets.HOMEBREW_TAP_PAT != '' }}
 
     steps:
       - name: Checkout repository
@@ -250,6 +251,30 @@ jobs:
           git commit -m "Update appcast for ${TAG_NAME}"
           git push origin HEAD:main
 
+      - name: Generate latest.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Minimal manifest the shared homebrew-tap generator reads — it pulls
+          # version + per-arch DMG URLs from this file, downloads the DMG, and
+          # computes sha256 itself. AnyDrag ships a universal DMG so arm/intel
+          # point at the same URL. Uploaded as a release asset below so the
+          # canonical .../releases/latest/download/latest.json URL resolves.
+          VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          DMG_URL="https://github.com/XueshiQiao/AnyDrag/releases/download/${TAG_NAME}/AnyDrag.dmg"
+          PUB_DATE=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+          cat > latest.json <<JSON
+          {
+            "version": "${VERSION}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "darwin-aarch64": { "url": "${DMG_URL}" },
+              "darwin-x86_64":  { "url": "${DMG_URL}" }
+            }
+          }
+          JSON
+          echo "--- latest.json ---"; cat latest.json
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -294,8 +319,48 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: build/Release/AnyDrag.dmg
+          files: |
+            build/Release/AnyDrag.dmg
+            latest.json
           body_path: ${{ env.RELEASE_BODY_READY == 'true' && format('{0}/github_release_body.md', runner.temp) || '' }}
           generate_release_notes: ${{ env.RELEASE_BODY_READY != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for release assets to be reachable
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_HOMEBREW_PAT == 'true' && success() }}
+        run: |
+          # action-gh-release returns once the API uploads finish, but the
+          # /releases/latest/download/ URL goes via GitHub's CDN and can lag a
+          # few seconds. Poll the canonical latest.json URL — the one the tap
+          # dispatcher will fetch — so we don't dispatch into a 404 window.
+          URL="https://github.com/XueshiQiao/AnyDrag/releases/latest/download/latest.json"
+          for i in $(seq 1 30); do
+            CODE=$(curl -sLo /dev/null -w '%{http_code}' "$URL" || true)
+            if [ "$CODE" = "200" ]; then
+              echo "latest.json reachable after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          # Tap fetch_bytes() has its own 3-attempt retry, so dispatch anyway.
+          echo "::warning::latest.json not yet reachable after 60s; dispatching — tap will retry."
+
+      - name: Trigger Homebrew Tap Update
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_HOMEBREW_PAT == 'true' && success() }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          # Cross-repo dispatch needs a PAT (the default GITHUB_TOKEN can only
+          # dispatch inside this repo). The receiving workflow lives at
+          # XueshiQiao/homebrew_tap/.github/workflows/update-casks.yml; it reads
+          # client_payload.app_token and regenerates Casks/<token>.rb from this
+          # release's latest.json.
+          token: ${{ secrets.HOMEBREW_TAP_PAT }}
+          repository: XueshiQiao/homebrew_tap
+          event-type: update_cask
+          client-payload: '{"app_token": "anydrag"}'
+
+      - name: Warn if HOMEBREW_TAP_PAT missing
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_HOMEBREW_PAT != 'true' }}
+        run: |
+          echo "::warning::HOMEBREW_TAP_PAT secret is not set on this repo — the Homebrew cask was NOT auto-updated for this release. Add the secret (PAT with 'repo' scope on XueshiQiao/homebrew_tap) to enable automatic cask updates, or run the tap workflow manually: gh workflow run update-casks.yml --repo XueshiQiao/homebrew_tap -f app_token=anydrag"

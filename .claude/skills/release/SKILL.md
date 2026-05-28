@@ -98,34 +98,27 @@ Poll `https://api.github.com/repos/XueshiQiao/AnyDrag/actions/runs?per_page=5` f
 
 If `conclusion != "success"`, stop and report failure. Don't proceed to cask bump on a failed build.
 
-## Phase 5 — Bump the Homebrew cask
+## Phase 5 — Homebrew cask (now automatic)
 
-The cask lives in the user's shared tap repo: **`https://github.com/XueshiQiao/homebrew-tap`**, locally at **`~/Code/homebrew_tap`** (note underscore — GitHub redirects to hyphenated canonical URL; remote URL still uses underscore).
+**Don't bump the cask manually.** The "Trigger Homebrew Tap Update" step in AnyDrag's CI fires a `repository_dispatch` (event-type `update_cask`, `client_payload.app_token: anydrag`) at `XueshiQiao/homebrew_tap` after the GitHub Release publishes. The tap's `update-casks.yml` workflow reads `apps.yml`, fetches AnyDrag's `latest.json` (uploaded by CI as a release asset), downloads the DMG, computes sha256, and rewrites `Casks/anydrag.rb` via the shared `generate_homebrew_casks.py` generator.
 
-The same tap also hosts casks for hypercapslock, netstat-cat, notifier, pastepaw — don't touch those. Only edit `Casks/anydrag.rb`.
+Requirements (one-time setup, already in place):
+- `HOMEBREW_TAP_PAT` secret on the AnyDrag repo — a PAT with `repo` scope on `XueshiQiao/homebrew_tap`. Without it, the dispatch step is silently skipped (`env.HAS_HOMEBREW_PAT` gate).
+- `anydrag` entry in `~/Code/homebrew_tap/scripts/apps.yml`.
+
+Watch the cascade after the AnyDrag CI succeeds:
 
 ```bash
-# 1. Sync local clone
-cd ~/Code/homebrew_tap
-git pull --ff-only origin main
+# The dispatched run on the tap repo
+gh run list --repo XueshiQiao/homebrew_tap --workflow update-casks.yml --limit 1
 
-# 2. Compute sha256 of the new DMG
-DMG_URL="https://github.com/XueshiQiao/AnyDrag/releases/download/vX.Y.Z/AnyDrag.dmg"
-curl -sL "$DMG_URL" -o /tmp/AnyDrag-X.Y.Z.dmg
-SHA=$(shasum -a 256 /tmp/AnyDrag-X.Y.Z.dmg | awk '{print $1}')
-
-# 3. Edit Casks/anydrag.rb — bump version + sha256 only.
-#    The url uses #{version} interpolation, no manual edit needed.
-
-# 4. Validate
-brew style ~/Code/homebrew_tap/Casks/anydrag.rb
-
-# 5. Commit + push (style matches existing commits: "Update cask for anydrag vX.Y.Z")
-cd ~/Code/homebrew_tap
-git add Casks/anydrag.rb
-git commit -m "Update cask for anydrag vX.Y.Z"
-git push origin main
+# Confirm Casks/anydrag.rb on main now reflects the new version
+gh api repos/XueshiQiao/homebrew_tap/contents/Casks/anydrag.rb --jq '.content' | base64 -d | head
 ```
+
+If the dispatch never fired, check `HAS_HOMEBREW_PAT` in the AnyDrag CI log — usually a missing/expired PAT. If the tap run fires but fails, inspect the run log; common cause is `latest.json` not yet served at `/releases/latest/download/latest.json` (briefly possible during the seconds between Release publish and the dispatch — re-trigger via `gh workflow run update-casks.yml --repo XueshiQiao/homebrew_tap -f app_token=anydrag`).
+
+**The auto-generated cask omits the historical `zap trash:` block.** The generator template doesn't model zap paths; if a user runs `brew uninstall --cask anydrag --zap`, the per-user data under `~/Library/Application Support/AnyDrag`, `~/Library/Preferences/me.xueshi.anydrag.plist`, etc. won't be cleaned. Acceptable for the simpler-cask trade-off; if it ever matters, extend the generator template to take an optional `zap_paths` list in `apps.yml`.
 
 Verify the public install actually works:
 
