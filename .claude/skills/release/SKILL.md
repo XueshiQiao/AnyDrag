@@ -1,14 +1,14 @@
 ---
 name: release
-description: Cut a new AnyDrag release end-to-end — write cumulative bilingual notes, run bump-version.sh, watch CI, verify Homebrew cask + Apps Gallery cascades.
+description: Cut a new AnyDrag release end-to-end — write cumulative bilingual notes, run bump-version.sh, watch CI, verify Homebrew cask cascade.
 disable-model-invocation: true
 ---
 
 # Release AnyDrag
 
-End-to-end release routine. Owns the full chain from notes through Homebrew cask + Apps Gallery propagation. Treat each numbered phase as a checkpoint — show your human partner what you're about to do, then execute.
+End-to-end release routine. Owns the full chain from notes through Homebrew cask propagation. Treat each numbered phase as a checkpoint — show your human partner what you're about to do, then execute.
 
-The release flow shares conventions with the HyperCapslock project (`.claude/skills/release/SKILL.md` there): cumulative HTML release notes, bare-@mention contributor credit, `repository_dispatch` to shared tap, gallery dispatch. The blueprint is documented in `XueshiQiao/macos-app-scaffold`.
+The release flow shares conventions with the HyperCapslock project (`.claude/skills/release/SKILL.md` there): cumulative HTML release notes, bare-@mention contributor credit, `repository_dispatch` to shared tap. The generalized blueprint is documented in `XueshiQiao/macos-app-scaffold`.
 
 ## Phase 0 — Validate state
 
@@ -78,7 +78,7 @@ git push origin main
 git push origin vYY.MM.<build>
 ```
 
-Tagging triggers `.github/workflows/build.yml` which: builds universal → signs (inside-out, including embedded Sparkle.framework) → notarizes → staples → DMG → signs DMG with Sparkle EdDSA → writes `appcast.xml` (embeds the WHOLE `RELEASE_NOTES.html` into `<description>` CDATA) → commits `appcast.xml` back to `main` (for legacy users still pinned to the raw.githubusercontent URL) → uploads `appcast.xml` + `latest.json` + DMG as release assets (so the new `releases/latest/download/appcast.xml` URL also resolves) → extracts this version's section into `release_body.html` → publishes GitHub Release with that as the body → fires `repository_dispatch` to `XueshiQiao/homebrew_tap` (event `update_cask`) AND to `XueshiQiao/XueshiQiao.github.io` (event `app_released`).
+Tagging triggers `.github/workflows/build.yml` which: builds universal → signs (inside-out, including embedded Sparkle.framework) → notarizes → staples → DMG → signs DMG with Sparkle EdDSA → writes `appcast.xml` (embeds the WHOLE `RELEASE_NOTES.html` into `<description>` CDATA) → commits `appcast.xml` back to `main` (for legacy users still pinned to the raw.githubusercontent URL) → uploads `appcast.xml` + `latest.json` + DMG as release assets (so the new `releases/latest/download/appcast.xml` URL also resolves) → extracts this version's section into `release_body.html` → publishes GitHub Release with that as the body → fires `repository_dispatch` to `XueshiQiao/homebrew_tap` (event `update_cask`).
 
 **Gotcha — tags don't follow rebase.** Hit live in earlier releases: pre-release prep had a `git pull --rebase` *after* `git tag`, so the tag stayed at the pre-rebase orphan commit. Pushing it triggered CI, the build/sign/notarize/DMG steps all succeeded, but the appcast step's final `git push origin HEAD:main` failed with `! [rejected] HEAD -> main`, the GitHub Release was never created, and `gh release view` returned "release not found." Recovery: delete the bad tag locally and remotely (`git push origin :refs/tags/vX; git tag -d vX`), retag at the correct commit, push again. **Prevention**: tag *after* rebase (which `bump-version.sh` enforces by requiring a clean tree minus `RELEASE_NOTES.html`), and run the sanity-check above before pushing.
 
@@ -91,34 +91,28 @@ gh run watch "$RUN" --repo XueshiQiao/AnyDrag --exit-status
 
 If conclusion isn't `success`, stop and report. The cascades in Phase 5 won't fire on a failed build.
 
-## Phase 5 — Verify the cascades (now automatic)
+## Phase 5 — Verify the cask cascade (now automatic)
 
-**Don't manually bump the cask or the gallery.** The release workflow's final steps (`Trigger Homebrew Tap Update` + `Trigger Apps Gallery Update`) fired both. Verify:
+**Don't manually bump the cask.** The release workflow's `Trigger Homebrew Tap Update` step fired the dispatch. Verify:
 
 ```bash
 # Tap regeneration of Casks/anydrag.rb
 gh run list --repo XueshiQiao/homebrew_tap --workflow update-casks.yml --limit 1 \
   --json status,conclusion,createdAt,displayTitle
 gh api repos/XueshiQiao/homebrew_tap/contents/Casks/anydrag.rb --jq '.content' | base64 -d | head -4
-
-# Gallery rebuild
-gh run list --repo XueshiQiao/XueshiQiao.github.io --workflow deploy.yml --limit 1 \
-  --json status,conclusion,event,createdAt
 ```
 
-Both should be `completed` / `success` within a few minutes after the AnyDrag CI completes.
+Should be `completed` / `success` within a few minutes after the AnyDrag CI completes.
 
 Requirements (one-time setup, already in place on this repo):
 - `HOMEBREW_TAP_PAT` secret — PAT with `Contents: Read and write` on `XueshiQiao/homebrew_tap`.
-- `GALLERY_UPDATE_PAT` secret — PAT with `Contents: Read and write` on `XueshiQiao/XueshiQiao.github.io`.
 
-The workflow prints an explicit `::warning::` if either PAT is missing, so silent-skip is detectable.
+The workflow prints an explicit `::warning::` if the PAT is missing, so silent-skip is detectable.
 
 To re-fire a missed dispatch manually:
 
 ```bash
 gh workflow run update-casks.yml --repo XueshiQiao/homebrew_tap -f app_token=anydrag
-# Gallery has no manual app_token form; trigger a no-op push to main if needed.
 ```
 
 **The auto-generated cask omits the historical `zap trash:` block.** The shared generator template doesn't model zap paths; `brew uninstall --cask anydrag --zap` won't sweep `~/Library/Application Support/AnyDrag`, etc. Acceptable trade-off for the simpler-cask story; if it ever matters, extend `generate_homebrew_casks.py` to accept an optional `zap_paths` list in `apps.yml`.
@@ -149,7 +143,6 @@ gh issue close <N> --repo XueshiQiao/AnyDrag \
 Tell your human partner:
 - Release URL, CI run URL.
 - Tap workflow run URL + commit on `homebrew_tap`.
-- Gallery deploy run URL.
 - Issues closed with their numbers and one-line summaries.
 - Any deltas from a clean run.
 

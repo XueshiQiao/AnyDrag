@@ -20,7 +20,6 @@ jobs:
       HAS_APPLE_SECRETS: ${{ secrets.MAC_CERTS_P12_BASE64 != '' }}
       HAS_SPARKLE_KEY: ${{ secrets.SPARKLE_EDDSA_KEY != '' }}
       HAS_HOMEBREW_PAT: ${{ secrets.HOMEBREW_TAP_PAT != '' }}
-      HAS_GALLERY_PAT: ${{ secrets.GALLERY_UPDATE_PAT != '' }}
 
     steps:
       - name: Checkout repository
@@ -366,19 +365,3 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_HOMEBREW_PAT != 'true' }}
         run: |
           echo "::warning::HOMEBREW_TAP_PAT secret is not set on this repo — the Homebrew cask was NOT auto-updated for this release. Add the secret (PAT with 'repo' scope on XueshiQiao/homebrew_tap) to enable automatic cask updates, or run the tap workflow manually: gh workflow run update-casks.yml --repo XueshiQiao/homebrew_tap -f app_token=anydrag"
-
-      - name: Trigger Apps Gallery Update
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_GALLERY_PAT == 'true' && success() }}
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          # Notify the apps gallery (xueshi.dev) that a new release shipped.
-          # The gallery's deploy.yml listens for app_released and re-fetches
-          # latest.json for each configured app to refresh the displayed version.
-          token: ${{ secrets.GALLERY_UPDATE_PAT }}
-          repository: XueshiQiao/XueshiQiao.github.io
-          event-type: app_released
-
-      - name: Warn if GALLERY_UPDATE_PAT missing
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_GALLERY_PAT != 'true' }}
-        run: |
-          echo "::warning::GALLERY_UPDATE_PAT secret is not set on this repo — the apps gallery (xueshi.dev) was NOT notified of this release. Add the secret (PAT with 'Contents: Read and write' on XueshiQiao/XueshiQiao.github.io) to enable automatic gallery refresh."
