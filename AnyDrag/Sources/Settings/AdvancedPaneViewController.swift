@@ -45,10 +45,14 @@ final class AdvancedPaneViewController: NSViewController {
 
         modifierChipRow.onChange = { [weak self] proposed in
             guard let self = self else { return false }
+            let previous = self.dragEngine.modifiers
             self.dragEngine.modifiers = proposed
             UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.modifierFlags)
             self.updateModifierPreview()
             self.updateFeatureRowsEnabled()
+            if previous != proposed {
+                Analytics.trackPreferenceChanged(key: "modifier", value: proposed.analyticsKey)
+            }
             return true
         }
         container.addArrangedSubview(modifierChipRow)
@@ -86,8 +90,12 @@ final class AdvancedPaneViewController: NSViewController {
         container.addArrangedSubview(sectionHeader(NSLocalizedString("Middle-click action", comment: "")))
         middleActionPicker.onChange = { [weak self] action in
             guard let self = self else { return }
+            let previous = self.dragEngine.middleAction
             self.dragEngine.middleAction = action
             UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
+            if previous != action {
+                Analytics.trackPreferenceChanged(key: "middle_action", value: action.rawValue)
+            }
         }
         container.addArrangedSubview(middleActionPicker)
         middleActionPicker.trailingAnchor.constraint(
@@ -149,20 +157,32 @@ final class AdvancedPaneViewController: NSViewController {
 
     @objc private func dragToggled(_ sender: NSSwitch) {
         let on = (sender.state == .on)
+        let previous = dragEngine.dragEnabled
         dragEngine.dragEnabled = on
         UserDefaults.standard.set(on, forKey: Preferences.Key.dragEnabled)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "drag_enabled", value: String(on))
+        }
     }
 
     @objc private func maximizeToggled(_ sender: NSSwitch) {
         let on = (sender.state == .on)
+        let previous = dragEngine.maximizeEnabled
         dragEngine.maximizeEnabled = on
         UserDefaults.standard.set(on, forKey: Preferences.Key.maximizeEnabled)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "maximize_enabled", value: String(on))
+        }
     }
 
     @objc private func tilingToggled(_ sender: NSSwitch) {
         let on = (sender.state == .on)
+        let previous = dragEngine.tilingEnabled
         dragEngine.tilingEnabled = on
         UserDefaults.standard.set(on, forKey: Preferences.Key.tilingEnabled)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "tiling_enabled", value: String(on))
+        }
     }
 
     // MARK: - View builders

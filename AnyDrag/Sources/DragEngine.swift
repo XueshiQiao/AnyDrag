@@ -242,6 +242,13 @@ final class DragEngine {
         // gesture never left the center cell (likely just a tap), so the
         // middle-click is replayed so apps see it (browser tab close, etc.).
         var tileSawDirection: Bool = false
+        // Right-button gesture pending state: set at modifier+rightMouseDown,
+        // consumed at rightMouseUp. If no drag happened, we open TilingPanel
+        // with this target (preserving the old right-click-to-tile behavior);
+        // if a drag happened, the resize strategy committed the new geometry
+        // and we just clear the pending info.
+        var rightTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
+        var rightOrigin: CGPoint? = nil
         // Throttle anchor for diagnostic "miss" logs (modifier mismatch,
         // no-window-under-cursor). Shared bucket; 1s window keeps the log
         // readable when a user clicks rapidly.
@@ -265,6 +272,7 @@ final class DragEngine {
     private var eventCounterStart: Date = Date()
 
     private let strategy = TitleBarDragStrategy()
+    private let resizeStrategy = ResizeStrategy()
     private var savedFrames: [CGWindowID: CGRect] = [:]
     private var tilingPanel: TilingPanel?
     private lazy var tileOverlay = TileOverlay()
@@ -309,6 +317,8 @@ final class DragEngine {
                                      (1 << CGEventType.leftMouseDragged.rawValue) |
                                      (1 << CGEventType.leftMouseUp.rawValue) |
                                      (1 << CGEventType.rightMouseDown.rawValue) |
+                                     (1 << CGEventType.rightMouseDragged.rawValue) |
+                                     (1 << CGEventType.rightMouseUp.rawValue) |
                                      (1 << CGEventType.otherMouseDown.rawValue) |
                                      (1 << CGEventType.otherMouseDragged.rawValue) |
                                      (1 << CGEventType.otherMouseUp.rawValue)
@@ -429,7 +439,12 @@ final class DragEngine {
         // Released only in deinit (see init notes).
 
         strategy.reset()
+        resizeStrategy.reset()
         abortTileGesture()
+        cbState.withLock { state in
+            state.rightTarget = nil
+            state.rightOrigin = nil
+        }
 
         // Backstop deliberately kept alive across stop(). `AXIsProcessTrusted`
         // has TCC settle latency that can exceed the 2.5 s notification
@@ -660,6 +675,17 @@ final class DragEngine {
             // gesture is now stranded. Drop it so we don't apply a stale
             // tile on the next mouse-up.
             abortTileGesture()
+            // Same reasoning for the right-button resize gesture: a missed
+            // rightUp would leave `resizeStrategy.isActive` stuck true,
+            // intercepting the next right-click. Drop it so the next gesture
+            // starts clean.
+            if resizeStrategy.isActive {
+                resizeStrategy.reset()
+                cbState.withLock { state in
+                    state.rightTarget = nil
+                    state.rightOrigin = nil
+                }
+            }
             return Unmanaged.passUnretained(event)
         }
 
@@ -672,6 +698,10 @@ final class DragEngine {
             return handleMouseUp(event: event)
         case .rightMouseDown:
             return handleRightMouseDown(event: event)
+        case .rightMouseDragged:
+            return handleRightMouseDragged(event: event)
+        case .rightMouseUp:
+            return handleRightMouseUp(event: event)
         case .otherMouseDown:
             return handleOtherMouseDown(event: event)
         case .otherMouseDragged:
@@ -747,6 +777,17 @@ final class DragEngine {
         if hadStaleTile {
             abortTileGesture()
         }
+        // If the user starts a fresh left drag while a right-resize is
+        // somehow still in flight (lost rightUp, modifier-key remap, etc.),
+        // drop the stale resize state so a stranded gesture can't commit on
+        // some future event.
+        if resizeStrategy.isActive {
+            resizeStrategy.reset()
+            cbState.withLock { state in
+                state.rightTarget = nil
+                state.rightOrigin = nil
+            }
+        }
         strategy.reset()
         Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
         return strategy.handleMouseDown(
@@ -772,10 +813,27 @@ final class DragEngine {
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
-        return strategy.handleMouseUp(event: event)
+        let didDrag = strategy.didDrag
+        let modsForAnalytics = self.modifiers
+        let result = strategy.handleMouseUp(event: event)
+        if didDrag {
+            DispatchQueue.main.async {
+                Analytics.trackDrag(trigger: .modifier, modifier: modsForAnalytics)
+            }
+        }
+        return result
     }
 
-    // MARK: - Right-Click Tiling
+    // MARK: - Right Button (resize-from-anywhere or open TilingPanel)
+    //
+    // A modifier+right-click WITHOUT a drag opens the TilingPanel (the
+    // pre-existing behavior). A modifier+right-click WITH a drag starts a
+    // resize-from-anywhere gesture: the cursor's quadrant in the window
+    // picks the resize corner; the strategy rewrites events so the window
+    // server treats it as a native edge drag (no per-frame AX call). We
+    // can't decide which it is at down-time, so we suppress the down and
+    // defer the choice until rightMouseDragged (resize) or rightMouseUp
+    // without an intervening drag (panel).
 
     private func handleRightMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         // If tiling panel is visible, suppress right-click (avoid system context menu)
@@ -804,14 +862,74 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        let mouseLocation = NSEvent.mouseLocation
-        let capturedInfo = windowInfo
-
-        DispatchQueue.main.async { [weak self] in
-            self?.showTilingPanel(at: mouseLocation, for: capturedInfo)
+        guard axGuardOrAbort("resizeStrategy.handleMouseDown(right)") else {
+            return Unmanaged.passUnretained(event)
         }
 
-        return nil
+        // Stash the target so a no-drag release can open the TilingPanel
+        // with the same window we considered here.
+        cbState.withLock { state in
+            state.rightTarget = windowInfo
+            state.rightOrigin = screenPoint
+        }
+
+        Self.log.info("right gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+
+        // Suppress the down; the strategy will replay it as a leftMouseDown
+        // on the first drag (resize) — or `handleRightMouseUp` will open the
+        // panel if no drag arrives.
+        return resizeStrategy.handleMouseDown(
+            pid: windowInfo.pid,
+            windowID: windowInfo.windowID,
+            windowFrame: windowInfo.frame,
+            event: event
+        )
+    }
+
+    private func handleRightMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard resizeStrategy.isActive else {
+            return Unmanaged.passUnretained(event)
+        }
+        return resizeStrategy.handleMouseDragged(event: event)
+    }
+
+    private func handleRightMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        guard resizeStrategy.isActive else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let didDrag = resizeStrategy.didDrag
+        let result = resizeStrategy.handleMouseUp(event: event)
+
+        if didDrag {
+            // Resize committed natively via the rewritten event stream.
+            // Clear the pending right-gesture state and we're done.
+            cbState.withLock { state in
+                state.rightTarget = nil
+                state.rightOrigin = nil
+            }
+            return result
+        }
+
+        // No drag — fall through to the original "open TilingPanel" behavior
+        // using the target we stashed at mouseDown.
+        let pending: (target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String), origin: CGPoint)? = cbState.withLock { state in
+            guard let target = state.rightTarget, let origin = state.rightOrigin else { return nil }
+            state.rightTarget = nil
+            state.rightOrigin = nil
+            return (target, origin)
+        }
+        if let pending {
+            // `NSEvent.mouseLocation` gives us NS-coords (bottom-left origin);
+            // the original right-down code used that, so mirror it here for
+            // consistent panel positioning.
+            let mouseLocation = NSEvent.mouseLocation
+            let target = pending.target
+            DispatchQueue.main.async { [weak self] in
+                self?.showTilingPanel(at: mouseLocation, for: target)
+            }
+        }
+        return result  // typically nil — strategy.handleMouseUp returns nil on no-drag
     }
 
     // MARK: - Middle Button (drag or tile-by-direction)
@@ -1018,6 +1136,10 @@ final class DragEngine {
             DispatchQueue.main.async { [weak self] in
                 self?.replayMiddleClick(at: origin)
             }
+        } else if didDrag {
+            DispatchQueue.main.async {
+                Analytics.trackDrag(trigger: .middle, modifier: ModifierCombination())
+            }
         }
 
         return result
@@ -1031,6 +1153,7 @@ final class DragEngine {
                            target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
                            screen: NSScreen) {
         guard axGuardOrAbort("applyTile") else { return }
+        Analytics.trackTile(tile: zone.analyticsKey, trigger: .middleDirection)
         guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else {
             Self.log.warn("applyTile: findAXWindow returned nil for pid=\(target.pid) wid=\(target.windowID)")
             return
@@ -1150,6 +1273,7 @@ final class DragEngine {
 
     private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
         guard axGuardOrAbort("performTileAction") else { return }
+        Analytics.trackTile(tile: action.analyticsKey, trigger: .panel)
         guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else {
             Self.log.warn("performTileAction: findAXWindow returned nil for pid=\(windowInfo.pid) wid=\(windowInfo.windowID)")
             return
@@ -1270,6 +1394,7 @@ final class DragEngine {
 
     private func toggleMaximizeImpl(windowID: CGWindowID, pid: pid_t, windowFrame: CGRect) {
         guard axGuardOrAbort("toggleMaximizeImpl") else { return }
+        Analytics.trackMaximize()
         guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else {
             Self.log.warn("toggleMaximizeImpl: findAXWindow returned nil for pid=\(pid) wid=\(windowID)")
             return

@@ -10,6 +10,9 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.6.0"
+  Aptabase:
+    url: https://github.com/aptabase/aptabase-swift
+    from: "0.3.4"
 
 schemes:
   AnyDrag:
@@ -51,3 +54,5 @@ targets:
           PRODUCT_NAME: AnyDrag-Debug
     dependencies:
       - package: Sparkle
+      - package: Aptabase
+        product: Aptabase

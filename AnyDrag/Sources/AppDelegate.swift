@@ -1,4 +1,5 @@
 import Cocoa
+import ApplicationServices
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -16,11 +17,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // localized string (e.g. the permission alert).
         Preferences.applyLanguageOverride()
 
+        // Initialize analytics ASAP so the session covers the entire app
+        // lifetime, including the (possibly long) wait for Accessibility
+        // permission. Fires `app_launched` and any `update_installed`.
+        Analytics.start()
+
+        // Detect a launch-to-launch permission grant (false → true) and fire
+        // the funnel event. We compare against the previous launch's snapshot
+        // and update the stored value here so the engine's runtime trust
+        // observer doesn't need to know about analytics.
+        emitPermissionGrantedIfNeeded()
+
         Self.log.info("launch — AXIsProcessTrusted=\(AXIsProcessTrusted())")
         permissionManager.ensurePermissions { [weak self] in
             Self.log.info("permissions OK, starting")
+            // The permission may have been granted *during* this launch (the
+            // alert path). Re-emit so first-grant-after-install is captured.
+            self?.emitPermissionGrantedIfNeeded()
             self?.startApp()
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Analytics.flush()
     }
 
     private func startApp() {
@@ -32,5 +51,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dragEngine = engine
 
         menuBarController = MenuBarController(dragEngine: engine, updateController: updateController)
+    }
+
+    /// Fires `permission_granted` once on the launch where the trust state
+    /// flips false → true *with an observable prior state*. Idempotent.
+    ///
+    /// We deliberately do NOT fire when the key is absent: an already-authorized
+    /// user upgrading to this integration would otherwise produce a spurious
+    /// first-grant event. On absence we just record the snapshot and wait for
+    /// a real transition next time. For the fresh-install flow, the launch
+    /// path calls this twice — first before `ensurePermissions` (records
+    /// `false` if not granted), then again after the user grants in the
+    /// alert flow (sees the stored `false`, fires the event).
+    private func emitPermissionGrantedIfNeeded() {
+        let d = UserDefaults.standard
+        let current = AXIsProcessTrusted()
+        let priorObject = d.object(forKey: Preferences.Key.lastPermissionGranted)
+        let hadPrior = (priorObject != nil)
+        let prior = (priorObject as? Bool) ?? false
+        if hadPrior && current && !prior {
+            Analytics.trackPermissionGranted()
+        }
+        if !hadPrior || prior != current {
+            d.set(current, forKey: Preferences.Key.lastPermissionGranted)
+        }
     }
 }

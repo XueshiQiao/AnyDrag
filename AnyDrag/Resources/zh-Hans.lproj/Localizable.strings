@@ -85,3 +85,7 @@
 "about.copyright" = "© 2026 Xueshi Qiao";
 "about.website.description" = "查看我创作的所有应用:";
 "GitHub Repository" = "GitHub 仓库";
+
+/* About — analytics opt-out (co-located with the disclosure line) */
+"about.analytics.toggle" = "发送匿名使用数据";
+"about.analytics.subtitle" = "帮助我们了解哪些功能被使用。不会收集任何个人信息、应用名称或窗口内容。";

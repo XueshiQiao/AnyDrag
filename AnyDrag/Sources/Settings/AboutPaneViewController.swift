@@ -7,6 +7,7 @@ final class AboutPaneViewController: NSViewController {
 
     private let updateController: UpdateController
     private let checkUpdatesButton = NSButton(title: "", target: nil, action: nil)
+    private let analyticsCheckbox = NSButton()
 
     private static let githubURL  = URL(string: "https://github.com/XueshiQiao/AnyDrag")!
     private static let websiteURL = URL(string: "https://xueshi.dev")!
@@ -86,6 +87,29 @@ final class AboutPaneViewController: NSViewController {
 
         stack.setCustomSpacing(20, after: stack.arrangedSubviews.last!)
 
+        // Analytics opt-out — a small checkbox with the explanation as a
+        // tertiary subtitle below. Deliberately understated: most users glance
+        // at About once and move on, so we don't want the toggle to read as a
+        // call to action.
+        analyticsCheckbox.setButtonType(.switch)
+        analyticsCheckbox.title = NSLocalizedString("about.analytics.toggle", comment: "")
+        analyticsCheckbox.controlSize = .small
+        analyticsCheckbox.target = self
+        analyticsCheckbox.action = #selector(analyticsToggled(_:))
+        analyticsCheckbox.focusRingType = .none
+        stack.addArrangedSubview(analyticsCheckbox)
+        stack.setCustomSpacing(2, after: analyticsCheckbox)
+
+        let analyticsNote = NSTextField(labelWithString: NSLocalizedString("about.analytics.subtitle", comment: ""))
+        analyticsNote.font = .systemFont(ofSize: 9)
+        analyticsNote.textColor = .tertiaryLabelColor
+        analyticsNote.alignment = .center
+        analyticsNote.lineBreakMode = .byWordWrapping
+        analyticsNote.maximumNumberOfLines = 0
+        analyticsNote.preferredMaxLayoutWidth = 340
+        stack.addArrangedSubview(analyticsNote)
+        stack.setCustomSpacing(14, after: analyticsNote)
+
         // Copyright
         let copy = NSTextField(labelWithString: NSLocalizedString("about.copyright", comment: ""))
         copy.font = .systemFont(ofSize: 11)
@@ -107,12 +131,42 @@ final class AboutPaneViewController: NSViewController {
     override func viewWillAppear() {
         super.viewWillAppear()
         checkUpdatesButton.isEnabled = updateController.canCheckForUpdates
+        refreshAnalyticsSwitch()
+    }
+
+    private func refreshAnalyticsSwitch() {
+        // Default `true` when the key is absent — matches the Analytics gate.
+        let d = UserDefaults.standard
+        let on = (d.object(forKey: Preferences.Key.analyticsEnabled) == nil)
+            ? true
+            : d.bool(forKey: Preferences.Key.analyticsEnabled)
+        analyticsCheckbox.state = on ? .on : .off
     }
 
     // MARK: - Actions
 
     @objc private func checkForUpdates(_ sender: Any?) {
         updateController.checkForUpdates(sender)
+    }
+
+    @objc private func analyticsToggled(_ sender: NSButton) {
+        let on = (sender.state == .on)
+        let d = UserDefaults.standard
+        let previous = (d.object(forKey: Preferences.Key.analyticsEnabled) == nil)
+            ? true
+            : d.bool(forKey: Preferences.Key.analyticsEnabled)
+        // Fire the meta-event BEFORE persisting. `trackPreferenceChanged`
+        // bypasses the opt-out gate for `analytics_enabled` so BOTH ON→OFF
+        // and OFF→ON transitions reach the server.
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "analytics_enabled", value: String(on))
+        }
+        d.set(on, forKey: Preferences.Key.analyticsEnabled)
+        // Flush so the OFF event reaches the server before the gate closes
+        // for any subsequent activity in this session.
+        if !on {
+            Analytics.flush()
+        }
     }
 
     @objc private func openGitHub(_ sender: Any?) {

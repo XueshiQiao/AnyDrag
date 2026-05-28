@@ -19,6 +19,19 @@ enum Preferences {
         // In-app language override. Empty/absent means "follow system".
         static let languageOverride = "AnyDragLanguageOverride"
 
+        // Analytics opt-out. Absent or `true` = enabled; `false` = user disabled.
+        static let analyticsEnabled = "AnyDragAnalyticsEnabled"
+
+        // Tracks the previously-installed CFBundleShortVersionString so we can
+        // fire `update_installed` exactly once on the first launch after an
+        // upgrade. Absent on first install.
+        static let lastSeenVersion = "AnyDragLastSeenVersion"
+
+        // Snapshot of `AXIsProcessTrusted()` from the previous launch. Used to
+        // fire `permission_granted` exactly when the trust transitions
+        // launch-to-launch from false → true (the "first grant" funnel point).
+        static let lastPermissionGranted = "AnyDragLastPermissionGranted"
+
         // Legacy keys (read once on launch and rewritten into the new keys)
         static let legacyModifier         = "AnyDragModifier"           // string-based ModifierKey
         static let legacyMiddleClickDrag  = "AnyDragMiddleClickDrag"    // pre-MiddleAction bool
@@ -47,6 +60,7 @@ enum Preferences {
     /// visible surfaces re-render their labels.
     static func setLanguageOverride(_ code: String?) {
         let normalized: String? = (code?.isEmpty == false) ? code : nil
+        let previous = UserDefaults.standard.string(forKey: Key.languageOverride)
         if let normalized {
             UserDefaults.standard.set(normalized, forKey: Key.languageOverride)
         } else {
@@ -54,6 +68,9 @@ enum Preferences {
         }
         LocalizationOverride.apply(code: normalized)
         NotificationCenter.default.post(name: .anyDragLanguageChanged, object: nil)
+        if previous != normalized {
+            Analytics.trackPreferenceChanged(key: "language", value: normalized ?? "system")
+        }
     }
 
     /// One-shot migration of pre-1.3 preferences. Idempotent — safe to call every launch.
