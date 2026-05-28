@@ -1,3 +1,19 @@
+<h3>What's New in 26.05.100</h3>
+<ul>
+  <li><b>The middle-button tile gesture got a real preview panel</b> — Until now, holding the middle button just showed a small cancel ring; you had to memorize that drag-up meant Full Screen, drag-down-right meant Bottom-Right Quarter, and so on. AnyDrag now pops up a tiny screen-shaped panel laid out as a 3×3 grid — each cell shows a mini preview of where the window will land, and the cell under your cursor lights up. The center cell is the cancel zone — release there to abort.</li>
+  <li><b>Frosted-glass overlay</b> — The new tile panel uses macOS vibrancy (<code>.hudWindow</code>), so the desktop and the underlying window blur softly through it — same material family as Control Center and the volume HUD.</li>
+  <li><b>No more stray middle-click after cancelling a tile</b> — Previously, if you dragged out to pick a direction and then dragged back into the cancel area, the underlying app still received a middle-click on release (which could accidentally close a browser tab). Now: a gesture that actively chose a direction and then changed its mind cancels cleanly — no middle-click forwarded. A pure quick tap of the middle button (cursor never left the center) still forwards as before, so middle-click-to-open-tab continues to work.</li>
+  <li><b>First release on the new CalVer version scheme</b> — Version numbers move to <code>YY.MM.&lt;build&gt;</code> (this is build 100). Sparkle compares build numbers, so updates from 1.4.2 still flow correctly.</li>
+</ul>
+
+<h3>26.05.100 更新内容</h3>
+<ul>
+  <li><b>鼠标中键平铺手势加了显示器形状的预览面板</b> — 以前按住中键只会出现一个小小的取消圆环,你得自己记住「往上拖 = 全屏、往右下拖 = 右下角四分之一」等八个方向。现在按下中键会浮出一个小显示器面板,3×3 网格把八个落点全部画出来——每格里是该落点的微缩预览,光标移到哪一格哪一格高亮。中心格是取消区,松手到中心 = 取消本次平铺。</li>
+  <li><b>毛玻璃质感面板</b> — 新面板使用 macOS 原生毛玻璃材质(<code>.hudWindow</code>),背后的桌面和窗口会真实模糊穿透——和「控制中心」、音量调节 HUD 同一套材质。</li>
+  <li><b>取消平铺时不再误发中键点击</b> — 之前如果你拖出一个方向后又拖回取消区松手,底层应用仍会收到一次中键点击(可能误关浏览器标签)。现在:曾经选过方向后又回到中心松手 = 干净取消,不再发中键。如果你只是单纯快速按一下中键(光标从未离开过中心),按原行为转发中键点击,中键打开新标签仍然正常工作。</li>
+  <li><b>首个使用新 CalVer 版本号方案的版本</b> — 版本号迁移到 <code>YY.MM.&lt;build&gt;</code>(此版本为 build 100)。Sparkle 比较的是 build 号,所以从 1.4.2 升级的链路不受影响。</li>
+</ul>
+
 <h3>What's New in 1.4.2</h3>
 <ul>
   <li><b>Fix: memory grew on every window drag and never came back down</b> — AnyDrag's event tap was over-retaining each mouse event it processed, leaking one system event object per event. During a drag (dozens to hundreds of events per second) memory climbed steadily and never recovered — one report reached 500 MB. The events are now released correctly per the event-tap contract. (Thanks to @eunrui for the clear report in <a href="https://github.com/XueshiQiao/AnyDrag/issues/9">#9</a>.)</li>
