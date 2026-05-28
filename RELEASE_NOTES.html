@@ -1,12 +1,12 @@
 <h3>What's New in 1.4.2</h3>
 <ul>
-  <li><b>Fix: memory grew on every window drag and never came back down</b> — AnyDrag's event tap was over-retaining each mouse event it processed, leaking one system event object per event. During a drag (dozens to hundreds of events per second) memory climbed steadily and never recovered — one report reached 500 MB. The events are now released correctly per the event-tap contract. (Thanks to <a href="https://github.com/eunrui">@eunrui</a> for the clear report in <a href="https://github.com/XueshiQiao/AnyDrag/issues/9">#9</a>.)</li>
+  <li><b>Fix: memory grew on every window drag and never came back down</b> — AnyDrag's event tap was over-retaining each mouse event it processed, leaking one system event object per event. During a drag (dozens to hundreds of events per second) memory climbed steadily and never recovered — one report reached 500 MB. The events are now released correctly per the event-tap contract. (Thanks to @eunrui for the clear report in <a href="https://github.com/XueshiQiao/AnyDrag/issues/9">#9</a>.)</li>
   <li><b>Fix: memory spike during middle-button tile preview</b> — While sliding to preview a tile target, the translucent preview overlay allocated a full-resolution bitmap the size of the previewed region — tens of MB per preview on high-resolution displays. The overlay is now GPU-composited, so it costs almost nothing regardless of the previewed area.</li>
 </ul>
 
 <h3>1.4.2 更新内容</h3>
 <ul>
-  <li><b>修复:每次拖动窗口内存都会增加且不回落</b> — AnyDrag 的事件 tap 在处理每个鼠标事件时多持有了一次引用,导致每经过一个系统事件就泄漏一个事件对象。拖动时鼠标事件每秒高达几十上百个,内存因此持续上涨且降不下来——有用户反馈涨到了 500 MB。现在事件会按照事件 tap 的约定被正确释放。(感谢 <a href="https://github.com/eunrui">@eunrui</a> 在 <a href="https://github.com/XueshiQiao/AnyDrag/issues/9">#9</a> 提交清晰的反馈)</li>
+  <li><b>修复:每次拖动窗口内存都会增加且不回落</b> — AnyDrag 的事件 tap 在处理每个鼠标事件时多持有了一次引用,导致每经过一个系统事件就泄漏一个事件对象。拖动时鼠标事件每秒高达几十上百个,内存因此持续上涨且降不下来——有用户反馈涨到了 500 MB。现在事件会按照事件 tap 的约定被正确释放。(感谢 @eunrui 在 <a href="https://github.com/XueshiQiao/AnyDrag/issues/9">#9</a> 提交清晰的反馈)</li>
   <li><b>修复:鼠标中键平铺预览时内存骤增</b> — 滑动预览平铺落点时,那个半透明预览框会按预览区域大小分配一整块全分辨率位图,在高分屏上每次预览要占用几十 MB。现在预览框改由 GPU 合成,无论预览区域多大占用都极小。</li>
 </ul>
 

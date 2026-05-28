@@ -60,7 +60,9 @@ The HTML body lands inside Sparkle's `<description><![CDATA[…]]></description>
 
 To gather the changeset: `git log <last-major-tag>..HEAD --no-merges --pretty=format:"- %s%n%b%n---"` — read the actual commit bodies to write accurate notes (don't just copy commit subjects).
 
-**Translation accuracy:** if you write the EN copy yourself, write each other language directly rather than translating word-for-word. Mirror the structure (same bullets, same order, same `<b>` headers) but use natural phrasing in each target language. If a contributor's `@handle` appears in EN, keep it identical in every other language — it's a GitHub URL, not a translatable string.
+**Translation accuracy:** if you write the EN copy yourself, write each other language directly rather than translating word-for-word. Mirror the structure (same bullets, same order, same `<b>` headers) but use natural phrasing in each target language. If a contributor's `@handle` appears in EN, keep it identical in every other language — it's a handle, not a translatable string.
+
+**Crediting contributors — use a BARE `@handle`, not a link.** Write `@eunrui`, not `<a href="https://github.com/eunrui">@eunrui</a>`. Because CI now uses this file's per-version section as the GitHub Release body, a bare handle lands the contributor in the release's **Contributors** avatar list and gets autolinked; a handle already wrapped in `<a>` is skipped by GitHub's autolinker and gets neither. In the Sparkle in-app dialog the bare handle renders as plain text — acceptable; it reads as a name. (Issue/PR `#N` references can stay as `<a>` links so they're clickable inside Sparkle too.) **A release-body @mention is credit, not a notification** — GitHub does not reliably notify on it. The reliable ping to the contributor is the Phase 6 issue comment, which must @mention them.
 
 ## Phase 3 — Commit, tag, push (triggers CI)
 
@@ -141,8 +143,10 @@ For each issue identified in Phase 0:
 
 ```bash
 gh issue close <N> --repo XueshiQiao/AnyDrag \
-  --comment "Released in [vX.Y.Z](https://github.com/XueshiQiao/AnyDrag/releases/tag/vX.Y.Z). <One-line how-to-use, optionally @-thank contributors.>"
+  --comment "Released in [vX.Y.Z](https://github.com/XueshiQiao/AnyDrag/releases/tag/vX.Y.Z). <One-line how-to-use.> @reporter thanks for the report!"
 ```
+
+**@-mention the reporter in this comment.** This is the reliable contributor notification (release-body mentions only add a Contributors avatar, they don't ping). An issue comment notifies the issue's author/participants regardless, and the explicit @mention makes the credit unambiguous.
 
 If an issue was already auto-closed (commit message containing `(#N)` doesn't auto-close, but the user may have closed it manually), still leave a release-link comment with `gh issue comment <N> --body "..."` so the trail is complete.
 
@@ -166,3 +170,4 @@ Report to the user:
 - **Don't put the cask file in the AnyDrag main repo.** It belongs in `homebrew-tap`. The skill `macos-app-scaffold-enhance`'s template wrongly puts it in `Casks/` of the app repo — that won't install.
 - **`gh` is at `/opt/homebrew/bin/gh`.** PATH may not include it depending on shell setup; use the absolute path if `which gh` fails.
 - **Codex review** per global rule: invoke after Phase 5 completes, scope = files touched in this release. Skip only if user has explicitly said "ignore codex" in this session.
+- **`RELEASE_NOTES.html` stays HTML — don't "upgrade" it to JSON/YAML.** It's not an internal data file; it's the rendered payload shown to end users in two places: Sparkle's in-app update dialog renders the HTML natively (it's the appcast `<description>` CDATA), and GitHub renders the inline HTML in the Release body (CI extracts this version's section into `body_path`). JSON/YAML can't be displayed to users, so a switch would only add a generate-HTML build step and a second source of truth. Per-version selection is already precise: CI keys on the exact `<h3>What's New in X.Y.Z</h3>` heading. The format is not the weak point.
