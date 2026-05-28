@@ -2,7 +2,12 @@ name: Build and Notarize macOS App
 
 on:
   push:
-    branches: [ main ]
+    # Only tag pushes trigger a build. Direct pushes to `main` used to
+    # trigger a redundant build that ran every step up through Notarize +
+    # Create DMG + Upload Artifact, then skipped all the release-y steps
+    # (which are gated on `startsWith(github.ref, 'refs/tags/v')`) — pure
+    # CI burn with no downstream consumer. Pre-merge validation still
+    # comes from the `pull_request` trigger below.
     tags:
       - 'v*'
   pull_request:
