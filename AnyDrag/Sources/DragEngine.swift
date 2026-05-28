@@ -332,15 +332,19 @@ final class DragEngine {
         // Just attempt `CGEvent.tapCreate` and treat its result as the
         // ground truth; we update the cache from the actual outcome.
 
-        let eventMask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue) |
-                                     (1 << CGEventType.leftMouseDragged.rawValue) |
-                                     (1 << CGEventType.leftMouseUp.rawValue) |
-                                     (1 << CGEventType.rightMouseDown.rawValue) |
-                                     (1 << CGEventType.rightMouseDragged.rawValue) |
-                                     (1 << CGEventType.rightMouseUp.rawValue) |
-                                     (1 << CGEventType.otherMouseDown.rawValue) |
-                                     (1 << CGEventType.otherMouseDragged.rawValue) |
-                                     (1 << CGEventType.otherMouseUp.rawValue)
+        // Build the mask via a typed reduce — the bare `|` chain of 9
+        // `1 << X.rawValue` terms tripped Swift 6's type-check budget on the
+        // GH Actions runner (Xcode 17 / Swift 6.1) even though Xcode 15
+        // locally accepted it. Each `flag` step is independently typed,
+        // which keeps the inference linear.
+        let maskedTypes: [CGEventType] = [
+            .leftMouseDown, .leftMouseDragged, .leftMouseUp,
+            .rightMouseDown, .rightMouseDragged, .rightMouseUp,
+            .otherMouseDown, .otherMouseDragged, .otherMouseUp,
+        ]
+        let eventMask: CGEventMask = maskedTypes.reduce(into: CGEventMask(0)) { mask, type in
+            mask |= CGEventMask(1) << type.rawValue
+        }
 
         // Retain `self` exactly once across the engine's lifetime. Reused on
         // re-start so we never accumulate unbalanced retains.
