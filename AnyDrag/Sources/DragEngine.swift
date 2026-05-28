@@ -102,29 +102,32 @@ enum TileZone {
     case left, right
     case topLeft, topRight, bottomLeft, bottomRight
 
-    /// Map an 8-sector drag direction (in CG coords — Y increases downward)
-    /// to a tile zone. Returns nil if the drag distance is below threshold.
-    static func zone(forDx dx: CGFloat, dy: CGFloat, threshold: CGFloat) -> TileZone? {
-        guard hypot(dx, dy) >= threshold else { return nil }
-
-        // atan2 with Y-down gives clockwise angles: 0 = right, π/2 = down,
-        // π = left, -π/2 = up. Normalize to [0, 2π).
-        var angle = atan2(dy, dx)
-        if angle < 0 { angle += 2 * .pi }
-
-        // 8 sectors of 45°, centered on the cardinal/diagonal directions.
-        let sector = Int((angle + .pi / 8) / (.pi / 4)) % 8
-        switch sector {
-        case 0: return .right
-        case 1: return .bottomRight
-        case 2: return .centered     // "down" → centered window
-        case 3: return .bottomLeft
-        case 4: return .left
-        case 5: return .topLeft
-        case 6: return .full         // "up" → full screen
-        case 7: return .topRight
-        default: return nil
-        }
+    /// Map a cursor offset (in CG coords, Y-down) relative to the bento
+    /// overlay's center to a tile zone via 3×3 cell hit-testing. Returns
+    /// nil when the cursor is inside the center deadzone (cancel cell).
+    ///
+    /// Cell boundaries align with the visible gaps in `TileCancelDot`'s
+    /// 3×3 grid — keep the half-deadzone constants in sync with the
+    /// drawn cell geometry so "cursor crossing the visible gap" matches
+    /// "cursor commits to the adjacent tile".
+    static func bentoZone(forDx dx: CGFloat,
+                          dy: CGFloat,
+                          halfDeadzoneWidth: CGFloat,
+                          halfDeadzoneHeight: CGFloat) -> TileZone? {
+        let col: Int = dx < -halfDeadzoneWidth ? 0 : (dx > halfDeadzoneWidth ? 2 : 1)
+        let row: Int = dy < -halfDeadzoneHeight ? 0 : (dy > halfDeadzoneHeight ? 2 : 1)
+        // Center cell — release here to cancel.
+        if col == 1 && row == 1 { return nil }
+        // Y-down: row 0 = above center = top of screen. The middle entry of
+        // the middle row is unreachable (the col==1 && row==1 early return
+        // above is the only path to it); `.full` is a harmless placeholder
+        // chosen to keep the matrix non-Optional.
+        let grid: [[TileZone]] = [
+            [.topLeft,    .full,      .topRight],
+            [.left,       .full,      .right],
+            [.bottomLeft, .centered,  .bottomRight],
+        ]
+        return grid[row][col]
     }
 
     /// Compute the target rect within the screen's visible NSScreen-coord frame
@@ -167,11 +170,6 @@ final class DragEngine {
 
     // Marker carried on synthesized replay events so we ignore them in our own tap.
     private static let synthesizedEventMarker: Int64 = 0x416E794472616701  // "AnyDrag\x01"
-
-    /// Distance (in points) the middle button must travel before a tile zone is
-    /// committed. Doubles as the cancel-dot ring radius so the visible ring
-    /// matches the actual commit boundary — drag back inside it to cancel.
-    static let tileDirectionThreshold: CGFloat = TileCancelDot.radius
 
     private static let log = FileLog("DragEngine")
 
@@ -237,6 +235,13 @@ final class DragEngine {
         var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
         var tileZone: TileZone? = nil
         var middleClickOrigin: CGPoint? = nil
+        // Sticky: set true the first drag event that resolves to a non-nil
+        // zone. Releasing in the deadzone with this true means the user
+        // actively chose a direction and then changed their mind — cancel
+        // cleanly without replaying the middle-click. False means the
+        // gesture never left the center cell (likely just a tap), so the
+        // middle-click is replayed so apps see it (browser tab close, etc.).
+        var tileSawDirection: Bool = false
         // Throttle anchor for diagnostic "miss" logs (modifier mismatch,
         // no-window-under-cursor). Shared bucket; 1s window keeps the log
         // readable when a user clicks rapidly.
@@ -586,6 +591,7 @@ final class DragEngine {
             state.tileTarget = nil
             state.tileZone = nil
             state.middleClickOrigin = nil
+            state.tileSawDirection = false
         }
         DispatchQueue.main.async { [weak self] in
             self?.tileOverlay.hide()
@@ -879,6 +885,7 @@ final class DragEngine {
                 state.middleClickOrigin = screenPoint
                 state.tileTarget = windowInfo
                 state.tileZone = nil
+                state.tileSawDirection = false
             }
             DispatchQueue.main.async { [weak self] in
                 self?.tileCancelDot.show(atCGPoint: screenPoint)
@@ -904,8 +911,13 @@ final class DragEngine {
             guard state.tileTarget != nil, let origin = state.middleClickOrigin else { return nil }
             let dx = event.location.x - origin.x
             let dy = event.location.y - origin.y
-            let zone = TileZone.zone(forDx: dx, dy: dy, threshold: Self.tileDirectionThreshold)
+            let zone = TileZone.bentoZone(
+                forDx: dx, dy: dy,
+                halfDeadzoneWidth: TileCancelDot.halfDeadzoneWidth,
+                halfDeadzoneHeight: TileCancelDot.halfDeadzoneHeight
+            )
             state.tileZone = zone
+            if zone != nil { state.tileSawDirection = true }
             return TileSnap(origin: origin, zone: zone)
         }
 
@@ -916,10 +928,10 @@ final class DragEngine {
                 if let zone = snap.zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
                     let target = zone.rect(in: screen.visibleFrame)
                     self.tileOverlay.show(rect: target)
-                    self.tileCancelDot.setHighlighted(false)
+                    self.tileCancelDot.setActiveZone(zone)
                 } else {
                     self.tileOverlay.hide()
-                    self.tileCancelDot.setHighlighted(true)
+                    self.tileCancelDot.setActiveZone(nil)
                 }
             }
             return nil
@@ -949,14 +961,17 @@ final class DragEngine {
             let target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)
             let origin: CGPoint
             let zone: TileZone?
+            let sawDirection: Bool
         }
         let tileFinish: TileFinish? = cbState.withLock { state -> TileFinish? in
             guard let target = state.tileTarget, let origin = state.middleClickOrigin else { return nil }
             let zone = state.tileZone
+            let sawDirection = state.tileSawDirection
             state.tileTarget = nil
             state.middleClickOrigin = nil
             state.tileZone = nil
-            return TileFinish(target: target, origin: origin, zone: zone)
+            state.tileSawDirection = false
+            return TileFinish(target: target, origin: origin, zone: zone, sawDirection: sawDirection)
         }
         if let finish = tileFinish {
             let cursorScreenPoint = event.location
@@ -966,8 +981,13 @@ final class DragEngine {
                 self.tileCancelDot.hide()
                 if let zone = finish.zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
                     self.applyTile(zone: zone, target: finish.target, screen: screen)
+                } else if finish.sawDirection {
+                    // User actively chose a direction and then moved back into
+                    // the cancel cell — clean cancel, don't replay the click.
+                    Self.log.info("tile gesture cancelled by user (returned to deadzone)")
                 } else {
-                    // Below threshold — replay the original middle-click so apps still see it.
+                    // Cursor never left the center cell — treat as a plain
+                    // middle-click so apps still see it (browser tab close, etc.).
                     self.replayMiddleClick(at: finish.origin)
                 }
             }
