@@ -122,7 +122,7 @@ final class TitleBarDragStrategy {
                 event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
             }
             event.location = dragPoint
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         if rewriteToLeftButton {
@@ -134,7 +134,7 @@ final class TitleBarDragStrategy {
         // X is unchanged (xOffset = 0), so horizontal movement is 1:1 with the cursor.
         let pos = event.location
         event.location = CGPoint(x: pos.x, y: pos.y + yOffset)
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 
     func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -146,7 +146,7 @@ final class TitleBarDragStrategy {
             let suppressForReplay = rewriteToLeftButton
             needsInitialMouseDown = false
             isActive = false
-            return suppressForReplay ? nil : Unmanaged.passRetained(event)
+            return suppressForReplay ? nil : Unmanaged.passUnretained(event)
         }
 
         if rewriteToLeftButton {
@@ -158,7 +158,7 @@ final class TitleBarDragStrategy {
         let pos = event.location
         event.location = CGPoint(x: pos.x, y: pos.y + yOffset)
         isActive = false
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 
     func reset() {

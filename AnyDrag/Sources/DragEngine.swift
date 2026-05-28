@@ -615,7 +615,7 @@ final class DragEngine {
         // call `CFMachPortInvalidate` and `abortTileGesture()`, so no
         // cleanup is lost.
         if !trusted {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Tap disabled by the system (callback ran too long, or AX was
@@ -654,7 +654,7 @@ final class DragEngine {
             // gesture is now stranded. Drop it so we don't apply a stale
             // tile on the next mouse-up.
             abortTileGesture()
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         switch type {
@@ -673,7 +673,7 @@ final class DragEngine {
         case .otherMouseUp:
             return handleOtherMouseUp(event: event)
         default:
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
     }
 
@@ -682,12 +682,12 @@ final class DragEngine {
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         // If tiling panel is visible, don't intercept — let clicks reach the panel
         if tilingPanel?.isVisible == true {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Both left-button features off → nothing to do here.
         if !dragEnabled && !maximizeEnabled {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Check if the configured modifier key is held.
@@ -695,28 +695,28 @@ final class DragEngine {
         // macOS native tiling can still kick in during an AnyDrag drag.
         guard matchesConfiguredModifier(event.flags) else {
             logModifierMiss(flags: event.flags, button: "left")
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         let screenPoint = event.location
 
         // Pass clicks on the primary screen's menu bar through.
         if Self.isOnPrimaryMenuBar(screenPoint) {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Find the topmost normal window (layer 0) under the cursor
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
             logNoWindowMiss(button: "left", at: screenPoint)
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Double-click with modifier: toggle maximize/restore
         let clickCount = event.getIntegerValueField(.mouseEventClickState)
         if clickCount == 2 {
-            guard maximizeEnabled else { return Unmanaged.passRetained(event) }
+            guard maximizeEnabled else { return Unmanaged.passUnretained(event) }
             guard axGuardOrAbort("toggleMaximize") else {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             Self.log.info("maximize toggle: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
             toggleMaximize(windowID: windowInfo.windowID, pid: windowInfo.pid, windowFrame: windowInfo.frame)
@@ -724,11 +724,11 @@ final class DragEngine {
         }
 
         guard dragEnabled else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         guard axGuardOrAbort("strategy.handleMouseDown(left)") else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Clear any orphaned middle-gesture state (e.g. from a tap-disabled
@@ -755,7 +755,7 @@ final class DragEngine {
 
     private func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
         guard strategy.isActive else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         return strategy.handleMouseDragged(event: event)
     }
@@ -764,7 +764,7 @@ final class DragEngine {
 
     private func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
         guard strategy.isActive else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         return strategy.handleMouseUp(event: event)
     }
@@ -778,24 +778,24 @@ final class DragEngine {
         }
 
         guard tilingEnabled else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         guard matchesConfiguredModifier(event.flags) else {
             logModifierMiss(flags: event.flags, button: "right")
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         let screenPoint = event.location
 
         // Pass clicks on the primary screen's menu bar through.
         if Self.isOnPrimaryMenuBar(screenPoint) {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
             logNoWindowMiss(button: "right", at: screenPoint)
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         let mouseLocation = NSEvent.mouseLocation
@@ -813,25 +813,25 @@ final class DragEngine {
     private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         // Only the middle button (button 2) — leave side buttons (3, 4) alone.
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Skip our own replay events so they don't recurse.
         if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         guard middleAction != .off else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         if tilingPanel?.isVisible == true {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Don't start a middle gesture while a left drag is in flight.
         if strategy.isActive {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Defense in depth: if a previous tile gesture lost its mouse-up (rare —
@@ -846,21 +846,21 @@ final class DragEngine {
 
         // Pass clicks on the primary screen's menu bar through (mirrors handleMouseDown).
         if Self.isOnPrimaryMenuBar(screenPoint) {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
             logNoWindowMiss(button: "middle", at: screenPoint)
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         switch middleAction {
         case .off:
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
 
         case .dragWindow:
             guard axGuardOrAbort("strategy.handleMouseDown(middle)") else {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             cbState.withLock { $0.middleClickOrigin = screenPoint }
             strategy.reset()
@@ -890,7 +890,7 @@ final class DragEngine {
 
     private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Snapshot tile fields atomically; if a tile gesture is in flight,
@@ -928,18 +928,18 @@ final class DragEngine {
         // Drag-window path (existing).
         let hasOrigin = cbState.withLock { $0.middleClickOrigin != nil }
         guard strategy.isActive, hasOrigin else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
         return strategy.handleMouseDragged(event: event)
     }
 
     private func handleOtherMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Tile-by-direction path. Pull all gesture state out under one
@@ -982,7 +982,7 @@ final class DragEngine {
             return o
         }
         guard strategy.isActive, dragOrigin != nil else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         let didDrag = strategy.didDrag
@@ -1513,7 +1513,7 @@ final class DragEngine {
 // MARK: - C-level Event Tap Callback
 
 private let eventTapCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
-    guard let userInfo else { return Unmanaged.passRetained(event) }
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
     let engine = Unmanaged<DragEngine>.fromOpaque(userInfo).takeUnretainedValue()
     return engine.handleEvent(proxy: proxy, type: type, event: event)
 }
