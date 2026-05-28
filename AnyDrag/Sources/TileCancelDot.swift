@@ -51,6 +51,7 @@ final class TileCancelDot: NSPanel {
         tileHeight / 2 + tileGap / 2
     }
 
+    private let vibrancyView = NSVisualEffectView()
     private let fillView = TileCancelDotView()
 
     init() {
@@ -69,7 +70,36 @@ final class TileCancelDot: NSPanel {
         hidesOnDeactivate = false
         isMovable = false
 
-        contentView = fillView
+        // Frosted-glass material — NSVisualEffectView lets the underlying
+        // desktop/window blur through the panel, like Control Center. The
+        // `.hudWindow` material is HIG-recommended for floating HUD panels
+        // (volume/brightness indicators use it). `.behindWindow` blends with
+        // everything under the panel; `.active` keeps the effect on even
+        // though we're a non-activating panel.
+        vibrancyView.material = .hudWindow
+        vibrancyView.blendingMode = .behindWindow
+        vibrancyView.state = .active
+        vibrancyView.wantsLayer = true
+        if let layer = vibrancyView.layer {
+            layer.cornerRadius = 14
+            layer.cornerCurve = .continuous
+            layer.masksToBounds = true
+            layer.borderWidth = 1
+            // Slightly brighter hairline than the solid version — defines
+            // the glass edge against busy wallpapers.
+            layer.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        }
+
+        fillView.translatesAutoresizingMaskIntoConstraints = false
+        vibrancyView.addSubview(fillView)
+        NSLayoutConstraint.activate([
+            fillView.leadingAnchor.constraint(equalTo: vibrancyView.leadingAnchor),
+            fillView.trailingAnchor.constraint(equalTo: vibrancyView.trailingAnchor),
+            fillView.topAnchor.constraint(equalTo: vibrancyView.topAnchor),
+            fillView.bottomAnchor.constraint(equalTo: vibrancyView.bottomAnchor),
+        ])
+
+        contentView = vibrancyView
     }
 
     /// Show centered at the given CGEvent screen point (top-left origin, y down).
@@ -130,15 +160,18 @@ private final class TileCancelDotView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let accent = NSColor.controlAccentColor
 
-        // Panel chrome — always dark (HUD style, like macOS volume/brightness
-        // indicators). Reads consistently over both light and dark wallpapers.
+        // Panel chrome is provided by the host NSVisualEffectView (background
+        // material) + its layer border. We only draw the tile grid here.
         let panel = bounds
-        let panelPath = NSBezierPath(roundedRect: panel, xRadius: 14, yRadius: 14)
-        NSColor(white: 0.08, alpha: 0.82).setFill()
-        panelPath.fill()
-        NSColor.white.withAlphaComponent(0.08).setStroke()
-        panelPath.lineWidth = 1
-        panelPath.stroke()
+
+        // Subtle top-edge highlight — the "specular" line you see along the
+        // top of glass panels in macOS. Sits just inside the rounded border.
+        let highlight = NSBezierPath()
+        highlight.move(to: NSPoint(x: panel.minX + 16, y: panel.maxY - 0.5))
+        highlight.line(to: NSPoint(x: panel.maxX - 16, y: panel.maxY - 0.5))
+        NSColor.white.withAlphaComponent(0.12).setStroke()
+        highlight.lineWidth = 1
+        highlight.stroke()
 
         // 3×3 tile grid. Iteration row 0 is the visual TOP row; since the
         // view isn't flipped, top = highest y, so we compute y from maxY
@@ -176,18 +209,18 @@ private final class TileCancelDotView: NSView {
             return
         }
 
-        // Tile background
+        // Tile background — tuned for legibility on top of vibrancy material.
         let tilePath = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
         if isActive {
-            accent.withAlphaComponent(0.32).setFill()
+            accent.withAlphaComponent(0.42).setFill()
             tilePath.fill()
             accent.withAlphaComponent(0.95).setStroke()
             tilePath.lineWidth = 1.2
             tilePath.stroke()
         } else {
-            NSColor.white.withAlphaComponent(0.06).setFill()
+            NSColor.white.withAlphaComponent(0.10).setFill()
             tilePath.fill()
-            NSColor.white.withAlphaComponent(0.08).setStroke()
+            NSColor.white.withAlphaComponent(0.14).setStroke()
             tilePath.lineWidth = 1
             tilePath.stroke()
         }
@@ -222,7 +255,7 @@ private final class TileCancelDotView: NSView {
             NSColor.white.setFill()
             NSBezierPath(ovalIn: dotRect).fill()
         } else {
-            NSColor.white.withAlphaComponent(0.32).setStroke()
+            NSColor.white.withAlphaComponent(0.42).setStroke()
             ringPath.lineWidth = 1.4
             ringPath.stroke()
         }
@@ -272,7 +305,7 @@ private final class TileCancelDotView: NSView {
 
         let fg: NSColor = isActive
             ? .white
-            : NSColor.white.withAlphaComponent(0.55)
+            : NSColor.white.withAlphaComponent(0.70)
         fg.setFill()
         NSBezierPath(roundedRect: preview, xRadius: 1.5, yRadius: 1.5).fill()
     }
