@@ -199,8 +199,8 @@ jobs:
           SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
-          BUILD=$(grep 'CURRENT_PROJECT_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+          VERSION=$(grep -E '^[[:space:]]*MARKETING_VERSION:' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+          BUILD=$(grep -E '^[[:space:]]*CURRENT_PROJECT_VERSION:' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
           PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S %z")
           FILE_LENGTH=$(stat -f%z "build/Release/AnyDrag.dmg")
           DOWNLOAD_URL="https://github.com/XueshiQiao/AnyDrag/releases/download/${TAG_NAME}/AnyDrag.dmg"
@@ -259,7 +259,7 @@ jobs:
           # computes sha256 itself. AnyDrag ships a universal DMG so arm/intel
           # point at the same URL. Uploaded as a release asset below so the
           # canonical .../releases/latest/download/latest.json URL resolves.
-          VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+          VERSION=$(grep -E '^[[:space:]]*MARKETING_VERSION:' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
           TAG_NAME=${GITHUB_REF#refs/tags/}
           DMG_URL="https://github.com/XueshiQiao/AnyDrag/releases/download/${TAG_NAME}/AnyDrag.dmg"
           PUB_DATE=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
@@ -291,7 +291,7 @@ jobs:
           BODY_FILE="$RUNNER_TEMP/github_release_body.md"
           : > "$BODY_FILE"
           if [[ -f RELEASE_NOTES.html ]]; then
-            VERSION=$(grep 'MARKETING_VERSION' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
+            VERSION=$(grep -E '^[[:space:]]*MARKETING_VERSION:' project.yml | head -1 | sed 's/.*: *"\(.*\)"/\1/')
             # Start at this version's "What's New in <version>" heading; stop at
             # the next version's "What's New in" heading. Every localized block
             # for this version (e.g. the "<version> 更新内容" section) sits in
