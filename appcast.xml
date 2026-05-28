@@ -5,8 +5,18 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version         # MARKETING_VERSION "26.05.100". After that, both fields are written by</title>
-      <description><![CDATA[<h3>What's New in 26.05.100</h3>
+      <title>Version 26.05.101</title>
+      <description><![CDATA[<h3>What's New in 26.05.101</h3>
+<ul>
+  <li><b>Re-release of 26.05.100</b> — Fixes an appcast metadata bug that prevented existing 1.4.x users from receiving the 26.05.100 update prompt (Sparkle saw a garbled version field and reported "You're up to date" instead of offering the update). All features and fixes from 26.05.100 are included — see below.</li>
+</ul>
+
+<h3>26.05.101 更新内容</h3>
+<ul>
+  <li><b>26.05.100 的重新发布</b> — 修复了 appcast 元数据生成的一个 bug。该 bug 导致 1.4.x 用户的 Sparkle 拿到的版本号字段是乱码,被错误判定为「已是最新」,从而不会弹出 26.05.100 的更新提示。26.05.100 的全部功能与修复都包含在本版本中——详见下方。</li>
+</ul>
+
+<h3>What's New in 26.05.100</h3>
 <ul>
   <li><b>The middle-button tile gesture got a real preview panel</b> — Until now, holding the middle button just showed a small cancel ring; you had to memorize that drag-up meant Full Screen, drag-down-right meant Bottom-Right Quarter, and so on. AnyDrag now pops up a tiny screen-shaped panel laid out as a 3×3 grid — each cell shows a mini preview of where the window will land, and the cell under your cursor lights up. The center cell is the cancel zone — release there to abort.</li>
   <li><b>Frosted-glass overlay</b> — The new tile panel uses macOS vibrancy (<code>.hudWindow</code>), so the desktop and the underlying window blur softly through it — same material family as Control Center and the volume HUD.</li>
@@ -95,11 +105,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Thu, 28 May 2026 13:08:12 +0000</pubDate>
-      <sparkle:version>        # HyperCapslock. CURRENT_PROJECT_VERSION jumped 12 → 99 in a one-time</sparkle:version>
-      <sparkle:shortVersionString>        # MARKETING_VERSION "26.05.100". After that, both fields are written by</sparkle:shortVersionString>
+      <pubDate>Thu, 28 May 2026 13:27:35 +0000</pubDate>
+      <sparkle:version>101</sparkle:version>
+      <sparkle:shortVersionString>26.05.101</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.05.100/AnyDrag.dmg" length="3271884" type="application/octet-stream" sparkle:edSignature="eWllG9xCbeHT0iqZKjFVzJrI/yQqMUEKYPjDf6GtSKPebtaGQ742ifijdopaSqvawdGxwhi6XHzuIAhQfb0kAw==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.05.101/AnyDrag.dmg" length="3271897" type="application/octet-stream" sparkle:edSignature="dJzPO5KBgdQ7rZ96aN4pGGpHyLbSvZj7JQgPoCCuhC3zuHwpt2cT7z5bSCq3biYUaG1tuAeVVqBAn4RpXforDA==" />
     </item>
   </channel>
 </rss>
