@@ -181,6 +181,11 @@ final class DragEngine {
     /// When false, the right-click still opens TilingPanel as before but
     /// the drag-to-resize path is skipped.
     var resizeEnabled: Bool = true
+    /// When true (default) and ≥2 displays are connected, the bento panel
+    /// renders all displays at their real arrangement so the user can pick
+    /// any display × any zone in a single gesture. When false, or with one
+    /// display, falls back to the original single-display bento.
+    var multiDisplayBentoEnabled: Bool = true
     var middleAction: MiddleAction = .off {
         didSet {
             // If the user changes the middle-button action mid-gesture, abort
@@ -253,6 +258,11 @@ final class DragEngine {
         // the tap callback and main (from abortTileGesture / stop).
         var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
         var tileZone: TileZone? = nil
+        /// Which screen the resolved tile should land on. With multi-display
+        /// mode, the cursor's panel-local position picks both the zone AND the
+        /// target display — it isn't always the cursor's current display. nil
+        /// when no zone is active.
+        var tileTargetScreen: NSScreen? = nil
         var middleClickOrigin: CGPoint? = nil
         // Sticky: set true the first drag event that resolves to a non-nil
         // zone. Releasing in the deadzone with this true means the user
@@ -628,6 +638,7 @@ final class DragEngine {
         cbState.withLock { state in
             state.tileTarget = nil
             state.tileZone = nil
+            state.tileTargetScreen = nil
             state.middleClickOrigin = nil
             state.tileSawDirection = false
         }
@@ -1042,10 +1053,14 @@ final class DragEngine {
                 state.middleClickOrigin = screenPoint
                 state.tileTarget = windowInfo
                 state.tileZone = nil
+                state.tileTargetScreen = nil
                 state.tileSawDirection = false
             }
+            let useMulti = multiDisplayBentoEnabled
             DispatchQueue.main.async { [weak self] in
-                self?.tileCancelDot.show(atCGPoint: screenPoint)
+                guard let self else { return }
+                self.tileCancelDot.multiDisplayEnabled = useMulti
+                self.tileCancelDot.show(atCGPoint: screenPoint)
             }
             Self.log.info("tile gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
             return nil  // suppress the down; will replay middle-click on no-drag release
@@ -1057,38 +1072,33 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        // Snapshot tile fields atomically; if a tile gesture is in flight,
-        // compute the new zone and write it back under the same lock so an
-        // abort-from-main running concurrently can't tear it.
-        struct TileSnap {
-            let origin: CGPoint
-            let zone: TileZone?
-        }
-        let tileSnap: TileSnap? = cbState.withLock { state -> TileSnap? in
-            guard state.tileTarget != nil, let origin = state.middleClickOrigin else { return nil }
-            let dx = event.location.x - origin.x
-            let dy = event.location.y - origin.y
-            let zone = TileZone.bentoZone(
-                forDx: dx, dy: dy,
-                halfDeadzoneWidth: TileCancelDot.halfDeadzoneWidth,
-                halfDeadzoneHeight: TileCancelDot.halfDeadzoneHeight
-            )
-            state.tileZone = zone
-            if zone != nil { state.tileSawDirection = true }
-            return TileSnap(origin: origin, zone: zone)
-        }
-
-        if let snap = tileSnap {
+        // If a tile gesture is in flight, dispatch the cursor position to
+        // main so the bento panel can resolve (cursor → display + zone)
+        // using its current layout. Storing the result back under the lock
+        // makes the update visible to abort/mouseUp paths.
+        let hasTileGesture = cbState.withLock { $0.tileTarget != nil && $0.middleClickOrigin != nil }
+        if hasTileGesture {
             let cursorScreenPoint = event.location
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if let zone = snap.zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
-                    let target = zone.rect(in: screen.visibleFrame)
+                let hit = self.tileCancelDot.resolve(cursorAtCGPoint: cursorScreenPoint)
+                // Update gesture state. Bail if the gesture was aborted
+                // between the dispatch and now.
+                let stillActive: Bool = self.cbState.withLock { state in
+                    guard state.tileTarget != nil else { return false }
+                    state.tileZone = hit?.zone
+                    state.tileTargetScreen = hit?.screen
+                    if hit != nil { state.tileSawDirection = true }
+                    return true
+                }
+                guard stillActive else { return }
+                if let hit {
+                    let target = hit.zone.rect(in: hit.screen.visibleFrame)
                     self.tileOverlay.show(rect: target)
-                    self.tileCancelDot.setActiveZone(zone)
+                    self.tileCancelDot.setActive(hit)
                 } else {
                     self.tileOverlay.hide()
-                    self.tileCancelDot.setActiveZone(nil)
+                    self.tileCancelDot.setActive(nil)
                 }
             }
             return nil
@@ -1118,25 +1128,28 @@ final class DragEngine {
             let target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)
             let origin: CGPoint
             let zone: TileZone?
+            let targetScreen: NSScreen?
             let sawDirection: Bool
         }
         let tileFinish: TileFinish? = cbState.withLock { state -> TileFinish? in
             guard let target = state.tileTarget, let origin = state.middleClickOrigin else { return nil }
             let zone = state.tileZone
+            let targetScreen = state.tileTargetScreen
             let sawDirection = state.tileSawDirection
             state.tileTarget = nil
             state.middleClickOrigin = nil
             state.tileZone = nil
+            state.tileTargetScreen = nil
             state.tileSawDirection = false
-            return TileFinish(target: target, origin: origin, zone: zone, sawDirection: sawDirection)
+            return TileFinish(target: target, origin: origin, zone: zone,
+                              targetScreen: targetScreen, sawDirection: sawDirection)
         }
         if let finish = tileFinish {
-            let cursorScreenPoint = event.location
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.tileOverlay.hide()
                 self.tileCancelDot.hide()
-                if let zone = finish.zone, let screen = self.screen(containingCGPoint: cursorScreenPoint) {
+                if let zone = finish.zone, let screen = finish.targetScreen {
                     self.applyTile(zone: zone, target: finish.target, screen: screen)
                 } else if finish.sawDirection {
                     // User actively chose a direction and then moved back into

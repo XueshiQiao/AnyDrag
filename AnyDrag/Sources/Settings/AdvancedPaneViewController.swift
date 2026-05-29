@@ -15,6 +15,7 @@ final class AdvancedPaneViewController: NSViewController {
     private let tilingSwitch   = NSSwitch()
     private let resizeSwitch   = NSSwitch()
     private let cornerBracketSwitch = NSSwitch()
+    private let multiDisplayBentoSwitch = NSSwitch()
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
@@ -123,6 +124,16 @@ final class AdvancedPaneViewController: NSViewController {
             equalTo: container.trailingAnchor, constant: -24
         ).isActive = true
 
+        // Sub-toggle: render the bento panel with all connected displays
+        // when the user picks "tile by direction" as the middle-click action.
+        addFeatureRow(
+            to: container,
+            title: NSLocalizedString("feature.multiDisplayBento", comment: ""),
+            subtitle: NSLocalizedString("feature.multiDisplayBento.subtitle", comment: ""),
+            toggle: multiDisplayBentoSwitch,
+            action: #selector(multiDisplayBentoToggled(_:))
+        )
+
         let view = NSView()
         view.addSubview(container)
         NSLayoutConstraint.activate([
@@ -149,6 +160,7 @@ final class AdvancedPaneViewController: NSViewController {
         tilingSwitch.state          = dragEngine.tilingEnabled ? .on : .off
         resizeSwitch.state          = dragEngine.resizeEnabled ? .on : .off
         cornerBracketSwitch.state   = dragEngine.cornerBracketEnabled ? .on : .off
+        multiDisplayBentoSwitch.state = dragEngine.multiDisplayBentoEnabled ? .on : .off
 
         updateFeatureRowsEnabled()
 
@@ -225,6 +237,16 @@ final class AdvancedPaneViewController: NSViewController {
         UserDefaults.standard.set(on, forKey: Preferences.Key.cornerBracketEnabled)
         if previous != on {
             Analytics.trackPreferenceChanged(key: "corner_bracket_enabled", value: String(on))
+        }
+    }
+
+    @objc private func multiDisplayBentoToggled(_ sender: NSSwitch) {
+        let on = (sender.state == .on)
+        let previous = dragEngine.multiDisplayBentoEnabled
+        dragEngine.multiDisplayBentoEnabled = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.multiDisplayBentoEnabled)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "multi_display_bento_enabled", value: String(on))
         }
     }
 
