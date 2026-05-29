@@ -79,6 +79,14 @@ final class TileCancelDot: NSPanel {
     /// path — pixel-identical to the pre-multi-display behaviour.
     var multiDisplayEnabled: Bool = false
 
+    /// NS origin of the IDEAL (un-clipped) multi-display panel rect.
+    /// Tracked separately from `self.frame.origin` because the actual
+    /// window frame is clipped to the current display's visibleFrame —
+    /// the view draws and `resolve(...)` hit-tests in the un-clipped
+    /// coord space so the cursor's relationship to each card cell stays
+    /// honest even when the window is smaller than the layout.
+    fileprivate var idealPanelOriginNS: NSPoint?
+
     // MARK: - Subviews
 
     private let vibrancyView = NSVisualEffectView()
@@ -157,6 +165,8 @@ final class TileCancelDot: NSPanel {
         fillView.currentScreen = nil
         fillView.activeScreen = nil
         fillView.activeZone = nil
+        fillView.displayOffset = .zero
+        idealPanelOriginNS = nil
         fillView.needsDisplay = true
         if !isVisible {
             orderFrontRegardless()
@@ -175,37 +185,51 @@ final class TileCancelDot: NSPanel {
             currentScreen: currentScreen
         )
 
-        // Anchor the CURRENT display's card to the click — not the whole
-        // panel's center. With a wide multi-display panel, "panel center"
-        // can land on a non-current card; aligning the current card's
-        // center to the click matches the single-display feel (cursor
-        // lands in the panel's middle cell, which is the cancel zone of
-        // the current display).
+        // Anchor: current card's center aligned to the click point.
         let anchorCenter: NSPoint = result.cards.first(where: { $0.isCurrent })
             .map { NSPoint(x: $0.cardRect.midX, y: $0.cardRect.midY) }
             ?? NSPoint(x: result.panelSize.width / 2, y: result.panelSize.height / 2)
-        var panelFrame = NSRect(
+
+        // The IDEAL panel rect: what we'd show if there were no screen
+        // boundaries. The current card's center lands exactly on the
+        // click point in this rect.
+        let idealFrame = NSRect(
             x: cgScreenPoint.x - anchorCenter.x,
             y: nsY - anchorCenter.y,
             width: result.panelSize.width,
             height: result.panelSize.height
         )
-        let visible = currentScreen.visibleFrame
-        let margin: CGFloat = 6
-        if panelFrame.minX < visible.minX + margin { panelFrame.origin.x = visible.minX + margin }
-        if panelFrame.maxX > visible.maxX - margin {
-            panelFrame.origin.x = visible.maxX - panelFrame.width - margin
-        }
-        if panelFrame.minY < visible.minY + margin { panelFrame.origin.y = visible.minY + margin }
-        if panelFrame.maxY > visible.maxY - margin {
-            panelFrame.origin.y = visible.maxY - panelFrame.height - margin
-        }
 
-        setFrame(panelFrame, display: true)
+        // Clip the WINDOW frame to the current display's visibleFrame
+        // (intersection). Anything outside becomes a region we just
+        // won't have a window for — the view inside the window draws
+        // every card at its *ideal* panel-local position, so cards
+        // whose position falls outside the (smaller) window are
+        // naturally clipped by the view bounds and never appear. This
+        // preserves "cancel cell sits exactly on the cursor" without
+        // needing the panel to straddle two displays (which macOS won't
+        // do with "Displays have separate Spaces" on).
+        let visible = currentScreen.visibleFrame
+        let clippedFrame = idealFrame.intersection(visible)
+        // Defensive: if the click somehow doesn't put the current card
+        // on the current display, fall back to the ideal frame.
+        let windowFrame = clippedFrame.isEmpty ? idealFrame : clippedFrame
+
+        // How much of the ideal panel's bottom-left got cut. View-local
+        // (0,0) corresponds to ideal panel-local `displayOffset`, so
+        // every card's view-local position = panel-local − displayOffset.
+        let displayOffset = NSPoint(
+            x: windowFrame.minX - idealFrame.minX,
+            y: windowFrame.minY - idealFrame.minY
+        )
+
+        idealPanelOriginNS = idealFrame.origin
+        setFrame(windowFrame, display: true)
         fillView.displayLayout = result.cards
         fillView.currentScreen = currentScreen
         fillView.activeScreen = nil
         fillView.activeZone = nil
+        fillView.displayOffset = displayOffset
         fillView.needsDisplay = true
         if !isVisible {
             orderFrontRegardless()
@@ -315,16 +339,23 @@ final class TileCancelDot: NSPanel {
         guard let primary = NSScreen.screens.first else { return nil }
         let nsY = primary.frame.height - cgPoint.y
         let cursorNS = NSPoint(x: cgPoint.x, y: nsY)
-        let panelFrame = self.frame
-        let local = NSPoint(
-            x: cursorNS.x - panelFrame.minX,
-            y: cursorNS.y - panelFrame.minY
-        )
 
         if let layout = fillView.displayLayout {
+            // Multi-display: hit-test in the IDEAL panel coord space so
+            // a cursor over a card cell that's been clipped off-window
+            // (e.g. dragged past the visible bento edge into where the
+            // ideal layout would still have a cell) still resolves
+            // correctly. The window's frame is a clipped subset of the
+            // ideal — cardRects are stored in ideal panel-local coords,
+            // and so is `cursorLocal` here.
+            let originNS = idealPanelOriginNS ?? self.frame.origin
+            let local = NSPoint(
+                x: cursorNS.x - originNS.x,
+                y: cursorNS.y - originNS.y
+            )
             return Self.resolveMultiDisplay(cursorLocal: local, layout: layout)
         } else {
-            return resolveSingleDisplay(cursorNS: cursorNS, panelFrame: panelFrame)
+            return resolveSingleDisplay(cursorNS: cursorNS, panelFrame: self.frame)
         }
     }
 
@@ -415,6 +446,16 @@ private final class TileCancelDotView: NSView {
     /// with the home display marked by an accent border.
     var displayLayout: [DisplayCard]? = nil
     var currentScreen: NSScreen? = nil
+    /// Multi-display only: how much of the IDEAL panel was clipped off
+    /// the bottom-left when the window's frame was intersected with the
+    /// current display's visibleFrame. Card positions in `displayLayout`
+    /// are stored in ideal panel-local coords; drawing translates by
+    /// `-displayOffset` so view-local (0,0) corresponds to ideal
+    /// panel-local `displayOffset`. Cards whose translated rect falls
+    /// outside the view's bounds are naturally clipped — that's how the
+    /// off-current-display cards "disappear" instead of pushing the
+    /// whole panel onto another screen.
+    var displayOffset: NSPoint = .zero
 
     override var isFlipped: Bool { false }
 
@@ -435,7 +476,9 @@ private final class TileCancelDotView: NSView {
 
         if let layout = displayLayout {
             for card in layout {
-                drawBentoCard(in: card.cardRect,
+                // Translate from ideal panel-local to view-local.
+                let viewRect = card.cardRect.offsetBy(dx: -displayOffset.x, dy: -displayOffset.y)
+                drawBentoCard(in: viewRect,
                               screen: card.screen,
                               isCurrent: card.isCurrent,
                               label: card.label,
