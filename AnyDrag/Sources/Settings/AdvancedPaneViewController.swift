@@ -27,6 +27,14 @@ final class AdvancedPaneViewController: NSViewController {
         let toggle: NSSwitch
     }
 
+    private func buildFeatureRow(title: String, subtitle: String?, toggle: NSSwitch, action: Selector) -> SettingsRow {
+        let row = SettingsRowBuilder.feature(title: title, subtitle: subtitle, toggle: toggle, target: self, action: action)
+        if let subtitleLabel = row.subtitle {
+            modifierGatedRows.append(FeatureRowViews(title: row.title, subtitle: subtitleLabel, toggle: toggle))
+        }
+        return row
+    }
+
     init(dragEngine: DragEngine) {
         self.dragEngine = dragEngine
         super.init(nibName: nil, bundle: nil)
@@ -42,10 +50,7 @@ final class AdvancedPaneViewController: NSViewController {
         container.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        // Window Drag
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("section.windowDrag", comment: "")))
-        container.addArrangedSubview(subLabel(NSLocalizedString("Modifier Keys", comment: "")))
-
+        // ─── Window Drag card ─────────────────────────────────────────
         modifierChipRow.onChange = { [weak self] proposed in
             guard let self = self else { return false }
             let previous = self.dragEngine.modifiers
@@ -58,58 +63,65 @@ final class AdvancedPaneViewController: NSViewController {
             }
             return true
         }
-        container.addArrangedSubview(modifierChipRow)
 
         modifierPreview.font = .systemFont(ofSize: 11)
         modifierPreview.textColor = .secondaryLabelColor
-        container.addArrangedSubview(modifierPreview)
-        container.setCustomSpacing(18, after: modifierPreview)
 
-        addFeatureRow(
-            to: container,
+        let modifierBlock = NSStackView(views: [
+            SettingsRowBuilder.subLabel(NSLocalizedString("Modifier Keys", comment: "")),
+            modifierChipRow,
+            modifierPreview,
+        ])
+        modifierBlock.orientation = .vertical
+        modifierBlock.alignment = .leading
+        modifierBlock.spacing = 6
+
+        let dragToggleRow = buildFeatureRow(
             title: NSLocalizedString("Drag window", comment: ""),
             subtitle: NSLocalizedString("feature.drag.subtitle", comment: ""),
             toggle: dragSwitch,
             action: #selector(dragToggled(_:))
         )
-        addFeatureRow(
-            to: container,
+        let maximizeRow = buildFeatureRow(
             title: NSLocalizedString("Maximize / Restore", comment: ""),
             subtitle: NSLocalizedString("feature.maximize.subtitle", comment: ""),
             toggle: maximizeSwitch,
             action: #selector(maximizeToggled(_:))
         )
-        addFeatureRow(
-            to: container,
+        let tilingRow = buildFeatureRow(
             title: NSLocalizedString("Window tiling", comment: ""),
             subtitle: NSLocalizedString("feature.tiling.subtitle", comment: ""),
             toggle: tilingSwitch,
             action: #selector(tilingToggled(_:))
         )
 
-        container.addArrangedSubview(separator())
-
-        // Window Resize
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("section.windowResize", comment: "")))
-        addFeatureRow(
+        SettingsCardLayout.addSection(
             to: container,
+            header: NSLocalizedString("section.windowDrag", comment: ""),
+            rows: [modifierBlock, dragToggleRow.view, maximizeRow.view, tilingRow.view]
+        )
+
+        // ─── Window Resize card ───────────────────────────────────────
+        let resizeRow = buildFeatureRow(
             title: NSLocalizedString("feature.resize", comment: ""),
             subtitle: NSLocalizedString("feature.resize.subtitle", comment: ""),
             toggle: resizeSwitch,
             action: #selector(resizeToggled(_:))
         )
-        addFeatureRow(
-            to: container,
+        let cornerBracketRow = buildFeatureRow(
             title: NSLocalizedString("feature.cornerBracket", comment: ""),
             subtitle: NSLocalizedString("feature.cornerBracket.subtitle", comment: ""),
             toggle: cornerBracketSwitch,
             action: #selector(cornerBracketToggled(_:))
         )
 
-        container.addArrangedSubview(separator())
+        SettingsCardLayout.addSection(
+            to: container,
+            header: NSLocalizedString("section.windowResize", comment: ""),
+            rows: [resizeRow.view, cornerBracketRow.view]
+        )
 
-        // Middle-click action
-        container.addArrangedSubview(sectionHeader(NSLocalizedString("Middle-click action", comment: "")))
+        // ─── Middle-click action card ─────────────────────────────────
         middleActionPicker.onChange = { [weak self] action in
             guard let self = self else { return }
             let previous = self.dragEngine.middleAction
@@ -119,19 +131,19 @@ final class AdvancedPaneViewController: NSViewController {
                 Analytics.trackPreferenceChanged(key: "middle_action", value: action.rawValue)
             }
         }
-        container.addArrangedSubview(middleActionPicker)
-        middleActionPicker.trailingAnchor.constraint(
-            equalTo: container.trailingAnchor, constant: -24
-        ).isActive = true
 
-        // Sub-toggle: render the bento panel with all connected displays
-        // when the user picks "tile by direction" as the middle-click action.
-        addFeatureRow(
-            to: container,
+        let multiDisplayRow = buildFeatureRow(
             title: NSLocalizedString("feature.multiDisplayBento", comment: ""),
             subtitle: NSLocalizedString("feature.multiDisplayBento.subtitle", comment: ""),
             toggle: multiDisplayBentoSwitch,
             action: #selector(multiDisplayBentoToggled(_:))
+        )
+
+        SettingsCardLayout.addSection(
+            to: container,
+            header: NSLocalizedString("Middle-click action", comment: ""),
+            rows: [middleActionPicker, multiDisplayRow.view],
+            bottomSpacing: 0
         )
 
         let view = NSView()
@@ -250,83 +262,4 @@ final class AdvancedPaneViewController: NSViewController {
         }
     }
 
-    // MARK: - View builders
-
-    private func sectionHeader(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
-        return label
-    }
-
-    private func subLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 11)
-        label.textColor = .secondaryLabelColor
-        return label
-    }
-
-    private func separator() -> NSView {
-        let line = NSBox()
-        line.boxType = .separator
-        return line
-    }
-
-    private func addFeatureRow(to container: NSStackView, title: String, subtitle: String?, toggle: NSSwitch, action: Selector) {
-        let row = featureRow(title: title, subtitle: subtitle, toggle: toggle, action: action)
-        container.addArrangedSubview(row.view)
-        if let subtitleLabel = row.subtitle {
-            modifierGatedRows.append(FeatureRowViews(title: row.title, subtitle: subtitleLabel, toggle: toggle))
-        }
-    }
-
-    private struct BuiltRow {
-        let view: NSView
-        let title: NSTextField
-        let subtitle: NSTextField?
-    }
-
-    private func featureRow(title: String, subtitle: String?, toggle: NSSwitch, action: Selector) -> BuiltRow {
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
-
-        let labelStack = NSStackView()
-        labelStack.orientation = .vertical
-        labelStack.alignment = .leading
-        labelStack.spacing = 1
-        labelStack.addArrangedSubview(titleLabel)
-
-        var subtitleLabel: NSTextField?
-        if let subtitle = subtitle {
-            let sub = NSTextField(labelWithString: subtitle)
-            sub.font = .systemFont(ofSize: 11)
-            sub.textColor = .secondaryLabelColor
-            // Allow up to 2 lines — long descriptions (e.g. the corner
-            // bracket's perf hint) overflow a single line and would
-            // otherwise push the toggle off the row.
-            sub.lineBreakMode = .byWordWrapping
-            sub.maximumNumberOfLines = 2
-            sub.preferredMaxLayoutWidth = 360
-            sub.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            labelStack.addArrangedSubview(sub)
-            subtitleLabel = sub
-        }
-
-        toggle.target = self
-        toggle.action = action
-        toggle.focusRingType = .none
-        // Toggle never compresses or moves; the label stack absorbs all the
-        // width variation.
-        toggle.setContentHuggingPriority(.required, for: .horizontal)
-        toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        let row = NSStackView(views: [labelStack, NSView(), toggle])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.distribution = .fill
-        row.spacing = 8
-        if row.arrangedSubviews.count >= 2 {
-            row.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
-        }
-        return BuiltRow(view: row, title: titleLabel, subtitle: subtitleLabel)
-    }
 }
