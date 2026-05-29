@@ -64,6 +64,14 @@ final class TileCancelDot: NSPanel {
     /// is just "tile N old bento cards spatially."
     static let multiCardGap: CGFloat = 8
 
+    /// Total height reserved BELOW each card for its label (gap above
+    /// label + label line height + gap below label). Single source of
+    /// truth — `drawCardLabel` uses the same margins to position itself.
+    fileprivate static let cardLabelTopMargin: CGFloat = 12
+    fileprivate static let cardLabelHeight: CGFloat    = 13
+    fileprivate static let cardLabelBottomMargin: CGFloat = 7
+    fileprivate static let cardLabelAreaHeight: CGFloat = cardLabelTopMargin + cardLabelHeight + cardLabelBottomMargin
+
     // MARK: - Mode
 
     /// Set by DragEngine from Preferences before each show. When false
@@ -266,19 +274,27 @@ final class TileCancelDot: NSPanel {
         let nCols = columns.count
         let nRows = columns.map(\.count).max() ?? 0
 
+        // Each "slot" is one card plus the label area BELOW the card.
+        // Slot height grows the panel so the label has room without
+        // crowding the card or the next row.
+        let labelAreaH = cardLabelAreaHeight
+        let slotH = cardH + labelAreaH
+
         let panelW = pad * 2 + CGFloat(nCols) * cardW + CGFloat(max(0, nCols - 1)) * gap
-        let panelH = pad * 2 + CGFloat(nRows) * cardH + CGFloat(max(0, nRows - 1)) * gap
+        let panelH = pad * 2 + CGFloat(nRows) * slotH + CGFloat(max(0, nRows - 1)) * gap
 
         var cards: [DisplayCard] = []
         for (col, columnScreens) in columns.enumerated() {
             for (rowFromTop, screen) in columnScreens.enumerated() {
                 let x = pad + CGFloat(col) * (cardW + gap)
-                // Non-flipped view: y=0 is bottom. Row 0 should sit at the
-                // visual TOP, so y = panelH - pad - (rowFromTop+1)*cardH - rowFromTop*gap.
-                let y = panelH - pad - CGFloat(rowFromTop + 1) * cardH - CGFloat(rowFromTop) * gap
+                // Slot top y (non-flipped: y=0 at bottom, row 0 is the
+                // visual TOP). Card sits at the top of its slot; label
+                // occupies the area below.
+                let slotTopY = panelH - pad - CGFloat(rowFromTop) * (slotH + gap)
+                let cardY = slotTopY - cardH
                 cards.append(DisplayCard(
                     screen: screen,
-                    cardRect: NSRect(x: x, y: y, width: cardW, height: cardH),
+                    cardRect: NSRect(x: x, y: cardY, width: cardW, height: cardH),
                     isCurrent: screen == currentScreen,
                     label: screen.localizedName
                 ))
@@ -506,16 +522,17 @@ private final class TileCancelDotView: NSView {
             ? NSColor.controlAccentColor
             : Self.cardLabelColor
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .medium),
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
             .foregroundColor: labelColor,
-            .kern: 0.6,
+            .kern: 0.8,
         ]
         let s = NSAttributedString(string: displayName.uppercased(), attributes: attrs)
-        let inset: CGFloat = 6
         let size = s.size()
+        // Sits BELOW the card, horizontally centered, with the same top
+        // margin used by the layout's slot calculation.
         let origin = NSPoint(
-            x: rect.minX + inset,
-            y: rect.maxY - inset - size.height
+            x: rect.midX - size.width / 2,
+            y: rect.minY - TileCancelDot.cardLabelTopMargin - size.height
         )
         s.draw(at: origin)
     }
