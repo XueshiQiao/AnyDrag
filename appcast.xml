@@ -5,8 +5,22 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.05.102</title>
-      <description><![CDATA[<h3>What's New in 26.05.102</h3>
+      <title>Version 26.05.103</title>
+      <description><![CDATA[<h3>What's New in 26.05.103</h3>
+<ul>
+  <li><b>Tile across every display in one gesture</b> — When middle-click is set to "Tile by direction" and you have multiple displays connected, the bento panel now draws all of them at their real arrangement. Aim toward any zone on any display and release — the window lands exactly there, instead of always on whichever screen the cursor started on. The home display gets an accent border, and each card is labeled with its display name.</li>
+  <li><b>Tile panel now adapts to light mode</b> — The bento overlay was dark-only before; it now follows the system theme, switching cell, ring, and border colors live when you flip appearance. There's a new <b>Show all displays in tile panel</b> switch in Settings → Advanced → Middle-click action (on by default; turn it off to keep the original single-display panel).</li>
+  <li><b>Refreshed Settings layout</b> — General and Advanced are now organized into rounded cards with hairline row separators, matching the macOS System Settings look. Purely visual — all the same controls, easier to scan.</li>
+</ul>
+
+<h3>26.05.103 更新内容</h3>
+<ul>
+  <li><b>一个手势在所有显示器之间平铺</b> — 当中键动作设为「按方向平铺」且接了多台显示器时,bento 面板现在会按真实排布把所有屏幕一起画出来。朝任意显示器的任意区域拖动后松手,窗口就落在那里,而不再总是落在光标起始的那块屏幕上。主显示器带强调色边框,每张卡片下方标注显示器名称。</li>
+  <li><b>平铺面板适配浅色模式</b> — bento 浮层之前只有深色样式,现在会跟随系统主题,切换外观时格子、环、边框颜色实时变化。「设置 → 高级 → 鼠标中键动作」里新增<b>「在平铺面板里显示所有显示器」</b>开关(默认开;关掉则回到原来的单显示器面板)。</li>
+  <li><b>设置界面重新排版</b> — 「通用」和「高级」现在整理成圆角卡片、行间用细分隔线,贴近 macOS 系统设置的观感。纯视觉调整,控件不变,更易浏览。</li>
+</ul>
+
+<h3>What's New in 26.05.102</h3>
 <ul>
   <li><b>Resize any window from anywhere</b> — Hold the same modifier you use for moving (Option by default) and right-click-drag to resize the window from the nearest corner. No more aiming for the thin window edge. The drag uses the same window-server trick AnyDrag already uses for moves — no Accessibility setSize per frame — so the resize is native-feeling and tracks the cursor 1:1. Thanks to heero for the feature suggestion.</li>
   <li><b>Corner Bracket indicator</b> — A small L-shaped accent-colored glow appears at the active corner during a resize, so you can see which corner the gesture grabbed. Tracks the live window frame, and stops automatically at the dock, screen edge, or any axis the app refuses to resize (e.g. System Settings' fixed width). You can turn it off independently from Settings → Advanced → Window Resize for a quieter UI; doing so also disables the ~30 Hz Accessibility polling that keeps the bracket aligned, for a small performance saving.</li>
@@ -121,11 +135,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Thu, 28 May 2026 22:54:29 +0000</pubDate>
-      <sparkle:version>102</sparkle:version>
-      <sparkle:shortVersionString>26.05.102</sparkle:shortVersionString>
+      <pubDate>Sat, 30 May 2026 04:39:59 +0000</pubDate>
+      <sparkle:version>103</sparkle:version>
+      <sparkle:shortVersionString>26.05.103</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.05.102/AnyDrag.dmg" length="3447152" type="application/octet-stream" sparkle:edSignature="BZ08Nz2SLKJmh6NxArYS1CmZhF4MV+W7DJKmZndRPbSAyOQDScxOemqZM2iryHnymL6WKdZ9XH9p0vEAs3+vAg==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.05.103/AnyDrag.dmg" length="3496108" type="application/octet-stream" sparkle:edSignature="diUTKCVU+NRn5QOSeqA7G+7eg0HIUuLlVJc3YBaFUJbD6S0KJI+0+Mf9i1/xVyMtCLc9Y4g53R9M+wGUCZuuAg==" />
     </item>
   </channel>
 </rss>
