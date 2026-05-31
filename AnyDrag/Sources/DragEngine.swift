@@ -73,6 +73,15 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
         !contains(.option)
     }
 
+    /// Enforce the Hyper-is-exclusive invariant: Hyper never coexists with flag
+    /// modifiers (the engine arms on a CapsLock hold OR a flag combo, never a
+    /// mix). Used to sanitize values loaded from persistence that may have been
+    /// written before the exclusivity rule, or hand-edited. Hyper wins when both
+    /// are present, since selecting it is the deliberate, newer choice.
+    var hyperNormalized: ModifierCombination {
+        contains(.hyper) ? .hyper : self
+    }
+
     /// Migrate the pre-1.3 `ModifierKey` string preference.
     init?(legacyString: String) {
         switch legacyString {

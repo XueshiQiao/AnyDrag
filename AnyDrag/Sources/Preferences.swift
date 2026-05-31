@@ -133,7 +133,9 @@ enum Preferences {
         // Empty is a valid persisted state (means "AnyDrag off"), so only the
         // first-launch path falls back to .option.
         if let raw = d.object(forKey: Key.modifierFlags) as? UInt {
-            engine.modifiers = ModifierCombination(rawValue: raw)
+            // Normalize so a stale "Hyper + flags" value (possible before the
+            // exclusivity rule) loads as a clean Hyper-only selection.
+            engine.modifiers = ModifierCombination(rawValue: raw).hyperNormalized
         } else {
             engine.modifiers = .option
         }

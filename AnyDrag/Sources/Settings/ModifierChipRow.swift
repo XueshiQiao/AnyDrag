@@ -71,6 +71,14 @@ final class ModifierChipRow: NSView {
             proposed.remove(element)
         } else {
             proposed.insert(element)
+            // Hyper is exclusive with the real flag modifiers. The engine arms on
+            // EITHER a held CapsLock (Hyper) OR a flag combination, never a mix —
+            // so selecting one side clears the other to keep the UI honest.
+            if element == .hyper {
+                proposed = .hyper
+            } else {
+                proposed.remove(.hyper)
+            }
         }
         let accepted = onChange?(proposed) ?? false
         if accepted {
