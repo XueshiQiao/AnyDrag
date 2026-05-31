@@ -27,6 +27,9 @@ final class ModifierChipRow: NSView {
         Spec(element: .option,  glyph: "⌥",  title: NSLocalizedString("Option", comment: "")),
         Spec(element: .shift,   glyph: "⇧",  title: NSLocalizedString("Shift", comment: "")),
         Spec(element: .command, glyph: "⌘",  title: NSLocalizedString("Command", comment: "")),
+        // Virtual "Hyper" = hold CapsLock via HyperCapslock. Same chip style; a
+        // short word rather than a glyph, like "fn".
+        Spec(element: .hyper,   glyph: NSLocalizedString("Hyper", comment: ""), title: NSLocalizedString("Hyper", comment: "")),
     ]
     private var chips: [ModifierChip] = []
 

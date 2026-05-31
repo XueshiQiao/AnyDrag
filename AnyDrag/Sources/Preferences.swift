@@ -13,6 +13,9 @@ enum Preferences {
         static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
         static let multiDisplayBentoEnabled = "AnyDragMultiDisplayBentoEnabled"
         static let middleAction    = "AnyDragMiddleAction"
+        // Note: the "Hyper" (CapsLock-via-HyperCapslock) modifier needs no key of
+        // its own — it's a bit in `modifierFlags`, so it persists with the rest of
+        // the modifier combination and drives the CapsLock source via didSet.
 
         // Diagnostics — persisted across launches now that the section is
         // always visible in Settings.

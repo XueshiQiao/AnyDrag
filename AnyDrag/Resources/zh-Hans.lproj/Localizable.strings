@@ -40,9 +40,11 @@
 "Option" = "Option";
 "Control" = "Control";
 "fn" = "fn";
+"Hyper" = "Hyper";
 /* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
 "modifier.preview.format" = "按住 %1$@ (%2$@) 使用 AnyDrag";
 "modifier.preview.empty" = "AnyDrag 已关闭 — 选择修饰键以启用";
+"modifier.hyper.hint" = "Hyper = 按住 CapsLock。需运行 HyperCapslock 并启用“按住 CapsLock 拖动窗口（AnyDrag）”。";
 
 /* Settings — Features section */
 "Features" = "功能";

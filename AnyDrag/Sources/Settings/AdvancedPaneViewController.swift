@@ -9,6 +9,9 @@ final class AdvancedPaneViewController: NSViewController {
 
     private let modifierChipRow = ModifierChipRow(initial: ModifierCombination())
     private let modifierPreview = NSTextField(labelWithString: "")
+    /// Shown only when the virtual "Hyper" chip is selected — explains it needs
+    /// HyperCapslock running with its broadcast setting on.
+    private let hyperHint = NSTextField(wrappingLabelWithString: "")
 
     private let dragSwitch     = NSSwitch()
     private let maximizeSwitch = NSSwitch()
@@ -67,10 +70,17 @@ final class AdvancedPaneViewController: NSViewController {
         modifierPreview.font = .systemFont(ofSize: 11)
         modifierPreview.textColor = .secondaryLabelColor
 
+        hyperHint.font = .systemFont(ofSize: 11)
+        hyperHint.textColor = .secondaryLabelColor
+        hyperHint.lineBreakMode = .byWordWrapping
+        hyperHint.maximumNumberOfLines = 0
+        hyperHint.stringValue = NSLocalizedString("modifier.hyper.hint", comment: "")
+
         let modifierBlock = NSStackView(views: [
             SettingsRowBuilder.subLabel(NSLocalizedString("Modifier Keys", comment: "")),
             modifierChipRow,
             modifierPreview,
+            hyperHint,
         ])
         modifierBlock.orientation = .vertical
         modifierBlock.alignment = .leading
@@ -187,6 +197,7 @@ final class AdvancedPaneViewController: NSViewController {
             let format = NSLocalizedString("modifier.preview.format", comment: "")
             modifierPreview.stringValue = String(format: format, combo.symbol, combo.displayName)
         }
+        hyperHint.isHidden = !combo.contains(.hyper)
     }
 
     /// When no modifier is selected, AnyDrag has nothing to listen for, so the

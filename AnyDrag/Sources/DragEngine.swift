@@ -12,7 +12,10 @@ extension Notification.Name {
 // MARK: - Modifier Combination Model
 
 /// User-selectable combination of modifier keys. Any non-empty subset of
-/// command/shift/option/control/fn is allowed.
+/// command/shift/option/control/fn is allowed, plus `hyper` — a *virtual*
+/// modifier meaning "CapsLock held, as signalled by HyperCapslock". Unlike the
+/// others, `hyper` is NOT a `CGEventFlag` (it carries no flag on the mouse
+/// event); the engine satisfies it from `HyperCapslockCapsHoldSource` instead.
 struct ModifierCombination: OptionSet, Equatable, Hashable {
     let rawValue: UInt
     init(rawValue: UInt) { self.rawValue = rawValue }
@@ -22,9 +25,13 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
     static let option  = ModifierCombination(rawValue: 1 << 2)
     static let control = ModifierCombination(rawValue: 1 << 3)
     static let fn      = ModifierCombination(rawValue: 1 << 4)
+    /// Virtual: "hold CapsLock (via HyperCapslock)". No event flag — see above.
+    static let hyper   = ModifierCombination(rawValue: 1 << 5)
 
     static let fnEventFlag = CGEventFlags.maskSecondaryFn
 
+    /// The real CGEventFlags this combination requires. `hyper` contributes
+    /// nothing here — it is matched out-of-band against the CapsLock source.
     var eventFlags: CGEventFlags {
         var f: CGEventFlags = []
         if contains(.command) { f.insert(.maskCommand) }
@@ -35,9 +42,11 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
         return f
     }
 
-    /// Glyph display, e.g. "⌃⌥⇧⌘" or "fn⌘". Order follows Apple HIG (fn ⌃ ⌥ ⇧ ⌘).
+    /// Glyph display, e.g. "⌃⌥⇧⌘" or "fn⌘". Order follows Apple HIG (fn ⌃ ⌥ ⇧ ⌘),
+    /// with the virtual Hyper key first.
     var symbol: String {
         var s = ""
+        if contains(.hyper)   { s += "Hyper" }
         if contains(.fn)      { s += "fn" }
         if contains(.control) { s += "⌃" }
         if contains(.option)  { s += "⌥" }
@@ -49,6 +58,7 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
     /// Localized name, e.g. "Control + Option + Command".
     var displayName: String {
         var parts: [String] = []
+        if contains(.hyper)   { parts.append(NSLocalizedString("Hyper", comment: "")) }
         if contains(.fn)      { parts.append(NSLocalizedString("fn", comment: "")) }
         if contains(.control) { parts.append(NSLocalizedString("Control", comment: "")) }
         if contains(.option)  { parts.append(NSLocalizedString("Option", comment: "")) }
@@ -173,7 +183,18 @@ final class DragEngine {
 
     private static let log = FileLog("DragEngine")
 
-    var modifiers: ModifierCombination = .option
+    var modifiers: ModifierCombination = .option {
+        didSet {
+            // The virtual `.hyper` chip drives the CapsLock source on/off. Set on
+            // the main thread (config apply + chip toggle), same as every other
+            // `modifiers` write.
+            hyperCapslockSource.setEnabled(modifiers.contains(.hyper))
+        }
+    }
+    /// AnyDrag's link to HyperCapslock. Owns the cross-process CapsLock-hold
+    /// listening and the liveness watchdog; consulted via `isHeld` on the tap
+    /// thread. Active only while `.hyper` is selected.
+    let hyperCapslockSource = HyperCapslockCapsHoldSource()
     var dragEnabled: Bool = true
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
@@ -1302,6 +1323,14 @@ final class DragEngine {
     }
 
     private func matchesConfiguredModifier(_ flags: CGEventFlags) -> Bool {
+        // Virtual `.hyper` modifier: when selected and CapsLock is held (per the
+        // HyperCapslock source), arm regardless of flags — CapsLock isn't a flag.
+        // OR-ed in, so it coexists with any flag chips. Only needs to hold at the
+        // instant of mouse-down.
+        if modifiers.contains(.hyper) && hyperCapslockSource.isHeld {
+            return true
+        }
+
         let cleanedFlags = flags.subtracting(.maskNonCoalesced)
         let activeModifiers = cleanedFlags.intersection(Self.relevantModifierMask)
         let targetModifiers = modifiers.eventFlags

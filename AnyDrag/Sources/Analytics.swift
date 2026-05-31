@@ -162,6 +162,7 @@ extension ModifierCombination {
     /// Order matches Apple HIG (fn, control, option, shift, command).
     var analyticsKey: String {
         var parts: [String] = []
+        if contains(.hyper)   { parts.append("hyper") }
         if contains(.fn)      { parts.append("fn") }
         if contains(.control) { parts.append("control") }
         if contains(.option)  { parts.append("option") }

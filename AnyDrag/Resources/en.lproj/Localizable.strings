@@ -40,9 +40,11 @@
 "Option" = "Option";
 "Control" = "Control";
 "fn" = "fn";
+"Hyper" = "Hyper";
 /* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
 "modifier.preview.format" = "Hold %1$@ (%2$@) to use AnyDrag";
 "modifier.preview.empty" = "AnyDrag is off — choose a modifier key to enable";
+"modifier.hyper.hint" = "Hyper = hold CapsLock. Requires HyperCapslock running with “Hold CapsLock to drag windows (AnyDrag)” enabled.";
 
 /* Settings — Features section */
 "Features" = "Features";
