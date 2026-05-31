@@ -39,8 +39,8 @@ targets:
         # prep so the next bump-version.sh run produces build 100 →
         # MARKETING_VERSION "26.05.100". After that, both fields are written by
         # bump-version.sh at release time; don't hand-edit.
-        MARKETING_VERSION: "26.05.103"
-        CURRENT_PROJECT_VERSION: "103"
+        MARKETING_VERSION: "26.06.104"
+        CURRENT_PROJECT_VERSION: "104"
         GENERATE_INFOPLIST_FILE: NO
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_VERSION: "5.9"
