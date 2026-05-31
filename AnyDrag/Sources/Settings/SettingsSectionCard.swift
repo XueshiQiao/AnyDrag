@@ -22,6 +22,10 @@ final class SettingsSectionCard: NSView {
         wantsLayer = true
         layer?.cornerRadius = Self.cornerRadius
         layer?.cornerCurve = .continuous
+        // Hairline border so each section reads as a distinct grouped "form"
+        // card, matching macOS System Settings. Color is re-resolved in
+        // `updateLayer()` so it tracks light/dark + Increase Contrast.
+        layer?.borderWidth = 1
 
         var lastAnchor: NSLayoutYAxisAnchor = topAnchor
         var lastSpacing: CGFloat = Self.verticalInset
@@ -64,6 +68,7 @@ final class SettingsSectionCard: NSView {
 
     override func updateLayer() {
         layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        layer?.borderColor = NSColor.separatorColor.cgColor
     }
 
     // `wantsUpdateLayer` alone doesn't reliably trigger on appearance flips —

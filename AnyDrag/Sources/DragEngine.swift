@@ -46,7 +46,7 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
     /// with the virtual Hyper key first.
     var symbol: String {
         var s = ""
-        if contains(.hyper)   { s += "Hyper" }
+        if contains(.hyper)   { s += "⇪" }
         if contains(.fn)      { s += "fn" }
         if contains(.control) { s += "⌃" }
         if contains(.option)  { s += "⌥" }
