@@ -35,7 +35,11 @@ cur_build=$(grep -E '^[[:space:]]*CURRENT_PROJECT_VERSION:' "$PROJECT_YML" | sed
 [ -n "$cur_build" ] || { echo "error: could not read CURRENT_PROJECT_VERSION from $PROJECT_YML" >&2; exit 1; }
 
 new_build=$((cur_build + 1))
-version="$(date -u +%y.%m).${new_build}"
+# Use LOCAL date, not UTC: the CalVer YY.MM is the release month as the human
+# cutting the release experiences it. With `date -u` a release made just after
+# local midnight on the 1st (e.g. 00:04 +0800 → still the previous month in UTC)
+# would be stamped with the wrong month. Only the appcast pubDate stays UTC.
+version="$(date +%y.%m).${new_build}"
 tag="v${version}"
 
 if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
