@@ -171,7 +171,10 @@ enum Preferences {
         // Experimental no-button move modifier (flags-only; no Hyper). Absent
         // or empty means the feature is off.
         if let raw = d.object(forKey: Key.noButtonMoveModifierFlags) as? UInt {
-            engine.noButtonMoveModifiers = ModifierCombination(rawValue: raw)
+            // Flags-only feature — strip any stray Hyper bit (the UI can't set
+            // it, but a hand-edited default could) so it can't masquerade as a
+            // non-empty combination with no event flags.
+            engine.noButtonMoveModifiers = ModifierCombination(rawValue: raw).subtracting(.hyper)
         } else {
             engine.noButtonMoveModifiers = []
         }

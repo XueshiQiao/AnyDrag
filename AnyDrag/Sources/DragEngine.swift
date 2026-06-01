@@ -917,6 +917,12 @@ final class DragEngine {
     // MARK: - Mouse Up
 
     private func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Our own synthetic leftMouseUp (posted by finishNoButtonGesture to end
+        // a no-button drag) re-enters here — let it flow straight through so it
+        // can't be mistaken for the end of a real/other gesture.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            return Unmanaged.passUnretained(event)
+        }
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -944,10 +950,13 @@ final class DragEngine {
     /// Exact-match against the dedicated modifier (flags only — no Hyper, no
     /// Option augmentation). Empty target never matches.
     private func matchesNoButtonModifier(_ flags: CGEventFlags) -> Bool {
-        let target = noButtonMoveModifiers
-        guard !target.isEmpty else { return false }
+        let targetFlags = noButtonMoveModifiers.eventFlags
+        // Empty target (nothing configured) OR a flag-less combination (e.g. a
+        // stray Hyper-only value from hand-edited defaults) must never match —
+        // otherwise plain pointer movement would trigger the gesture.
+        guard !targetFlags.isEmpty else { return false }
         let active = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
-        return active == target.eventFlags
+        return active == targetFlags
     }
 
     private func handleMouseMoved(event: CGEvent) -> Unmanaged<CGEvent>? {
