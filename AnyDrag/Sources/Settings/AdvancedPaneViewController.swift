@@ -22,6 +22,11 @@ final class AdvancedPaneViewController: NSViewController {
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
+    /// Experimental (issue #13 prototype): dedicated modifier for no-button move.
+    /// Hyper excluded — the CapsLock source is wired to the main modifier only.
+    private let noButtonModifierChipRow = ModifierChipRow(initial: ModifierCombination(), includeHyper: false)
+    private let noButtonHint = NSTextField(wrappingLabelWithString: "")
+
     private var modifierGatedRows: [FeatureRowViews] = []
 
     private struct FeatureRowViews {
@@ -152,7 +157,40 @@ final class AdvancedPaneViewController: NSViewController {
         SettingsCardLayout.addSection(
             to: container,
             header: NSLocalizedString("Middle-click action", comment: ""),
-            rows: [middleActionPicker, multiDisplayRow.view],
+            rows: [middleActionPicker, multiDisplayRow.view]
+        )
+
+        // ─── Experimental card (issue #13 prototype) ──────────────────
+        noButtonModifierChipRow.onChange = { [weak self] proposed in
+            guard let self = self else { return false }
+            let previous = self.dragEngine.noButtonMoveModifiers
+            self.dragEngine.noButtonMoveModifiers = proposed
+            UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.noButtonMoveModifierFlags)
+            if previous != proposed {
+                Analytics.trackPreferenceChanged(key: "nobutton_move_modifier", value: proposed.analyticsKey)
+            }
+            return true
+        }
+
+        noButtonHint.font = .systemFont(ofSize: 11)
+        noButtonHint.textColor = .secondaryLabelColor
+        noButtonHint.lineBreakMode = .byWordWrapping
+        noButtonHint.maximumNumberOfLines = 0
+        noButtonHint.stringValue = NSLocalizedString("experimental.noButtonMove.hint", comment: "")
+
+        let noButtonBlock = NSStackView(views: [
+            SettingsRowBuilder.subLabel(NSLocalizedString("experimental.noButtonMove.label", comment: "")),
+            noButtonModifierChipRow,
+            noButtonHint,
+        ])
+        noButtonBlock.orientation = .vertical
+        noButtonBlock.alignment = .leading
+        noButtonBlock.spacing = 6
+
+        SettingsCardLayout.addSection(
+            to: container,
+            header: NSLocalizedString("experimental.section", comment: ""),
+            rows: [noButtonBlock],
             bottomSpacing: 0
         )
 
@@ -187,6 +225,7 @@ final class AdvancedPaneViewController: NSViewController {
         updateFeatureRowsEnabled()
 
         middleActionPicker.selection = dragEngine.middleAction
+        noButtonModifierChipRow.selection = dragEngine.noButtonMoveModifiers
     }
 
     private func updateModifierPreview() {
