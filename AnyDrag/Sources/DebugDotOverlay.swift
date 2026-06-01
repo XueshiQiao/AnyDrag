@@ -1,5 +1,10 @@
 import Cocoa
 
+/// Marker subclass so this window is identifiable as AnyDrag-owned (a plain
+/// `NSWindow` would report an AppKit bundle, indistinguishable from Sparkle's
+/// `NSAlert` panel — see `UpdateController.isOwnedByAnyDrag`).
+final class DebugDotWindow: NSWindow {}
+
 /// Diagnostic overlay that flashes a small dot at a screen point. Used to
 /// visualize the synthesized title-bar click location so we can see where the
 /// drag is being targeted (e.g. when debugging apps with non-standard top
@@ -37,7 +42,7 @@ final class DebugDotOverlay {
         // Cancel any in-flight fade from a prior drag.
         window?.orderOut(nil)
 
-        let w = NSWindow(
+        let w = DebugDotWindow(
             contentRect: frame,
             styleMask: .borderless,
             backing: .buffered,
