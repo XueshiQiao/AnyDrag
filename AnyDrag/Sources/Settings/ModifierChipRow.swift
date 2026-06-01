@@ -34,7 +34,7 @@ final class ModifierChipRow: NSView {
     ]
     private var chips: [ModifierChip] = []
 
-    init(initial: ModifierCombination) {
+    init(initial: ModifierCombination, includeHyper: Bool = true) {
         self.selection = initial
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -47,7 +47,8 @@ final class ModifierChipRow: NSView {
         row.spacing = 8
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        for spec in specs {
+        let activeSpecs = includeHyper ? specs : specs.filter { $0.element != .hyper }
+        for spec in activeSpecs {
             let chip = ModifierChip(element: spec.element, glyph: spec.glyph, title: spec.title)
             chip.isOn = initial.contains(spec.element)
             chip.onClick = { [weak self] in self?.userToggled(spec.element) }
