@@ -101,3 +101,8 @@
 /* About — analytics opt-out (co-located with the disclosure line) */
 "about.analytics.toggle" = "发送匿名使用数据";
 "about.analytics.subtitle" = "帮助我们了解哪些功能被使用。不会收集任何个人信息、应用名称或窗口内容。";
+
+/* Settings — Experimental (issue #13 no-button move prototype) */
+"experimental.section" = "实验性功能";
+"experimental.noButtonMove.label" = "无键移动修饰键";
+"experimental.noButtonMove.hint" = "按住此修饰键（不按任何鼠标键）移动指针，指针下的窗口会跟随移动，松开修饰键即停止。请选择与主修饰键不同的组合；留空则关闭。实验性功能。";
