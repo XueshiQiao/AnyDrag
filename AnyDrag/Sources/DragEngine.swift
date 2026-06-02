@@ -335,6 +335,16 @@ final class DragEngine {
         // Title-bar Y offset captured at arm time, so the engine can post the
         // closing leftMouseUp at the right point without touching strategy state.
         var noButtonYOffset: CGFloat = 0
+        // "Buttons inert" model: while a no-button move is ENGAGED, real mouse
+        // buttons don't interrupt it — the window keeps following. These two track
+        // the one tricky case: a real LEFT button physically held during the move.
+        // We must never HID-inject the closing leftMouseUp while the physical
+        // button is down (that swallows the user's real release and wedges the
+        // window-server's button down). So if the modifier is released while the
+        // left button is still down, we defer the end (pendingEnd) and let the
+        // real leftUp itself, rewritten, close the drag.
+        var noButtonRealLeftDown: Bool = false
+        var noButtonPendingEnd: Bool = false
     }
     private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
 
@@ -819,9 +829,27 @@ final class DragEngine {
     // MARK: - Mouse Down
 
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // A real click while a no-button move is live: end it first.
-        let nbActiveL = cbState.withLock { $0.noButtonPhase != .idle }
-        if nbActiveL { finishNoButtonGesture() }
+        // Read the phase AND record the physical-button-down atomically — a
+        // separate read-then-write could write `realLeftDown` into a state that a
+        // concurrent stop()/tap-disabled cleanup just reset to idle, wedging a
+        // future drag.
+        let nbPhase = cbState.withLock { st -> NoButtonPhase in
+            if st.noButtonPhase == .dragging { st.noButtonRealLeftDown = true }
+            return st.noButtonPhase
+        }
+        if nbPhase == .dragging {
+            // "Buttons inert" — the move is engaged (window-server is in our synth
+            // title-bar drag). Don't end it and don't let this real down reach the
+            // window server (a 2nd down would corrupt the drag). The window keeps
+            // following via the leftMouseDragged events that follow
+            // (handleMouseDragged); the move ends only when the modifier is released.
+            return nil
+        }
+        if nbPhase == .armed {
+            // Armed but not engaged — no synth drag exists yet; reset and let the
+            // real click proceed normally.
+            finishNoButtonGesture()
+        }
 
         // If tiling panel is visible, don't intercept — let clicks reach the panel
         if tilingPanel?.isVisible == true {
@@ -908,6 +936,13 @@ final class DragEngine {
     // MARK: - Mouse Dragged
 
     private func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // "Buttons inert": while a no-button move is engaged, a physical left drag
+        // KEEPS the window following — drive the synth title-bar drag with this
+        // event (rewritten to the title-bar offset) instead of doing a normal drag.
+        if cbState.withLock({ $0.noButtonPhase == .dragging }) {
+            cbState.withLock { $0.noButtonLastCursor = event.location }
+            return noButtonStrategy.handleMouseDragged(event: event)
+        }
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -922,6 +957,36 @@ final class DragEngine {
         // can't be mistaken for the end of a real/other gesture.
         if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
             return Unmanaged.passUnretained(event)
+        }
+        // "Buttons inert": a real left release during an engaged no-button move.
+        // Decide and mutate atomically (one lock) so a concurrent cleanup can't
+        // interleave between the read and the state change.
+        enum NoButtonUp { case notEngaged, swallow, rewriteEnd }
+        let nbUp: NoButtonUp = cbState.withLock { st in
+            guard st.noButtonPhase == .dragging else { return .notEngaged }
+            st.noButtonRealLeftDown = false
+            guard st.noButtonPendingEnd else { return .swallow }
+            // The modifier was already released while this button was held, so
+            // THIS release ends the move (rewritten below).
+            st.noButtonPhase = .idle
+            st.noButtonTarget = nil
+            st.noButtonYOffset = 0
+            st.noButtonLastCursor = .zero
+            st.noButtonPendingEnd = false
+            return .rewriteEnd
+        }
+        switch nbUp {
+        case .rewriteEnd:
+            // Rewrite this real up into the synth drag's closing leftMouseUp
+            // (coordinate-correct → no jump; not HID-injected → nothing swallowed).
+            Self.log.info("no-button move end (via real leftUp, rewritten)")
+            return noButtonStrategy.handleMouseUp(event: event)
+        case .swallow:
+            // Modifier still held — keep the move alive; the button was inert.
+            // mouseMoved will resume driving the follow.
+            return nil
+        case .notEngaged:
+            break
         }
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
@@ -1003,6 +1068,10 @@ final class DragEngine {
                 state.noButtonPhase = .armed
                 state.noButtonLastCursor = screenPoint
                 state.noButtonYOffset = yOffset
+                // Defense-in-depth: start every gesture with these clear, so a
+                // value stranded by any earlier path can't wedge this one.
+                state.noButtonRealLeftDown = false
+                state.noButtonPendingEnd = false
             }
             noButtonStrategy.reset()
             Self.log.info("no-button move arm: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
@@ -1032,10 +1101,35 @@ final class DragEngine {
     }
 
     private func handleFlagsChanged(event: CGEvent) -> Unmanaged<CGEvent>? {
-        let active = cbState.withLock { $0.noButtonPhase != .idle }
-        guard active else { return Unmanaged.passUnretained(event) }
-        if !matchesNoButtonModifier(event.flags) {
+        // Decide and mutate atomically (one lock). matchesNoButtonModifier only
+        // reads the lock-free modifier property + event flags, so it's safe here.
+        let stillHeld = matchesNoButtonModifier(event.flags)
+        enum FlagsAction { case ignore, deferEnd, finishNow }
+        let action: FlagsAction = cbState.withLock { st in
+            guard st.noButtonPhase != .idle else { return .ignore }
+            if stillHeld {
+                // Modifier (re)pressed while active — cancel any pending end.
+                st.noButtonPendingEnd = false
+                return .ignore
+            }
+            // Modifier released.
+            if st.noButtonRealLeftDown {
+                // A physical left button is still down — we must NOT HID-inject the
+                // closing up now (it would be swallowed and wedge the button).
+                // Defer: the window keeps following via leftMouseDragged, and the
+                // real leftUp will end the move (rewritten) in handleMouseUp.
+                st.noButtonPendingEnd = true
+                return .deferEnd
+            }
+            return .finishNow
+        }
+        switch action {
+        case .deferEnd:
+            Self.log.info("no-button: modifier released while left held — deferring end")
+        case .finishNow:
             finishNoButtonGesture()
+        case .ignore:
+            break
         }
         return Unmanaged.passUnretained(event)
     }
@@ -1045,21 +1139,32 @@ final class DragEngine {
     /// Safe from the tap thread (mouseMoved/flagsChanged/button-down) and from
     /// main (stop()).
     private func finishNoButtonGesture() {
-        let snapshot: (engaged: Bool, yOffset: CGFloat, lastCursor: CGPoint)? = cbState.withLock { state in
+        let snapshot: (engaged: Bool, yOffset: CGFloat, lastCursor: CGPoint, realLeftDown: Bool)? = cbState.withLock { state in
             guard state.noButtonPhase != .idle else { return nil }
             let engaged = (state.noButtonPhase == .dragging)
             let yOff = state.noButtonYOffset
             let last = state.noButtonLastCursor
+            let realDown = state.noButtonRealLeftDown
             state.noButtonPhase = .idle
             state.noButtonTarget = nil
             state.noButtonYOffset = 0
             state.noButtonLastCursor = .zero
-            return (engaged, yOff, last)
+            state.noButtonRealLeftDown = false
+            state.noButtonPendingEnd = false
+            return (engaged, yOff, last, realDown)
         }
         guard let snap = snapshot else { return }
         noButtonStrategy.reset()
         Self.log.info("no-button move end (engaged=\(snap.engaged))")
         guard snap.engaged else { return }
+        // If a physical left button is still down (only reachable via stop() /
+        // tap-disabled cleanup mid-hold — the modifier-release paths defer instead),
+        // do NOT HID-inject the closing up: it would be swallowed and wedge the
+        // window-server button. Leave the drag for the real release to end.
+        guard !snap.realLeftDown else {
+            Self.log.info("no-button finish: skipping HID up (physical left button down)")
+            return
+        }
 
         let upPoint = CGPoint(x: snap.lastCursor.x, y: snap.lastCursor.y + snap.yOffset)
         let marker = Self.synthesizedEventMarker
@@ -1098,8 +1203,11 @@ final class DragEngine {
     // without an intervening drag (panel).
 
     private func handleRightMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        let nbActiveR = cbState.withLock { $0.noButtonPhase != .idle }
-        if nbActiveR { finishNoButtonGesture() }
+        let nbPhase = cbState.withLock { $0.noButtonPhase }
+        // Buttons inert while a no-button move is engaged: swallow right-clicks so
+        // they neither end the move nor open a panel. Ends only on modifier release.
+        if nbPhase == .dragging { return nil }
+        if nbPhase == .armed { finishNoButtonGesture() }
 
         // If tiling panel is visible, suppress right-click (avoid system context menu)
         if tilingPanel?.isVisible == true {
@@ -1166,6 +1274,8 @@ final class DragEngine {
     }
 
     private func handleRightMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Inert during an engaged no-button move.
+        if cbState.withLock({ $0.noButtonPhase == .dragging }) { return nil }
         guard resizeStrategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -1173,6 +1283,8 @@ final class DragEngine {
     }
 
     private func handleRightMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Inert during an engaged no-button move (see handleRightMouseDown).
+        if cbState.withLock({ $0.noButtonPhase == .dragging }) { return nil }
         guard resizeStrategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -1216,11 +1328,18 @@ final class DragEngine {
     // MARK: - Middle Button (drag or tile-by-direction)
 
     private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        let nbActiveM = cbState.withLock { $0.noButtonPhase != .idle }
-        if nbActiveM { finishNoButtonGesture() }
+        let nbPhase = cbState.withLock { $0.noButtonPhase }
+        let isMiddle = event.getIntegerValueField(.mouseEventButtonNumber) == 2
+        // Buttons inert while a no-button move is engaged: swallow the middle
+        // button so it doesn't end the move or start a tile/drag gesture.
+        if nbPhase == .dragging {
+            if isMiddle { return nil }
+        } else if nbPhase == .armed {
+            finishNoButtonGesture()
+        }
 
         // Only the middle button (button 2) — leave side buttons (3, 4) alone.
-        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
+        guard isMiddle else {
             return Unmanaged.passUnretained(event)
         }
 
@@ -1305,6 +1424,8 @@ final class DragEngine {
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
             return Unmanaged.passUnretained(event)
         }
+        // Inert during an engaged no-button move.
+        if cbState.withLock({ $0.noButtonPhase == .dragging }) { return nil }
 
         // If a tile gesture is in flight, dispatch the cursor position to
         // main so the bento panel can resolve (cursor → display + zone)
@@ -1350,6 +1471,8 @@ final class DragEngine {
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
             return Unmanaged.passUnretained(event)
         }
+        // Inert during an engaged no-button move (see handleOtherMouseDown).
+        if cbState.withLock({ $0.noButtonPhase == .dragging }) { return nil }
 
         if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
             return Unmanaged.passUnretained(event)
