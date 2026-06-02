@@ -210,15 +210,7 @@ final class DragEngine {
     /// Read on the tap thread, written on main — same lock-free cross-thread
     /// pattern as `modifiers` (a UInt-backed value; arm64 word reads are atomic).
     var noDragMoveModifiers: ModifierCombination = [] {
-        didSet {
-            noDragMode.modifiers = noDragMoveModifiers
-            guard oldValue != noDragMoveModifiers else { return }
-            // Re-evaluate gating from scratch: drop any stale "held" assumption
-            // and disable the mouseMoved tap until the (possibly new) modifier is
-            // next pressed. Set on main (Preferences.apply / settings change).
-            cbState.withLock { $0.noDragModifierHeld = false }
-            setMouseMovedTapEnabled(false)
-        }
+        didSet { noDragMode.modifiers = noDragMoveModifiers }
     }
     var dragEnabled: Bool = true {
         didSet { dragMode.enabled = dragEnabled }
@@ -277,9 +269,6 @@ final class DragEngine {
     }
 
     private var runLoopSource: CFRunLoopSource?
-    /// Run loop source for the dedicated `mouseMoved` tap. Main-thread-only,
-    /// like `runLoopSource`.
-    private var mouseMovedRunLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
 
     /// Retained `self` pointer handed to the C event-tap callback. Created
@@ -312,15 +301,6 @@ final class DragEngine {
         var tap: CFMachPort? = nil
         var tapRunLoop: CFRunLoop? = nil
         var eventCounter: Int = 0
-        // Dedicated, normally-DISABLED tap that listens to `.mouseMoved` only.
-        // mouseMoved is high-frequency, so we keep it OUT of the always-on main
-        // tap and enable this one solely while the no-drag move's dedicated
-        // modifier is held (toggled from handleFlagsChanged). Same callback as
-        // the main tap. Tap manipulation is dispatched to main, like `tap`.
-        var mouseMovedTap: CFMachPort? = nil
-        // Whether the dedicated no-drag modifier is currently held. Drives the
-        // enable/disable of `mouseMovedTap`; tracked so we only toggle on edges.
-        var noDragModifierHeld: Bool = false
         // Middle-button tile-by-direction gesture state. Mutated by both
         // the tap callback and main (from abortTileGesture / stop).
         var tileTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
@@ -425,13 +405,12 @@ final class DragEngine {
             .leftMouseDown, .leftMouseDragged, .leftMouseUp,
             .rightMouseDown, .rightMouseDragged, .rightMouseUp,
             .otherMouseDown, .otherMouseDragged, .otherMouseUp,
-            // flagsChanged drives the no-drag move: it ends the gesture
-            // (modifier release while the cursor is stationary) AND gates the
-            // separate, normally-disabled mouseMoved tap on the dedicated
-            // modifier being held. mouseMoved is deliberately NOT in this
-            // always-on mask — it lives in its own tap created below, so we
-            // never receive that high-frequency event unless the modifier is held.
-            .flagsChanged,
+            // The no-drag move needs mouse-move tracking and flagsChanged (to end
+            // the gesture when the modifier is released while the cursor is
+            // stationary). mouseMoved is high-frequency, but handleEvent bails on
+            // it with a cheap lock-free modifier check when the dedicated modifier
+            // isn't held — so the cost while idle is a couple of instructions.
+            .mouseMoved, .flagsChanged,
         ]
         let eventMask: CGEventMask = maskedTypes.reduce(into: CGEventMask(0)) { mask, type in
             mask |= CGEventMask(1) << type.rawValue
@@ -467,45 +446,16 @@ final class DragEngine {
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
 
-        // ── Dedicated, normally-DISABLED mouseMoved tap ───────────────────
-        // A tap's event mask is fixed at creation, but a whole tap can be
-        // enabled/disabled at runtime. So the high-frequency mouseMoved lives
-        // in its own tap that handleFlagsChanged toggles on/off with the
-        // dedicated modifier. Created here, immediately disabled; reuses the
-        // same callback (it only ever delivers .mouseMoved + tapDisabled*).
-        // Best-effort: if it fails, the main tap still works and only the
-        // no-drag move is unavailable.
-        let mmMask: CGEventMask = CGEventMask(1) << CGEventType.mouseMoved.rawValue
-        let mmTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: mmMask,
-            callback: eventTapCallback,
-            userInfo: userInfo
-        )
-        var mmSource: CFRunLoopSource?
-        if let mmTap {
-            CGEvent.tapEnable(tap: mmTap, enable: false)   // start disabled
-            cbState.withLock { $0.mouseMovedTap = mmTap }
-            let s = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, mmTap, 0)
-            mmSource = s
-            mouseMovedRunLoopSource = s
-        } else {
-            Self.log.warn("start(): mouseMoved tap creation failed — no-drag move disabled")
-        }
-
         // Capture the tap thread's run loop so `stop()` can wake it.
-        // `source`/`mmSource` are captured by value (closure locals) so the tap
-        // thread never reads `self.runLoopSource` — keeping that field main-only.
+        // `source` is captured by value (closure local) so the tap thread
+        // never reads `self.runLoopSource` — keeping that field main-only.
         // The semaphore ensures `start()` returns only after the tap
         // thread has recorded its run loop into `cbState.tapRunLoop`.
         let runLoopReady = DispatchSemaphore(value: 0)
-        let thread = Thread { [source, mmSource, weak self] in
+        let thread = Thread { [source, weak self] in
             let runLoop = CFRunLoopGetCurrent()
             self?.cbState.withLock { $0.tapRunLoop = runLoop }
             CFRunLoopAddSource(runLoop, source, .commonModes)
-            if let mmSource { CFRunLoopAddSource(runLoop, mmSource, .commonModes) }
             runLoopReady.signal()
             CFRunLoopRun()
             // Returns after CFRunLoopStop is called from stop().
@@ -531,19 +481,11 @@ final class DragEngine {
                     CGEvent.tapEnable(tap: t, enable: false)
                     CFMachPortInvalidate(t)
                 }
-                if let mm = state.mouseMovedTap {
-                    CGEvent.tapEnable(tap: mm, enable: false)
-                    CFMachPortInvalidate(mm)
-                }
                 state.tap = nil
-                state.mouseMovedTap = nil
-                state.noDragModifierHeld = false
                 state.tapRunLoop = nil
             }
             if let source = runLoopSource { CFRunLoopSourceInvalidate(source) }
-            if let mmSource = mouseMovedRunLoopSource { CFRunLoopSourceInvalidate(mmSource) }
             runLoopSource = nil
-            mouseMovedRunLoopSource = nil
             tapThread = nil
             return
         }
@@ -566,36 +508,25 @@ final class DragEngine {
         // captured locals here are then used to actually invalidate things
         // outside the lock, which is fine because CFMachPort/CFRunLoop
         // operations are thread-safe per Apple docs.
-        let (tap, mmTap, runLoop) = cbState.withLock { state -> (CFMachPort?, CFMachPort?, CFRunLoop?) in
+        let (tap, runLoop) = cbState.withLock { state -> (CFMachPort?, CFRunLoop?) in
             let t = state.tap
-            let mm = state.mouseMovedTap
             let r = state.tapRunLoop
             state.tap = nil
-            state.mouseMovedTap = nil
-            state.noDragModifierHeld = false
             state.tapRunLoop = nil
-            return (t, mm, r)
+            return (t, r)
         }
         if let tap = tap {
             CGEvent.tapEnable(tap: tap, enable: false)
             CFMachPortInvalidate(tap)
         }
-        if let mmTap = mmTap {
-            CGEvent.tapEnable(tap: mmTap, enable: false)
-            CFMachPortInvalidate(mmTap)
-        }
         if let source = runLoopSource {
             CFRunLoopSourceInvalidate(source)
-        }
-        if let mmSource = mouseMovedRunLoopSource {
-            CFRunLoopSourceInvalidate(mmSource)
         }
         if let runLoop = runLoop {
             CFRunLoopStop(runLoop)
             CFRunLoopWakeUp(runLoop)
         }
         runLoopSource = nil
-        mouseMovedRunLoopSource = nil
         tapThread = nil
         // tapUserInfo intentionally NOT released — kept for next start().
         // Released only in deinit (see init notes).
@@ -784,6 +715,17 @@ final class DragEngine {
     // MARK: - Event Handling
 
     fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Ultra-cheap gate for the high-frequency mouseMoved: when the no-drag
+        // move's dedicated modifier isn't held, bail BEFORE taking any lock. This
+        // is a couple of bitwise ops + a lock-free read (matches() reads the
+        // value-typed modifier config), so idle pointer movement costs almost
+        // nothing. (An engaged move always has the modifier held → matches true →
+        // proceeds; a held physical button generates leftMouseDragged, not
+        // mouseMoved, so this never strands a buttons-inert move.)
+        if type == .mouseMoved && !noDragMode.matches(event.flags) {
+            return Unmanaged.passUnretained(event)
+        }
+
         // Snapshot trust + bump the per-event counter under one lock. We
         // do NOT read `state.tap` here — see the CallbackState comment for
         // why (rapid-restart generation race). Any tap manipulation is
@@ -832,12 +774,6 @@ final class DragEngine {
                             CGEvent.tapEnable(tap: tap, enable: true)
                             Self.log.info("Re-enabled tap (still authorized)")
                         }
-                        // The dedicated mouseMoved tap should be back on only if
-                        // the no-drag modifier is currently held; otherwise it
-                        // stays disabled (its whole point).
-                        if state.noDragModifierHeld, let mm = state.mouseMovedTap {
-                            CGEvent.tapEnable(tap: mm, enable: true)
-                        }
                     }
                 } else {
                     Self.log.warn("tap-disabled and AX revoked — calling applyTrustChange(false)")
@@ -848,9 +784,13 @@ final class DragEngine {
             // gesture is now stranded. Drop it so we don't apply a stale
             // tile on the next mouse-up.
             abortTileGesture()
-            // Same for an in-flight no-drag move: the tap missed events while
-            // disabled, so drop the gesture (post the up if it was engaged).
-            noDragMode.abort(context: self)
+            // NOTE: we deliberately do NOT abort an in-flight no-drag move here.
+            // tapDisabled is transient and immediately re-enabled; the move closes
+            // correctly on its real end signals (modifier release via flagsChanged,
+            // or the real leftUp during buttons-inert). Aborting it here would tear
+            // it down mid-gesture — and during a deferred end (realLeftDown) it
+            // would skip the HID up, leaving the window-server drag stuck (and a
+            // jump on the next real up). A brief disable just pauses the follow.
             // Same reasoning for the right-button resize gesture: a missed
             // rightUp would leave `resizeStrategy.isActive` stuck true,
             // intercepting the next right-click. Drop it so the next gesture
@@ -960,9 +900,6 @@ final class DragEngine {
     // MARK: - Mouse Dragged
 
     private func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // "Buttons inert": while a no-drag move is engaged, a physical left drag
-        // KEEPS the window following — drive the synth title-bar drag with this
-        // event (rewritten to the title-bar offset) instead of doing a normal drag.
         // No-drag move: while engaged, a physical left drag keeps the window
         // following (drives the same synth title-bar drag).
         if case .handled(let result) = noDragMode.handle(event, type: .leftMouseDragged, context: self) {
@@ -1007,9 +944,8 @@ final class DragEngine {
     // dedicated modifier is released.
 
     private func handleMouseMoved(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // The dedicated mouseMoved tap is enabled only while the no-drag modifier
-        // is held (see handleFlagsChanged gating), so this only fires during a
-        // no-drag move. Offer it to the mode.
+        // handleEvent already bailed (lock-free) unless the no-drag modifier is
+        // held, so this only runs during a no-drag move. Offer it to the mode.
         if case .handled(let result) = noDragMode.handle(event, type: .mouseMoved, context: self) {
             return result
         }
@@ -1017,33 +953,9 @@ final class DragEngine {
     }
 
     private func handleFlagsChanged(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Engine concern: gate the dedicated mouseMoved tap on the no-drag modifier
-        // being held — toggle only on the held edge. The gesture's own end/defer
-        // logic lives in NoDragMoveMode (offered below).
-        let stillHeld = noDragMode.matches(event.flags)
-        let heldEdge = cbState.withLock { st -> Bool in
-            guard st.noDragModifierHeld != stillHeld else { return false }
-            st.noDragModifierHeld = stillHeld
-            return true
-        }
-        if heldEdge { setMouseMovedTapEnabled(stillHeld) }
+        // Drives the no-drag move's end/defer (modifier release). Lives in the mode.
         _ = noDragMode.handle(event, type: .flagsChanged, context: self)
         return Unmanaged.passUnretained(event)
-    }
-
-    /// Enable or disable the dedicated `mouseMoved` tap. Dispatched to main and
-    /// performed under the `cbState` lock — matching the "tap manipulation lives
-    /// on main" rule used for the primary tap, which avoids the generation race
-    /// a tap-thread read of the port could hit during a stop()/start() cycle.
-    private func setMouseMovedTapEnabled(_ enabled: Bool) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.cbState.withLock { st in
-                if let mm = st.mouseMovedTap {
-                    CGEvent.tapEnable(tap: mm, enable: enabled)
-                }
-            }
-        }
     }
 
     // MARK: - Right Button (resize-from-anywhere or open TilingPanel)

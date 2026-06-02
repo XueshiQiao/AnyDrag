@@ -136,7 +136,8 @@ final class NoDragMoveMode: WindowMoveMode {
             if st.phase == .armed { st.phase = .dragging }
         }
         // First call after arming sends the leftMouseDown (engage); later calls
-        // become leftMouseDragged.
+        // become leftMouseDragged. Returned (not re-injected), so they flow to the
+        // window server without re-entering our tap.
         return .handled(strategy.handleMouseDragged(event: event))
     }
 
