@@ -169,19 +169,41 @@ reusing the existing `ModifierChipRow`. A short hint explains: pick a combinatio
 
 ## 8. Edge cases & conflict handling
 
-- **Real button pressed mid-gesture** (e.g. user clicks while a no-button move is
-  live): abort the no-button gesture cleanly (post the synthetic mouse-up to
-  release the native drag) and let the button event proceed. Prevents two
-  gestures fighting.
+- **Mouse buttons during the move — "buttons inert" (revised after testing).**
+  The original plan was to *end* the move on a real button press. In practice
+  that fought the synthesized left button: an HID-injected closing `leftMouseUp`
+  posted while the physical button was down **swallowed the user's real release**
+  and wedged the window server's left button down (symptoms: the move got stuck
+  until a plain click, and the window jumped its title bar to the cursor when the
+  stuck drag finally ended). Confirmed via on-device event logging, not guessed.
+
+  The shipped behavior makes the real button **cooperate** with the synth drag
+  instead of fighting it: while a move is **engaged**, real button events are
+  inert and never reach the window server. A held left button simply keeps
+  driving the *same* synth drag (its `leftMouseDragged` events are rewritten to
+  the title-bar offset, so the window keeps following continuously — no freeze,
+  no jump). The move ends **only** when the dedicated modifier is released.
+  - Right/middle buttons are likewise inert while engaged.
+  - **Never HID-inject a closing up while a physical left button is down.** If
+    the modifier is released while the left button is still held, the end is
+    *deferred* (`pendingEnd`): the window keeps following until the real
+    `leftMouseUp`, which is itself **rewritten** into the coordinate-correct
+    closing up (no HID injection → nothing swallowed; correct coords → no jump).
 - **Modifier released while stationary:** handled by `flagsChanged` (the whole
-  reason we tap it).
-- **tap-disabled / stop():** treat like the other gestures — reset no-button
-  state and post a release mouse-up if a drag was live, so nothing is left
-  stranded (mirror the existing `abortTileGesture` / resize-reset cleanup).
+  reason we tap it). At that point no button is down (a `mouseMoved`-driven move),
+  so the HID-injected closing up is safe.
+- **tap-disabled / stop():** reset no-button state and post the closing up
+  **unless a physical left button is down** (then skip the HID up — the real
+  release will end the drag — to avoid re-introducing the wedge during teardown).
 - **No window under cursor at arm time:** do nothing (pass through), same as the
   button paths.
 - **Dedicated modifier equals / overlaps main modifier:** allowed but pointless;
   the hint warns against it. Not enforced in the prototype.
+
+All the per-handler no-button branches read and mutate the shared phase/flags in
+a **single `cbState.withLock`** so a concurrent `stop()`/tap-disabled cleanup
+can't interleave between a read and the dependent write; gesture arming also
+clears the flags as defense-in-depth.
 
 ## 9. Performance notes
 
