@@ -102,7 +102,7 @@
 "about.analytics.toggle" = "Send anonymous usage data";
 "about.analytics.subtitle" = "Helps us understand which features are used. No personal data, app names, or window contents are collected.";
 
-/* Settings — Experimental (issue #13 no-button move prototype) */
+/* Settings — Experimental (issue #13 no-drag move prototype) */
 "experimental.section" = "Experimental";
-"experimental.noButtonMove.label" = "No-button move modifier";
-"experimental.noButtonMove.hint" = "Hold this modifier (and no mouse button) and move the pointer — the window under it follows, then stops when you release the modifier. Pick a combination different from your main modifier; leave empty to disable. Experimental.";
+"experimental.noDragMove.label" = "No-drag move modifier";
+"experimental.noDragMove.hint" = "Hold this modifier (and no mouse button) and move the pointer — the window under it follows, then stops when you release the modifier. Pick a combination different from your main modifier; leave empty to disable. Experimental.";

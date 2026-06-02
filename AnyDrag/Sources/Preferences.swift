@@ -17,7 +17,7 @@ enum Preferences {
         // "modifier + mouse-move, no button → move window" trigger. Absent /
         // empty = feature off. Kept separate from `modifierFlags` so it never
         // competes with the main button-drag gesture.
-        static let noButtonMoveModifierFlags = "AnyDragNoButtonMoveModifierFlags"
+        static let noDragMoveModifierFlags = "AnyDragNoDragMoveModifierFlags"
         // Note: the "Hyper" (CapsLock-via-HyperCapslock) modifier needs no key of
         // its own — it's a bit in `modifierFlags`, so it persists with the rest of
         // the modifier combination and drives the CapsLock source via didSet.
@@ -168,15 +168,15 @@ enum Preferences {
 
         engine.showDebugDot = d.object(forKey: Key.showDebugDot) as? Bool ?? false
 
-        // Experimental no-button move modifier (flags-only; no Hyper). Absent
+        // Experimental no-drag move modifier (flags-only; no Hyper). Absent
         // or empty means the feature is off.
-        if let raw = d.object(forKey: Key.noButtonMoveModifierFlags) as? UInt {
+        if let raw = d.object(forKey: Key.noDragMoveModifierFlags) as? UInt {
             // Flags-only feature — strip any stray Hyper bit (the UI can't set
             // it, but a hand-edited default could) so it can't masquerade as a
             // non-empty combination with no event flags.
-            engine.noButtonMoveModifiers = ModifierCombination(rawValue: raw).subtracting(.hyper)
+            engine.noDragMoveModifiers = ModifierCombination(rawValue: raw).subtracting(.hyper)
         } else {
-            engine.noButtonMoveModifiers = []
+            engine.noDragMoveModifiers = []
         }
     }
 }
