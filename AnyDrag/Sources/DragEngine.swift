@@ -1210,8 +1210,10 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        // Don't start a middle gesture while a left drag is in flight.
-        if strategy.isActive {
+        // Don't start a middle gesture while a left drag is in flight. The
+        // left-drag move now lives in `dragMode`; `strategy` covers only the
+        // middle-drag-window gesture — so check both.
+        if strategy.isActive || dragMode.isActive {
             return Unmanaged.passUnretained(event)
         }
 
