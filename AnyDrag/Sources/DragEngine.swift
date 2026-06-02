@@ -211,6 +211,7 @@ final class DragEngine {
     /// pattern as `modifiers` (a UInt-backed value; arm64 word reads are atomic).
     var noDragMoveModifiers: ModifierCombination = [] {
         didSet {
+            noDragMode.modifiers = noDragMoveModifiers
             guard oldValue != noDragMoveModifiers else { return }
             // Re-evaluate gating from scratch: drop any stale "held" assumption
             // and disable the mouseMoved tap until the (possibly new) modifier is
@@ -248,8 +249,8 @@ final class DragEngine {
         get { strategy.titleBarYOffset }
         set {
             strategy.titleBarYOffset = newValue
-            noDragStrategy.titleBarYOffset = newValue
             dragMode.strategy.titleBarYOffset = newValue
+            noDragMode.strategy.titleBarYOffset = newValue
         }
     }
 
@@ -270,8 +271,8 @@ final class DragEngine {
         set {
             strategy.showDebugDot = newValue
             resizeStrategy.showDebugDot = newValue
-            noDragStrategy.showDebugDot = newValue
             dragMode.strategy.showDebugDot = newValue
+            noDragMode.strategy.showDebugDot = newValue
         }
     }
 
@@ -305,10 +306,6 @@ final class DragEngine {
     /// could read a freshly-installed new tap and disable it. Instead,
     /// any tap manipulation the callback wants to do is dispatched to
     /// main, which reads the current `tap` under the lock.
-
-    /// Lifecycle of the experimental no-drag move gesture:
-    /// idle → armed (first qualifying move, click deferred) → dragging.
-    private enum NoDragPhase { case idle, armed, dragging }
 
     private struct CallbackState {
         var trusted: Bool = true
@@ -352,25 +349,6 @@ final class DragEngine {
         // no-window-under-cursor). Shared bucket; 1s window keeps the log
         // readable when a user clicks rapidly.
         var lastDiagMissAt: CFAbsoluteTime = 0
-        // Experimental no-drag move (modifier + mouse-move, no button).
-        // Written by the tap thread (mouseMoved/flagsChanged) and by main
-        // (stop()), so guarded here with the rest of the shared state.
-        var noDragPhase: NoDragPhase = .idle
-        var noDragTarget: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? = nil
-        var noDragLastCursor: CGPoint = .zero
-        // Title-bar Y offset captured at arm time, so the engine can post the
-        // closing leftMouseUp at the right point without touching strategy state.
-        var noDragYOffset: CGFloat = 0
-        // "Buttons inert" model: while a no-drag move is ENGAGED, real mouse
-        // buttons don't interrupt it — the window keeps following. These two track
-        // the one tricky case: a real LEFT button physically held during the move.
-        // We must never HID-inject the closing leftMouseUp while the physical
-        // button is down (that swallows the user's real release and wedges the
-        // window-server's button down). So if the modifier is released while the
-        // left button is still down, we defer the end (pendingEnd) and let the
-        // real leftUp itself, rewritten, close the drag.
-        var noDragRealLeftDown: Bool = false
-        var noDragPendingEnd: Bool = false
     }
     private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
 
@@ -392,12 +370,12 @@ final class DragEngine {
     /// Legacy title-bar-drag strategy — now used only by the middle-button
     /// drag-move (the left-drag move moved to `dragMode`).
     private let strategy = TitleBarDragStrategy()
-    /// Separate title-bar-drag strategy instance for the no-drag move, so its
-    /// state can never collide with the left/middle-drag `strategy`.
-    private let noDragStrategy = TitleBarDragStrategy()
     private let resizeStrategy = ResizeStrategy()
     /// Modifier + left-drag move, extracted into its own mode (issue #13 refactor).
     let dragMode = DragMoveMode()
+    /// Dedicated modifier + mouse-move (no button) move, extracted into its own
+    /// mode. The engine still owns the gating of the mouseMoved tap.
+    let noDragMode = NoDragMoveMode()
     private var savedFrames: [CGWindowID: CGRect] = [:]
     private var tilingPanel: TilingPanel?
     private lazy var tileOverlay = TileOverlay()
@@ -628,7 +606,7 @@ final class DragEngine {
         abortTileGesture()
         // End any in-flight no-drag move so the window server doesn't keep a
         // dangling drag after teardown.
-        finishNoDragGesture()
+        noDragMode.abort(context: self)
         cbState.withLock { state in
             state.rightTarget = nil
             state.rightOrigin = nil
@@ -872,7 +850,7 @@ final class DragEngine {
             abortTileGesture()
             // Same for an in-flight no-drag move: the tap missed events while
             // disabled, so drop the gesture (post the up if it was engaged).
-            finishNoDragGesture()
+            noDragMode.abort(context: self)
             // Same reasoning for the right-button resize gesture: a missed
             // rightUp would leave `resizeStrategy.isActive` stuck true,
             // intercepting the next right-click. Drop it so the next gesture
@@ -918,26 +896,10 @@ final class DragEngine {
     // MARK: - Mouse Down
 
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Read the phase AND record the physical-button-down atomically — a
-        // separate read-then-write could write `realLeftDown` into a state that a
-        // concurrent stop()/tap-disabled cleanup just reset to idle, wedging a
-        // future drag.
-        let nbPhase = cbState.withLock { st -> NoDragPhase in
-            if st.noDragPhase == .dragging { st.noDragRealLeftDown = true }
-            return st.noDragPhase
-        }
-        if nbPhase == .dragging {
-            // "Buttons inert" — the move is engaged (window-server is in our synth
-            // title-bar drag). Don't end it and don't let this real down reach the
-            // window server (a 2nd down would corrupt the drag). The window keeps
-            // following via the leftMouseDragged events that follow
-            // (handleMouseDragged); the move ends only when the modifier is released.
-            return nil
-        }
-        if nbPhase == .armed {
-            // Armed but not engaged — no synth drag exists yet; reset and let the
-            // real click proceed normally.
-            finishNoDragGesture()
+        // No-drag move first: while engaged it absorbs the real left button (inert,
+        // window keeps following); while armed it resets and lets the click proceed.
+        if case .handled(let result) = noDragMode.handle(event, type: .leftMouseDown, context: self) {
+            return result
         }
 
         // If tiling panel is visible, don't intercept — let clicks reach the panel
@@ -1001,9 +963,10 @@ final class DragEngine {
         // "Buttons inert": while a no-drag move is engaged, a physical left drag
         // KEEPS the window following — drive the synth title-bar drag with this
         // event (rewritten to the title-bar offset) instead of doing a normal drag.
-        if cbState.withLock({ $0.noDragPhase == .dragging }) {
-            cbState.withLock { $0.noDragLastCursor = event.location }
-            return noDragStrategy.handleMouseDragged(event: event)
+        // No-drag move: while engaged, a physical left drag keeps the window
+        // following (drives the same synth title-bar drag).
+        if case .handled(let result) = noDragMode.handle(event, type: .leftMouseDragged, context: self) {
+            return result
         }
         // Modifier + left-drag move (extracted).
         if case .handled(let result) = dragMode.handle(event, type: .leftMouseDragged, context: self) {
@@ -1015,41 +978,16 @@ final class DragEngine {
     // MARK: - Mouse Up
 
     private func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Our own synthetic leftMouseUp (posted by finishNoDragGesture to end
-        // a no-drag drag) re-enters here — let it flow straight through so it
-        // can't be mistaken for the end of a real/other gesture.
+        // Our own synthetic leftMouseUp (posted to end a no-drag drag) re-enters
+        // here — let it flow straight through so it can't be mistaken for the end
+        // of a real/other gesture.
         if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
             return Unmanaged.passUnretained(event)
         }
-        // "Buttons inert": a real left release during an engaged no-drag move.
-        // Decide and mutate atomically (one lock) so a concurrent cleanup can't
-        // interleave between the read and the state change.
-        enum NoDragUp { case notEngaged, swallow, rewriteEnd }
-        let nbUp: NoDragUp = cbState.withLock { st in
-            guard st.noDragPhase == .dragging else { return .notEngaged }
-            st.noDragRealLeftDown = false
-            guard st.noDragPendingEnd else { return .swallow }
-            // The modifier was already released while this button was held, so
-            // THIS release ends the move (rewritten below).
-            st.noDragPhase = .idle
-            st.noDragTarget = nil
-            st.noDragYOffset = 0
-            st.noDragLastCursor = .zero
-            st.noDragPendingEnd = false
-            return .rewriteEnd
-        }
-        switch nbUp {
-        case .rewriteEnd:
-            // Rewrite this real up into the synth drag's closing leftMouseUp
-            // (coordinate-correct → no jump; not HID-injected → nothing swallowed).
-            Self.log.info("no-drag move end (via real leftUp, rewritten)")
-            return noDragStrategy.handleMouseUp(event: event)
-        case .swallow:
-            // Modifier still held — keep the move alive; the button was inert.
-            // mouseMoved will resume driving the follow.
-            return nil
-        case .notEngaged:
-            break
+        // No-drag move: a real left release during an engaged move (swallow, or
+        // rewrite into the closing up when the end was deferred).
+        if case .handled(let result) = noDragMode.handle(event, type: .leftMouseUp, context: self) {
+            return result
         }
         // Modifier + left-drag move (extracted).
         if case .handled(let result) = dragMode.handle(event, type: .leftMouseUp, context: self) {
@@ -1068,135 +1006,28 @@ final class DragEngine {
     // moves to leftMouseDragged, and post a synthetic leftMouseUp when the
     // dedicated modifier is released.
 
-    /// Exact-match against the dedicated modifier (flags only — no Hyper, no
-    /// Option augmentation). Empty target never matches.
-    private func matchesNoDragModifier(_ flags: CGEventFlags) -> Bool {
-        let targetFlags = noDragMoveModifiers.eventFlags
-        // Empty target (nothing configured) OR a flag-less combination (e.g. a
-        // stray Hyper-only value from hand-edited defaults) must never match —
-        // otherwise plain pointer movement would trigger the gesture.
-        guard !targetFlags.isEmpty else { return false }
-        let active = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
-        return active == targetFlags
-    }
-
     private func handleMouseMoved(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Cheapest possible bail when the feature is off — no lock on idle moves.
-        // A gesture can only be live if the modifier was non-empty when it armed,
-        // and clearing the modifier requires releasing it (flagsChanged finishes the
-        // gesture); button-down/stop/tap-disabled also finish. So no in-flight
-        // gesture can survive here in practice.
-        if noDragMoveModifiers.isEmpty {
-            return Unmanaged.passUnretained(event)
+        // The dedicated mouseMoved tap is enabled only while the no-drag modifier
+        // is held (see handleFlagsChanged gating), so this only fires during a
+        // no-drag move. Offer it to the mode.
+        if case .handled(let result) = noDragMode.handle(event, type: .mouseMoved, context: self) {
+            return result
         }
-
-        let phase = cbState.withLock { $0.noDragPhase }
-
-        if phase == .idle {
-            guard matchesNoDragModifier(event.flags) else {
-                return Unmanaged.passUnretained(event)
-            }
-            // Never start while another gesture owns the mouse.
-            if strategy.isActive || resizeStrategy.isActive {
-                return Unmanaged.passUnretained(event)
-            }
-            let hasTile = cbState.withLock { $0.tileTarget != nil }
-            if hasTile { return Unmanaged.passUnretained(event) }
-
-            let screenPoint = event.location
-            if Self.isOnPrimaryMenuBar(screenPoint) {
-                return Unmanaged.passUnretained(event)
-            }
-            guard let windowInfo = windowInfoUnderCursor(at: screenPoint) else {
-                return Unmanaged.passUnretained(event)
-            }
-            guard axGuardOrAbort("noDrag.arm") else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            // yOffset must match what noDragStrategy computes internally
-            // (windowFrame.top + titleBarYOffset − cursorAtArm.y) so the posted
-            // mouseUp lands consistently.
-            let windowTop = windowInfo.frame.origin.y
-            let yOffset = windowTop + noDragStrategy.titleBarYOffset - screenPoint.y
-            cbState.withLock { state in
-                state.noDragTarget = windowInfo
-                state.noDragPhase = .armed
-                state.noDragLastCursor = screenPoint
-                state.noDragYOffset = yOffset
-                // Defense-in-depth: start every gesture with these clear, so a
-                // value stranded by any earlier path can't wedge this one.
-                state.noDragRealLeftDown = false
-                state.noDragPendingEnd = false
-            }
-            noDragStrategy.reset()
-            Self.log.info("no-drag move arm: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
-            // Suppress this move; activates/raises the window and arms the
-            // deferred leftMouseDown (sent on the next move).
-            return noDragStrategy.handleMouseDown(
-                pid: windowInfo.pid,
-                windowID: windowInfo.windowID,
-                windowFrame: windowInfo.frame,
-                event: event,
-                rewriteToLeftButton: true
-            )
-        }
-
-        // phase == .armed or .dragging — must still hold the modifier.
-        guard matchesNoDragModifier(event.flags) else {
-            finishNoDragGesture()
-            return Unmanaged.passUnretained(event)
-        }
-        cbState.withLock { state in
-            state.noDragLastCursor = event.location
-            if state.noDragPhase == .armed { state.noDragPhase = .dragging }
-        }
-        // First call after arming sends the leftMouseDown (engage); subsequent
-        // calls become leftMouseDragged.
-        return noDragStrategy.handleMouseDragged(event: event)
+        return Unmanaged.passUnretained(event)
     }
 
     private func handleFlagsChanged(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Decide and mutate atomically (one lock). matchesNoDragModifier only
-        // reads the lock-free modifier property + event flags, so it's safe here.
-        let stillHeld = matchesNoDragModifier(event.flags)
-        enum FlagsAction { case ignore, deferEnd, finishNow }
-        // One lock: update the modifier-held edge (which gates the dedicated
-        // mouseMoved tap) AND decide the gesture action.
-        let result: (heldEdge: Bool, action: FlagsAction) = cbState.withLock { st in
-            let heldEdge = (st.noDragModifierHeld != stillHeld)
-            if heldEdge { st.noDragModifierHeld = stillHeld }
-
-            guard st.noDragPhase != .idle else { return (heldEdge, .ignore) }
-            if stillHeld {
-                // Modifier (re)pressed while active — cancel any pending end.
-                st.noDragPendingEnd = false
-                return (heldEdge, .ignore)
-            }
-            // Modifier released.
-            if st.noDragRealLeftDown {
-                // A physical left button is still down — we must NOT HID-inject the
-                // closing up now (it would be swallowed and wedge the button).
-                // Defer: the window keeps following via leftMouseDragged, and the
-                // real leftUp will end the move (rewritten) in handleMouseUp.
-                st.noDragPendingEnd = true
-                return (heldEdge, .deferEnd)
-            }
-            return (heldEdge, .finishNow)
+        // Engine concern: gate the dedicated mouseMoved tap on the no-drag modifier
+        // being held — toggle only on the held edge. The gesture's own end/defer
+        // logic lives in NoDragMoveMode (offered below).
+        let stillHeld = noDragMode.matches(event.flags)
+        let heldEdge = cbState.withLock { st -> Bool in
+            guard st.noDragModifierHeld != stillHeld else { return false }
+            st.noDragModifierHeld = stillHeld
+            return true
         }
-        // Strict gating: only receive the high-frequency mouseMoved while the
-        // dedicated modifier is actually held. Toggle only on the held edge.
-        if result.heldEdge {
-            setMouseMovedTapEnabled(stillHeld)
-        }
-        switch result.action {
-        case .deferEnd:
-            Self.log.info("no-drag: modifier released while left held — deferring end")
-        case .finishNow:
-            finishNoDragGesture()
-        case .ignore:
-            break
-        }
+        if heldEdge { setMouseMovedTapEnabled(stillHeld) }
+        _ = noDragMode.handle(event, type: .flagsChanged, context: self)
         return Unmanaged.passUnretained(event)
     }
 
@@ -1215,63 +1046,6 @@ final class DragEngine {
         }
     }
 
-    /// End an in-flight no-drag gesture: reset the strategy and, if a drag was
-    /// actually engaged, post a synthetic leftMouseUp to close the native drag.
-    /// Safe from the tap thread (mouseMoved/flagsChanged/button-down) and from
-    /// main (stop()).
-    private func finishNoDragGesture() {
-        let snapshot: (engaged: Bool, yOffset: CGFloat, lastCursor: CGPoint, realLeftDown: Bool)? = cbState.withLock { state in
-            guard state.noDragPhase != .idle else { return nil }
-            let engaged = (state.noDragPhase == .dragging)
-            let yOff = state.noDragYOffset
-            let last = state.noDragLastCursor
-            let realDown = state.noDragRealLeftDown
-            state.noDragPhase = .idle
-            state.noDragTarget = nil
-            state.noDragYOffset = 0
-            state.noDragLastCursor = .zero
-            state.noDragRealLeftDown = false
-            state.noDragPendingEnd = false
-            return (engaged, yOff, last, realDown)
-        }
-        guard let snap = snapshot else { return }
-        noDragStrategy.reset()
-        Self.log.info("no-drag move end (engaged=\(snap.engaged))")
-        guard snap.engaged else { return }
-        // If a physical left button is still down (only reachable via stop() /
-        // tap-disabled cleanup mid-hold — the modifier-release paths defer instead),
-        // do NOT HID-inject the closing up: it would be swallowed and wedge the
-        // window-server button. Leave the drag for the real release to end.
-        guard !snap.realLeftDown else {
-            Self.log.info("no-drag finish: skipping HID up (physical left button down)")
-            return
-        }
-
-        let upPoint = CGPoint(x: snap.lastCursor.x, y: snap.lastCursor.y + snap.yOffset)
-        let marker = Self.synthesizedEventMarker
-        let mods = noDragMoveModifiers
-        // Post off the tap thread — posting inside the callback can re-enter our
-        // own tap synchronously (same reasoning as replayMiddleClick).
-        DispatchQueue.main.async {
-            if let source = CGEventSource(stateID: .hidSystemState) {
-                source.userData = marker
-                if let up = CGEvent(
-                    mouseEventSource: source,
-                    mouseType: .leftMouseUp,
-                    mouseCursorPosition: upPoint,
-                    mouseButton: .left
-                ) {
-                    up.post(tap: .cghidEventTap)
-                } else {
-                    Self.log.warn("no-drag finish: failed to create leftMouseUp")
-                }
-            } else {
-                Self.log.warn("no-drag finish: CGEventSource creation failed")
-            }
-            Analytics.trackDrag(trigger: .modifier, modifier: mods)
-        }
-    }
-
     // MARK: - Right Button (resize-from-anywhere or open TilingPanel)
     //
     // A modifier+right-click WITHOUT a drag opens the TilingPanel (the
@@ -1284,11 +1058,10 @@ final class DragEngine {
     // without an intervening drag (panel).
 
     private func handleRightMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        let nbPhase = cbState.withLock { $0.noDragPhase }
-        // Buttons inert while a no-drag move is engaged: swallow right-clicks so
-        // they neither end the move nor open a panel. Ends only on modifier release.
-        if nbPhase == .dragging { return nil }
-        if nbPhase == .armed { finishNoDragGesture() }
+        // No-drag move: inert (swallow) while engaged; reset while armed.
+        if case .handled(let result) = noDragMode.handle(event, type: .rightMouseDown, context: self) {
+            return result
+        }
 
         // If tiling panel is visible, suppress right-click (avoid system context menu)
         if tilingPanel?.isVisible == true {
@@ -1356,7 +1129,9 @@ final class DragEngine {
 
     private func handleRightMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
         // Inert during an engaged no-drag move.
-        if cbState.withLock({ $0.noDragPhase == .dragging }) { return nil }
+        if case .handled(let result) = noDragMode.handle(event, type: .rightMouseDragged, context: self) {
+            return result
+        }
         guard resizeStrategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -1365,7 +1140,9 @@ final class DragEngine {
 
     private func handleRightMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
         // Inert during an engaged no-drag move (see handleRightMouseDown).
-        if cbState.withLock({ $0.noDragPhase == .dragging }) { return nil }
+        if case .handled(let result) = noDragMode.handle(event, type: .rightMouseUp, context: self) {
+            return result
+        }
         guard resizeStrategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -1409,18 +1186,14 @@ final class DragEngine {
     // MARK: - Middle Button (drag or tile-by-direction)
 
     private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        let nbPhase = cbState.withLock { $0.noDragPhase }
-        let isMiddle = event.getIntegerValueField(.mouseEventButtonNumber) == 2
-        // Buttons inert while a no-drag move is engaged: swallow the middle
-        // button so it doesn't end the move or start a tile/drag gesture.
-        if nbPhase == .dragging {
-            if isMiddle { return nil }
-        } else if nbPhase == .armed {
-            finishNoDragGesture()
+        // No-drag move: inert (swallow) the MIDDLE button while engaged; reset
+        // while armed. Side buttons pass through.
+        if case .handled(let result) = noDragMode.handle(event, type: .otherMouseDown, context: self) {
+            return result
         }
 
         // Only the middle button (button 2) — leave side buttons (3, 4) alone.
-        guard isMiddle else {
+        guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
             return Unmanaged.passUnretained(event)
         }
 
@@ -1506,7 +1279,9 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
         // Inert during an engaged no-drag move.
-        if cbState.withLock({ $0.noDragPhase == .dragging }) { return nil }
+        if case .handled(let result) = noDragMode.handle(event, type: .otherMouseDragged, context: self) {
+            return result
+        }
 
         // If a tile gesture is in flight, dispatch the cursor position to
         // main so the bento panel can resolve (cursor → display + zone)
@@ -1553,7 +1328,9 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
         // Inert during an engaged no-drag move (see handleOtherMouseDown).
-        if cbState.withLock({ $0.noDragPhase == .dragging }) { return nil }
+        if case .handled(let result) = noDragMode.handle(event, type: .otherMouseUp, context: self) {
+            return result
+        }
 
         if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
             return Unmanaged.passUnretained(event)
@@ -2174,6 +1951,11 @@ extension DragEngine: MoveContext {
     }
 
     var isHyperHeld: Bool { hyperCapslockSource.isHeld }
+
+    var isAnotherGestureActive: Bool {
+        if dragMode.isActive || strategy.isActive || resizeStrategy.isActive { return true }
+        return cbState.withLock { $0.tileTarget != nil }
+    }
 
     func postSyntheticLeftUp(at point: CGPoint) {
         let marker = Self.synthesizedEventMarker

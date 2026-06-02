@@ -24,6 +24,9 @@ protocol MoveContext: AnyObject {
     /// True when the virtual "Hyper" modifier (CapsLock via HyperCapslock) is
     /// currently held — needed by the drag matcher, since Hyper carries no event flag.
     var isHyperHeld: Bool { get }
+    /// True when some OTHER gesture (left-drag, middle-drag, resize, tile) owns the
+    /// mouse — the no-drag move refuses to arm while one is in flight.
+    var isAnotherGestureActive: Bool { get }
     /// Drop any stranded tile/resize gesture state before a fresh move begins
     /// (defensive: a lost otherMouseUp/rightUp could otherwise commit later).
     func clearStrandedGesturesForMoveStart()
