@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>无键移动窗口 · 实现方案与对比报告</title>
+<style>
+  :root {
+    --bg: #faf9f5;
+    --surface: #ffffff;
+    --ink: #1f1e1c;
+    --ink-soft: #5a5751;
+    --ink-faint: #8a857c;
+    --rule: #e6e2d4;
+    --rule-soft: #efece1;
+    --code-bg: #f3f0e6;
+    --accent: #d97757;
+    --accent-soft: #f4e2d6;
+    --good: #4f8a5c;
+    --warn: #b6711c;
+    --bad: #b14338;
+    --serif: "Tiempos", "Source Serif Pro", "Songti SC", "Iowan Old Style", Georgia, serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 80px 40px 120px;
+  }
+
+  header.hero { margin-bottom: 56px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 46px;
+    line-height: 1.15;
+    margin: 0 0 20px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .lede {
+    font-family: var(--serif);
+    font-size: 22px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 680px;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 29px;
+    line-height: 1.25;
+    margin: 64px 0 16px;
+    letter-spacing: -0.005em;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 17px;
+    margin: 36px 0 10px;
+  }
+  p { margin: 0 0 16px; }
+  p, li { color: var(--ink); }
+  strong { font-weight: 600; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  a:hover { border-bottom-color: var(--accent); }
+
+  ul, ol { padding-left: 24px; margin: 0 0 16px; }
+  li { margin-bottom: 8px; }
+  li code { font-size: 0.92em; }
+
+  code {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: #1f1e1c;
+    color: #f6f3eb;
+    padding: 20px 24px;
+    border-radius: 8px;
+    overflow-x: auto;
+    line-height: 1.6;
+    font-size: 13px;
+    margin: 20px 0 28px;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+  .tok-comment  { color: #9b9081; font-style: italic; }
+  .tok-keyword  { color: #e89b6f; }
+  .tok-fn       { color: #f0d68a; }
+  .tok-string   { color: #b8d49d; }
+  .tok-num      { color: #d8b9e3; }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 30px;
+    margin: 32px 0 48px;
+    padding: 18px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .meta-row b { color: var(--ink); font-weight: 600; margin-right: 8px; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 18px 22px;
+    margin: 28px 0;
+    border-radius: 0 6px 6px 0;
+    color: var(--ink);
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: block;
+  }
+
+  .figure {
+    margin: 36px 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 28px 24px 18px;
+  }
+  .figure svg { display: block; width: 100%; height: auto; }
+  .figure .caption {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--rule);
+    line-height: 1.6;
+  }
+  .figure .caption b { color: var(--ink-soft); font-weight: 600; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 24px 0 32px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: var(--rule-soft);
+    font-size: 13px;
+  }
+  td code { font-size: 0.86em; }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .pill.good    { background: #e3f0e2; color: var(--good); }
+  .pill.warn    { background: #f5e7d0; color: var(--warn); }
+  .pill.bad     { background: #f5dad6; color: var(--bad); }
+  .pill.neutral { background: var(--rule-soft); color: var(--ink-soft); }
+
+  .footer {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  svg text { font-family: var(--sans); font-size: 12.5px; fill: var(--ink); }
+  svg .label-mono  { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-soft); }
+  svg .label-soft  { fill: var(--ink-soft); }
+  svg .label-faint { fill: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ╔══ HERO ══════════════════════════════════════════════════════════╗ -->
+<header class="hero">
+  <div class="eyebrow">工程实现报告 · AnyDrag · 2026-06-02</div>
+  <h1>按住修饰键移动鼠标即可移动窗口</h1>
+  <p class="lede">一份关于「无键移动窗口」实现方案的完整拆解,并与既有的「修饰键 + 左键拖拽」实现逐项对比——它们共用同一套窗口服务器原生拖拽引擎,真正的差异只在「那只被按住的左键从哪来」。</p>
+</header>
+
+<div class="meta-row">
+  <span><b>核心文件</b><code>DragEngine.swift · DragStrategy.swift</code></span>
+  <span><b>提交</b><code>369b3ec</code></span>
+  <span><b>分支</b><code>worktree-nobutton-move-prototype</code></span>
+  <span><b>状态</b><span class="pill warn">原型已验证</span></span>
+</div>
+
+<!-- ╔══ §1 ════════════════════════════════════════════════════════════╗ -->
+<h2>1 · 背景:两个特性,同一条铁律</h2>
+
+<p>AnyDrag 的全部价值,建立在一条铁律上:<strong>绝不使用 Accessibility(AX)逐帧设置窗口位置</strong>。AX 每帧 5–10ms 的 IPC 延迟正是这个项目存在的理由。两个「移动窗口」特性都必须绕开它。</p>
+
+<p>它们采用同一个技巧:不去「移动」窗口,而是<strong>改写鼠标事件的坐标,骗过窗口服务器(WindowServer),让它以为用户正在拖拽标题栏</strong>。于是窗口由窗口服务器在合成器层面原生移动,每帧零 IPC,顺滑程度与手动拖标题栏完全一致。</p>
+
+<ul>
+  <li><strong>实现一(既有)</strong>:修饰键 + 按住左键拖拽 → 移动窗口。用户的真实左键提供了「被按住」的状态。</li>
+  <li><strong>实现二(本次原型)</strong>:修饰键 + 移动鼠标(<em>不按任何键</em>)→ 移动窗口。没有真实按键,AnyDrag 必须把整只左键<strong>完全合成</strong>出来。</li>
+</ul>
+
+<div class="callout">
+<span class="label">一句话总结</span>
+<p>两套实现共用同一个坐标改写引擎(<code>TitleBarDragStrategy</code>)。实现一里,那只「按住的左键」是用户真按下的;实现二里,它是 AnyDrag 凭空合成、再凭空收尾的。几乎所有差异都从这一点派生出来。</p>
+</div>
+
+<!-- ╔══ §2 ════════════════════════════════════════════════════════════╗ -->
+<h2>2 · 共享的底层:伪造一次标题栏拖拽</h2>
+
+<p>两套实现最终都汇入 <code>TitleBarDragStrategy</code>。它的工作分四步,关键在于<strong>把首个事件「延后一拍」转成落在标题栏上的合成 <code>leftMouseDown</code></strong>,之后所有事件只做一个固定的 Y 轴偏移。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 250" xmlns="http://www.w3.org/2000/svg" aria-label="共享的标题栏拖拽时间线">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+
+  <text x="0" y="20" font-weight="600" fill="#1f1e1c">TitleBarDragStrategy · 一次合成拖拽的生命周期</text>
+
+  <line x1="40" y1="92" x2="760" y2="92" stroke="#e6e2d4" stroke-width="1.5"/>
+
+  <!-- step 1 -->
+  <circle cx="90" cy="92" r="6" fill="#d97757"/>
+  <text x="90" y="74" text-anchor="middle" class="label-mono" fill="#d97757">① 起始事件</text>
+  <text x="90" y="116" text-anchor="middle" class="label-soft" font-size="11">吞掉 / 激活并抬升窗口</text>
+  <text x="90" y="132" text-anchor="middle" class="label-faint" font-size="10.5">返回 nil(suppress)</text>
+
+  <!-- defer gap -->
+  <rect x="96" y="84" width="150" height="16" rx="3" fill="#efece1" stroke="#9b9081" stroke-dasharray="3 3"/>
+  <text x="171" y="96" text-anchor="middle" font-size="10.5" fill="#9b9081" font-style="italic">~8ms 让窗口完成重排</text>
+
+  <!-- step 2 -->
+  <circle cx="300" cy="92" r="6" fill="#4f8a5c"/>
+  <text x="300" y="74" text-anchor="middle" class="label-mono" fill="#4f8a5c">② 第一个后续事件</text>
+  <text x="300" y="116" text-anchor="middle" class="label-soft" font-size="11">转成 leftMouseDown</text>
+  <text x="300" y="132" text-anchor="middle" class="label-faint" font-size="10.5">落点 = 标题栏 (top + 3px)</text>
+
+  <!-- step 3 -->
+  <circle cx="520" cy="92" r="5" fill="#1f1e1c"/>
+  <circle cx="600" cy="92" r="5" fill="#1f1e1c"/>
+  <text x="560" y="74" text-anchor="middle" class="label-mono">③ 后续事件 × N</text>
+  <text x="560" y="116" text-anchor="middle" class="label-soft" font-size="11">leftMouseDragged</text>
+  <text x="560" y="132" text-anchor="middle" class="label-faint" font-size="10.5">location.y += yOffset(X 不变)</text>
+
+  <!-- step 4 -->
+  <circle cx="720" cy="92" r="6" fill="#d97757"/>
+  <text x="720" y="74" text-anchor="middle" class="label-mono" fill="#d97757">④ 收尾</text>
+  <text x="720" y="116" text-anchor="middle" class="label-soft" font-size="11">leftMouseUp(同偏移)</text>
+
+  <line x1="96" y1="92" x2="294" y2="92" stroke="#5a5751" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+
+  <g transform="translate(40, 196)">
+    <rect x="0" y="0" width="720" height="40" rx="6" fill="#e3f0e2"/>
+    <text x="16" y="18" font-size="12.5" fill="#4f8a5c" font-weight="600">窗口服务器认定这是一次原生标题栏拖拽 → 在合成器层移动窗口,每帧零 IPC。</text>
+    <text x="16" y="33" font-size="11.5" fill="#4f8a5c">yOffset = (windowTop + titleBarYOffset) − cursorY,恒定;X 轴 1:1,所以窗口严丝合缝跟随光标。</text>
+  </g>
+</svg>
+<div class="caption"><b>图 1.</b> 这套四步流程是两个特性<b>共用</b>的引擎。它们的区别只在于「起始事件」「后续事件」「收尾事件」分别是<b>什么类型</b>、以及由谁产生。</div>
+</div>
+
+<p>坐标改写的核心只有几行——把任意来源的事件,改写成窗口服务器眼中合法的标题栏拖拽:</p>
+
+<pre><code><span class="tok-comment">// TitleBarDragStrategy.handleMouseDragged —— 两套实现都走这里</span>
+<span class="tok-keyword">if</span> needsInitialMouseDown {              <span class="tok-comment">// 第一个后续事件 = 合成按下</span>
+    needsInitialMouseDown = <span class="tok-keyword">false</span>
+    event.type = .leftMouseDown
+    event.location = dragPoint            <span class="tok-comment">// 标题栏锚点</span>
+    <span class="tok-keyword">return</span> Unmanaged.passUnretained(event)
+}
+event.type = .leftMouseDragged
+<span class="tok-keyword">let</span> pos = event.location
+event.location = CGPoint(x: pos.x, y: pos.y + yOffset)   <span class="tok-comment">// 仅平移 Y</span>
+<span class="tok-keyword">return</span> Unmanaged.passUnretained(event)</code></pre>
+
+<p>两者还共享一组细节:都剥掉 <code>Control</code> 标志位(否则 <code>Control+leftMouseDown</code> 会被 AppKit 当成右键);都先做修饰键匹配、光标下找窗口、放行主屏菜单栏、AX 授权守卫;都把首个事件 <code>suppress</code> 掉以便先激活并抬升目标窗口。</p>
+
+<!-- ╔══ §3 ════════════════════════════════════════════════════════════╗ -->
+<h2>3 · 实现一:修饰键 + 左键拖拽</h2>
+
+<p>这是 AnyDrag 的原始能力。触发器是<strong>按住主修饰键时的 <code>leftMouseDown</code></strong>(<code>matchesConfiguredModifier</code>,还额外允许叠加 Option,以兼容 macOS 自带的「按住 Option 拖拽分屏」)。</p>
+
+<p>关键点:<strong>整个手势的「按键按住」状态由用户的真实左键提供</strong>。窗口服务器需要一只「按下的左键」才会持续移动窗口——这里它本来就有。AnyDrag 只负责改写坐标:</p>
+
+<ul>
+  <li><code>leftMouseDown</code>(真) → 吞掉,激活/抬升窗口,<code>needsInitialMouseDown = true</code>。</li>
+  <li><code>leftMouseDragged</code>(真)→ 第一个转成标题栏 <code>leftMouseDown</code>,其余做 Y 偏移。</li>
+  <li><code>leftMouseUp</code>(真)→ 同偏移收尾,手势自然结束。</li>
+</ul>
+
+<p>手势的「开始」和「结束」边界天然由真实按键的按下 / 抬起划定,无需额外侦测。双击则触发最大化/还原;中键是同一引擎的变体(把 <code>otherMouse*</code> 用 <code>rewriteToLeftButton</code> 改写成 <code>left*</code>)。</p>
+
+<!-- ╔══ §4 ════════════════════════════════════════════════════════════╗ -->
+<h2>4 · 实现二:修饰键 + 移动鼠标(无键移动)</h2>
+
+<p>新原型要在<strong>没有任何真实按键</strong>的情况下,做出同样的原生标题栏拖拽。窗口服务器仍然只在「有按键按住」时移动窗口——所以 AnyDrag 必须把这只左键<strong>从头合成到尾</strong>:开头用「改写事件」按下它,结尾用「投递事件」松开它。</p>
+
+<h3>新增监听与触发器</h3>
+<p>事件 tap 在原有的九种按键事件之外,新增监听 <code>.mouseMoved</code> 与 <code>.flagsChanged</code>。触发器是<strong>专用修饰键</strong>(<code>matchesNoButtonModifier</code>,精确匹配、不做 Option 叠加、不含 Hyper),与主修饰键完全分开;<code>空 = 关闭</code>,默认关,所以不开启时零影响。</p>
+
+<h3>四个阶段:idle → armed → dragging → 收尾</h3>
+
+<div class="figure">
+<svg viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg" aria-label="无键移动状态机">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+
+  <text x="0" y="20" font-weight="600" fill="#1f1e1c">noButtonPhase 状态机</text>
+
+  <!-- states -->
+  <g>
+    <rect x="30" y="70" width="120" height="54" rx="8" fill="#f3f0e6" stroke="#9b9081"/>
+    <text x="90" y="94" text-anchor="middle" font-weight="600">idle</text>
+    <text x="90" y="111" text-anchor="middle" class="label-faint" font-size="10.5">空闲</text>
+
+    <rect x="250" y="70" width="120" height="54" rx="8" fill="#f4e2d6" stroke="#d97757"/>
+    <text x="310" y="94" text-anchor="middle" font-weight="600" fill="#b6711c">armed</text>
+    <text x="310" y="111" text-anchor="middle" fill="#b6711c" font-size="10.5">已武装(吞掉首个移动)</text>
+
+    <rect x="470" y="70" width="120" height="54" rx="8" fill="#e3f0e2" stroke="#4f8a5c"/>
+    <text x="530" y="94" text-anchor="middle" font-weight="600" fill="#4f8a5c">dragging</text>
+    <text x="530" y="111" text-anchor="middle" fill="#4f8a5c" font-size="10.5">跟随中</text>
+
+    <rect x="660" y="70" width="110" height="54" rx="8" fill="#f3f0e6" stroke="#9b9081"/>
+    <text x="715" y="94" text-anchor="middle" font-weight="600">idle</text>
+    <text x="715" y="111" text-anchor="middle" class="label-faint" font-size="10.5">收尾</text>
+  </g>
+
+  <!-- transitions -->
+  <line x1="150" y1="97" x2="248" y2="97" stroke="#5a5751" marker-end="url(#arr2)"/>
+  <text x="199" y="60" text-anchor="middle" class="label-mono" font-size="10.5">合规 mouseMoved</text>
+  <text x="199" y="142" text-anchor="middle" class="label-faint" font-size="10">吞掉 + 激活窗口</text>
+
+  <line x1="370" y1="97" x2="468" y2="97" stroke="#5a5751" marker-end="url(#arr2)"/>
+  <text x="419" y="60" text-anchor="middle" class="label-mono" font-size="10.5">下一个 mouseMoved</text>
+  <text x="419" y="142" text-anchor="middle" class="label-faint" font-size="10">合成 leftMouseDown(标题栏)</text>
+
+  <line x1="590" y1="97" x2="658" y2="97" stroke="#d97757" marker-end="url(#arr2)"/>
+  <text x="624" y="60" text-anchor="middle" class="label-mono" font-size="10" fill="#d97757">松开修饰键</text>
+
+  <!-- self loop on dragging -->
+  <path d="M500 70 C500 38, 560 38, 560 70" fill="none" stroke="#4f8a5c" stroke-dasharray="3 3" marker-end="url(#arr2)"/>
+  <text x="530" y="32" text-anchor="middle" class="label-mono" font-size="10" fill="#4f8a5c">每个 mouseMoved → Y 偏移跟随</text>
+
+  <!-- end detail -->
+  <g transform="translate(30, 200)">
+    <rect x="0" y="0" width="740" height="56" rx="6" fill="#f4e2d6"/>
+    <text x="16" y="22" font-size="12.5" fill="#b6711c" font-weight="600">收尾靠 flagsChanged:松开修饰键时若光标静止,不会产生 mouseMoved——必须监听 flagsChanged 才能可靠结束。</text>
+    <text x="16" y="42" font-size="11.5" fill="#b6711c">随后投递一个带标记的合成 leftMouseUp(.cghidEventTap),落在 lastCursor + yOffset,结束窗口服务器的拖拽。</text>
+  </g>
+</svg>
+<div class="caption"><b>图 2.</b> 无键移动需要一个显式的状态机,因为它没有真实按键的「按下 / 抬起」作为天然边界。<b>armed → dragging</b> 的延后一拍,对应图 1 里「延后合成按下」那一步。</div>
+</div>
+
+<p>「武装」与「接管」的核心代码——注意首个移动只激活窗口、不立即合成按下:</p>
+
+<pre><code><span class="tok-comment">// handleMouseMoved —— idle 分支:武装</span>
+<span class="tok-keyword">guard</span> matchesNoButtonModifier(event.flags) <span class="tok-keyword">else</span> { <span class="tok-keyword">return</span> passthrough }
+<span class="tok-keyword">let</span> yOffset = windowTop + noButtonStrategy.titleBarYOffset - screenPoint.y
+state.noButtonPhase = .armed
+<span class="tok-keyword">return</span> noButtonStrategy.handleMouseDown(..., rewriteToLeftButton: <span class="tok-keyword">true</span>)  <span class="tok-comment">// 吞掉</span>
+
+<span class="tok-comment">// 下一个 mouseMoved —— armed → dragging:合成按下,之后持续跟随</span>
+<span class="tok-keyword">if</span> state.noButtonPhase == .armed { state.noButtonPhase = .dragging }
+<span class="tok-keyword">return</span> noButtonStrategy.handleMouseDragged(event: event)</code></pre>
+
+<!-- ╔══ §5 ════════════════════════════════════════════════════════════╗ -->
+<h2>5 · 逐项对比:相同与不同</h2>
+
+<p>把两套实现并排看,会发现它们的「相同」远多于「不同」——区别高度集中在「那只左键的来源与生命周期」。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 270" xmlns="http://www.w3.org/2000/svg" aria-label="两种触发的事件流对比">
+  <text x="0" y="20" font-weight="600" fill="#1f1e1c">事件流对比 · 窗口服务器最终都收到一串 left* 事件</text>
+
+  <!-- Lane A: drag -->
+  <text x="0" y="58" class="label-mono" fill="#5a5751">实现一 · 左键拖拽</text>
+  <line x1="0" y1="92" x2="800" y2="92" stroke="#efece1" stroke-width="1"/>
+  <g font-size="11">
+    <rect x="20" y="76" width="150" height="32" rx="5" fill="#f4e2d6" stroke="#d97757"/>
+    <text x="95" y="96" text-anchor="middle" fill="#b6711c" font-weight="600">leftMouseDown(真)</text>
+    <rect x="200" y="76" width="200" height="32" rx="5" fill="#e3f0e2" stroke="#4f8a5c"/>
+    <text x="300" y="96" text-anchor="middle" fill="#4f8a5c" font-weight="600">leftMouseDragged ×N(真)</text>
+    <rect x="430" y="76" width="150" height="32" rx="5" fill="#f4e2d6" stroke="#d97757"/>
+    <text x="505" y="96" text-anchor="middle" fill="#b6711c" font-weight="600">leftMouseUp(真)</text>
+    <text x="610" y="96" class="label-faint" font-size="10.5">真实左键全程按住</text>
+  </g>
+
+  <!-- Lane B: move -->
+  <text x="0" y="158" class="label-mono" fill="#5a5751">实现二 · 无键移动</text>
+  <line x1="0" y1="192" x2="800" y2="192" stroke="#efece1" stroke-width="1"/>
+  <g font-size="11">
+    <rect x="20" y="176" width="150" height="32" rx="5" fill="#eef1f4" stroke="#9b9081"/>
+    <text x="95" y="196" text-anchor="middle" fill="#5a5751" font-weight="600">mouseMoved(arm)</text>
+    <rect x="200" y="176" width="200" height="32" rx="5" fill="#eef1f4" stroke="#9b9081"/>
+    <text x="300" y="196" text-anchor="middle" fill="#5a5751" font-weight="600">mouseMoved ×N(无键)</text>
+    <rect x="430" y="176" width="160" height="32" rx="5" fill="#eef1f4" stroke="#9b9081"/>
+    <text x="510" y="196" text-anchor="middle" fill="#5a5751" font-weight="600">flagsChanged(松开)</text>
+    <text x="610" y="196" class="label-faint" font-size="10.5">无真实按键</text>
+  </g>
+
+  <!-- transform arrows down to the same WS stream -->
+  <g>
+    <text x="400" y="236" text-anchor="middle" class="label-mono" fill="#d97757">AnyDrag 改写 / 合成 ↓</text>
+    <rect x="160" y="246" width="480" height="20" rx="4" fill="#1f1e1c"/>
+    <text x="400" y="260" text-anchor="middle" font-size="11" fill="#f6f3eb" font-family="monospace">窗口服务器看到的:leftDown → leftDragged×N → leftUp</text>
+  </g>
+</svg>
+<div class="caption"><b>图 3.</b> 两条完全不同的输入事件流,经过同一个引擎改写后,在窗口服务器眼里<b>归一为同一串左键拖拽事件</b>。实现一的事件本就是 left*(只改坐标);实现二要把 mouseMoved「变身」成 left*,并自己补上收尾的 leftUp。</div>
+</div>
+
+<h3>相同之处</h3>
+<ul>
+  <li><strong>同一个坐标引擎</strong>:都用 <code>TitleBarDragStrategy</code> 的 <code>dragPoint</code> / <code>yOffset</code> / 标题栏锚点。</li>
+  <li><strong>同一个「延后一拍」</strong>:都吞掉首个事件、先激活抬升窗口,把合成 <code>leftMouseDown</code> 推迟到下一个事件,留 ~8ms 给窗口重排。</li>
+  <li><strong>同一个结果</strong>:窗口服务器原生移动,每帧零 IPC,1:1 跟随光标。</li>
+  <li><strong>同一组守卫</strong>:剥 Control 标志、修饰键匹配、光标下找窗口、放行菜单栏、AX 授权检查。</li>
+  <li><strong>都不碰 AX 逐帧定位</strong>。</li>
+</ul>
+
+<h3>不同之处</h3>
+<table>
+  <thead>
+    <tr><th>维度</th><th>实现一 · 左键拖拽</th><th>实现二 · 无键移动</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>触发器</td><td>修饰键 + <code>leftMouseDown</code></td><td>修饰键 + <code>mouseMoved</code>(无键)</td></tr>
+    <tr><td>新增监听</td><td>仅按键事件</td><td>额外 <code>.mouseMoved</code> + <code>.flagsChanged</code></td></tr>
+    <tr><td>「按住的左键」从哪来</td><td><b>用户真实左键</b></td><td><b>完全由 AnyDrag 合成</b></td></tr>
+    <tr><td>手势开始</td><td>真实 <code>leftMouseDown</code></td><td>首个合规 <code>mouseMoved</code>(armed)</td></tr>
+    <tr><td>谁在驱动拖拽</td><td>真实 <code>leftMouseDragged</code>(改坐标)</td><td>合成:<code>mouseMoved</code> 改写成 <code>leftMouseDragged</code></td></tr>
+    <tr><td>手势结束</td><td>真实 <code>leftMouseUp</code>(改坐标)</td><td>松开修饰键 → 投递合成 <code>leftMouseUp</code></td></tr>
+    <tr><td>结束边界</td><td>按键抬起,天然存在</td><td>需 <code>flagsChanged</code> 显式侦测</td></tr>
+    <tr><td>修饰键</td><td>主修饰键(可叠加 Option)</td><td>专用修饰键(精确匹配,不含 Hyper)</td></tr>
+    <tr><td>默认</td><td>开启</td><td>关闭(空修饰键即关)</td></tr>
+    <tr><td>与真实按键冲突</td><td>不存在(按键即手势本身)</td><td>需「按键无效化」协同(见 §6)</td></tr>
+    <tr><td>性能特征</td><td>仅在按键手势期间有事件流</td><td>常驻 <code>mouseMoved</code> 监听(原型阶段)</td></tr>
+  </tbody>
+</table>
+
+<!-- ╔══ §6 ════════════════════════════════════════════════════════════╗ -->
+<h2>6 · 无键移动独有的难点</h2>
+
+<p>「完全合成一只左键」带来了三个实现一根本不会遇到的问题。</p>
+
+<h3>难点 A:没有天然的结束事件</h3>
+<p>「无键」的字面意思是<strong>整个手势不按任何鼠标键</strong>:用户只按住<em>修饰键</em>并移动鼠标。所以根本<strong>没有鼠标键可松开</strong>——不存在 <code>leftMouseUp</code> 这样的天然结束信号。手势的边界由<strong>修饰键</strong>划定:按住即开始,松开即结束。</p>
+<p>而「松开修饰键」产生的是 <code>flagsChanged</code>(键盘修饰键变化),<strong>不是鼠标事件</strong>;只监听鼠标事件就永远看不到它。退一步说,即便只盯着 <code>mouseMoved</code> 也不行:用户在<strong>光标静止时</strong>松开修饰键连 <code>mouseMoved</code> 都不会产生,窗口会一直黏在光标上。所以必须监听 <code>flagsChanged</code>。对比之下,左键拖拽全程按住真实左键,松开它就是天然的 <code>leftMouseUp</code> 结束信号——这正是两者最根本的差异之一。</p>
+
+<h3>难点 B:HID 注入会「吞掉」真实的松手(本次最棘手的 Bug)</h3>
+<p>原本的收尾方式是:在 <code>.cghidEventTap</code>(HID 层)投递一个合成 <code>leftMouseUp</code>。在纯无键场景下没问题。但只要<strong>用户在移动途中真的按了一下左键</strong>,物理左键此刻是<em>按下</em>状态;此时在 HID 层注入一个 leftMouseUp,会打乱按键状态、<strong>吞掉用户随后真实的松手事件</strong>,导致窗口服务器的左键卡在「按住」——表现为:移动卡死(再次按修饰键移动无效),以及松手后窗口突然「跳到标题栏贴着光标」。</p>
+
+<p>这个根因不是猜的——是<strong>加日志、真机复现、读日志</strong>定位的:复现里那个真实的 <code>leftMouseUp</code> 在日志中<em>消失了</em>,而 <code>mouseMoved</code> 却照常出现(证明物理键已松开),坐实了「松手被吞」。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 250" xmlns="http://www.w3.org/2000/svg" aria-label="HID 注入吞掉真实松手的时间线">
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+  <text x="0" y="20" font-weight="600" fill="#1f1e1c">Bug · 修复前:移动途中按下真实左键</text>
+
+  <line x1="40" y1="96" x2="760" y2="96" stroke="#e6e2d4" stroke-width="1.5"/>
+
+  <circle cx="90" cy="96" r="6" fill="#4f8a5c"/>
+  <text x="90" y="78" text-anchor="middle" class="label-mono" font-size="10.5" fill="#4f8a5c">合成 leftDown</text>
+  <text x="90" y="118" text-anchor="middle" class="label-faint" font-size="10">拖拽 A 启动</text>
+
+  <circle cx="280" cy="96" r="6" fill="#1f1e1c"/>
+  <text x="280" y="78" text-anchor="middle" class="label-mono" font-size="10.5">真实 leftDown</text>
+  <text x="280" y="118" text-anchor="middle" class="label-faint" font-size="10">物理键按下</text>
+
+  <circle cx="430" cy="96" r="6" fill="#b14338"/>
+  <text x="430" y="78" text-anchor="middle" class="label-mono" font-size="10.5" fill="#b14338">HID 注入 leftUp</text>
+  <text x="430" y="118" text-anchor="middle" fill="#b14338" font-size="10">在物理键仍按下时注入</text>
+
+  <circle cx="600" cy="96" r="6" fill="#b14338"/>
+  <text x="600" y="78" text-anchor="middle" class="label-mono" font-size="10.5" fill="#b14338">真实 leftUp ✗</text>
+  <text x="600" y="118" text-anchor="middle" fill="#b14338" font-size="10">被吞,永不到达</text>
+
+  <line x1="96" y1="96" x2="754" y2="96" stroke="#5a5751" stroke-dasharray="4 3" marker-end="url(#arr3)"/>
+
+  <g transform="translate(40, 178)">
+    <rect x="0" y="0" width="720" height="52" rx="6" fill="#f5dad6"/>
+    <text x="16" y="21" font-size="12.5" fill="#b14338" font-weight="600">窗口服务器的左键卡在「按下」→ 后续合成 leftDown 被忽略 → 窗口不再跟随(卡死)。</text>
+    <text x="16" y="40" font-size="11.5" fill="#b14338">而下一次任意真实松手会结束这个卡住的拖拽,把窗口「跳」到光标处(标题栏贴光标)。</text>
+  </g>
+</svg>
+<div class="caption"><b>图 4.</b> 卡死与跳变是<b>同一个根因</b>的两种表现:合成左键被卡住没有被干净地收尾。修一个症状(跳变)而不动根因,只会让另一个(卡死)继续存在。</div>
+</div>
+
+<h3>解法:让真实按键「协同」而非「对抗」合成拖拽</h3>
+<p>最终方案(经真机确认手感顺滑)是:<strong>移动进行中,真实鼠标按键一律无效化(inert)</strong>——它们永远不会到达窗口服务器。</p>
+<ul>
+  <li>按下真实左键 → 吞掉,不结束移动;记下「物理左键按下」。</li>
+  <li>按住左键继续移动 → 用这些 <code>leftMouseDragged</code> 驱动<em>同一个</em>合成拖拽(同样做 Y 偏移)→ 窗口持续跟随,不卡顿、不跳变。</li>
+  <li>移动只在<strong>松开修饰键</strong>时结束。</li>
+  <li><strong>绝不在物理左键按下时做 HID 注入</strong>:若在按键仍按下时松开了修饰键,则<em>延后</em>结束(<code>pendingEnd</code>),由随后那次真实 <code>leftMouseUp</code> 本身(改写到标题栏偏移)来干净收尾。</li>
+</ul>
+
+<div class="callout">
+<span class="label">关键洞察</span>
+<p>实现一从不需要处理「真实按键 vs 合成左键」的冲突,因为它的手势<em>就是</em>那只真实按键。实现二把整只左键合成出来,于是必须主动让真实按键退让——要么不发生(吞掉),要么去驱动同一个拖拽,但绝不能和合成事件抢同一只物理左键。</p>
+</div>
+
+<h3>难点 C:常驻 mouseMoved 的开销(原型尚未严格门控)</h3>
+<p><code>mouseMoved</code> 是高频事件。<strong>原型现状</strong>:tap 的 mask 始终包含它,只有当专用修饰键<em>未配置</em>(特性关闭)时,<code>handleMouseMoved</code> 第一行才廉价返回。这意味着——只要特性开启,<strong>哪怕修饰键此刻并未被按住,每个 <code>mouseMoved</code> 仍会进入回调并取一次锁</strong>。这是必须消除的开销。</p>
+<p><strong>正式版的正确做法</strong>不是「按特性是否开启」来门控,而是「按修饰键<em>此刻是否被按住</em>」来门控,且门控条件要尽可能苛刻。由于 CGEvent tap 的 mask 创建后不可改,正确实现是<strong>一个独立的、默认禁用的 <code>mouseMoved</code> 专用 tap</strong>,用 <code>CGEventTapEnable</code> 在运行时开关:</p>
+<ul>
+  <li><strong>主 tap(始终)</strong>:按键事件 + <code>flagsChanged</code>(低频,常驻几乎零成本)。</li>
+  <li><strong>第二个 tap</strong>:只监听 <code>mouseMoved</code>,<strong>默认 disabled</strong>。</li>
+  <li>在 <code>flagsChanged</code> 里:专用组合<strong>变为按住</strong> → <code>enable</code> 第二个 tap;<strong>变为松开</strong> → <code>disable</code>。</li>
+</ul>
+<p>禁用状态下,系统<strong>根本不会把 <code>mouseMoved</code> 投递给它</strong>——回调都不触发,这才是真正的零成本(比「收到后廉价短路」彻底)。启用条件严格:仅当「专用修饰键非空 <em>且</em> 该组合此刻被按住」时才开。</p>
+
+<!-- ╔══ §7 ════════════════════════════════════════════════════════════╗ -->
+<h2>7 · 失效分析:抽掉每一块会怎样</h2>
+
+<table>
+  <thead>
+    <tr><th>抽掉…</th><th>症状</th><th>严重度</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>.flagsChanged</code> 监听</td>
+      <td>光标静止时松开修饰键无法结束 → 窗口黏在光标上</td>
+      <td><span class="pill bad">高</span></td>
+    </tr>
+    <tr>
+      <td>「延后一拍再合成按下」</td>
+      <td>窗口尚未重排到前台,合成的标题栏点击落空 → 拖不动</td>
+      <td><span class="pill bad">高</span></td>
+    </tr>
+    <tr>
+      <td>「物理键按下时不做 HID 注入」</td>
+      <td>真实松手被吞 → 窗口服务器左键卡死(移动卡死 + 松手跳变)</td>
+      <td><span class="pill bad">高</span></td>
+    </tr>
+    <tr>
+      <td>「按键无效化」协同</td>
+      <td>真实左键与合成左键抢同一物理按键 → 状态错乱</td>
+      <td><span class="pill bad">高</span></td>
+    </tr>
+    <tr>
+      <td>收尾 leftMouseUp 的坐标偏移(用 raw 坐标)</td>
+      <td>结束瞬间窗口跳到「标题栏贴光标」</td>
+      <td><span class="pill warn">中</span></td>
+    </tr>
+    <tr>
+      <td>独立的专用修饰键(改用主修饰键)</td>
+      <td>按住主键还没点左键就动 → 抢走「左键拖拽」手势</td>
+      <td><span class="pill warn">中</span></td>
+    </tr>
+    <tr>
+      <td>剥离 Control 标志位</td>
+      <td>Control+合成 leftDown 被当成右键 → 拖拽失效</td>
+      <td><span class="pill warn">中</span></td>
+    </tr>
+    <tr>
+      <td>专用修饰键为空时的快速短路</td>
+      <td>关闭特性时每次 mouseMoved 仍走完整路径 → 额外开销</td>
+      <td><span class="pill neutral">低</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ╔══ §8 ════════════════════════════════════════════════════════════╗ -->
+<h2>8 · 小结</h2>
+
+<p>「按住修饰键移动鼠标即可移动窗口」不是一个新机制,而是把既有「左键拖拽」所依赖的<strong>同一套窗口服务器原生拖拽引擎</strong>,接到了一个不带按键的触发器上。它们共享坐标改写、延后合成、零 IPC 跟随与全部安全守卫。</p>
+
+<p>真正全新的工作量,都集中在「<strong>那只左键完全由软件合成</strong>」所派生出的三件事:用 <code>flagsChanged</code> 补出结束边界;让真实按键与合成左键协同而非对抗(按键无效化 + 绝不在物理键按下时做 HID 注入);以及常驻 <code>mouseMoved</code> 的性能权衡。原型已真机验证手感顺滑,正式化前的关键收尾是把 <code>mouseMoved</code> 改成<strong>按修饰键是否被按住来严格门控</strong>的独立可开关 tap(见 §6 难点 C)——修饰键没被按住时,绝不监听这个高频事件。</p>
+
+<div class="footer">
+  <span>AnyDrag · 无键移动实现报告 · 2026-06-02</span>
+  <span>commit <code>369b3ec</code> · <code>DragEngine.swift</code></span>
+</div>
+
+</div>
+</body>
+</html>
