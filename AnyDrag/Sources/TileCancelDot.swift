@@ -92,6 +92,13 @@ final class TileCancelDot: NSPanel {
     private let vibrancyView = NSVisualEffectView()
     private let fillView = TileCancelDotView()
 
+    /// Plan B "floating chip": the target app's icon + name, hovering just
+    /// above the bento. A separate panel (not part of this one) so the grid
+    /// stays pixel-for-pixel and the anchor is identical for 1 or N cards.
+    private let targetChip = BentoTargetChip()
+    private var targetAppName: String?
+    private var targetAppIcon: NSImage?
+
     init() {
         super.init(
             contentRect: .zero,
@@ -136,6 +143,37 @@ final class TileCancelDot: NSPanel {
         contentView = vibrancyView
     }
 
+    // MARK: - Target chip (Plan B)
+
+    /// Set the window the next `show(...)` will be tiling, so the floating
+    /// chip can name it. Prefer the running app's localized name + real
+    /// icon; fall back to the CG owner name passed by the caller (the
+    /// `pid → NSRunningApplication` lookup can briefly return nil right
+    /// after launch). Call on the main thread before `show(...)`.
+    func setTarget(pid: pid_t, appName: String) {
+        let running = NSRunningApplication(processIdentifier: pid)
+        let resolved = running?.localizedName ?? appName
+        targetAppName = resolved.isEmpty ? appName : resolved
+        targetAppIcon = running?.icon
+    }
+
+    /// Anchor the chip to the visible bento panel's top-center and show it.
+    /// No target name → hide it (defensive; the tile path always sets one).
+    private func positionTargetChip(panelFrame: NSRect) {
+        guard let name = targetAppName, !name.isEmpty else {
+            targetChip.hide()
+            return
+        }
+        let center = NSPoint(x: panelFrame.midX, y: panelFrame.midY)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(center) })
+            ?? NSScreen.screens.first
+        guard let screen else {
+            targetChip.hide()
+            return
+        }
+        targetChip.show(icon: targetAppIcon, name: name, anchoredAbove: panelFrame, on: screen)
+    }
+
     // MARK: - Lifecycle
 
     /// Show centered at the given CGEvent screen point (top-left origin,
@@ -171,6 +209,7 @@ final class TileCancelDot: NSPanel {
         if !isVisible {
             orderFrontRegardless()
         }
+        positionTargetChip(panelFrame: frame)
     }
 
     private func showMultiDisplay(atCGPoint cgScreenPoint: CGPoint) {
@@ -234,12 +273,18 @@ final class TileCancelDot: NSPanel {
         if !isVisible {
             orderFrontRegardless()
         }
+        positionTargetChip(panelFrame: windowFrame)
     }
 
     func hide() {
         if isVisible {
             orderOut(nil)
         }
+        targetChip.hide()
+        // Drop the target so a stray show() without a fresh setTarget(...)
+        // can't surface the previous gesture's app name/icon.
+        targetAppName = nil
+        targetAppIcon = nil
     }
 
     override var canBecomeKey: Bool { false }

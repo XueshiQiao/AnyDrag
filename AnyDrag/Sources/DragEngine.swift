@@ -1087,9 +1087,12 @@ final class DragEngine {
                 state.tileSawDirection = false
             }
             let useMulti = multiDisplayBentoEnabled
+            let targetPid = windowInfo.pid
+            let targetApp = windowInfo.app
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.tileCancelDot.multiDisplayEnabled = useMulti
+                self.tileCancelDot.setTarget(pid: targetPid, appName: targetApp)
                 self.tileCancelDot.show(atCGPoint: screenPoint)
             }
             Self.log.info("tile gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
