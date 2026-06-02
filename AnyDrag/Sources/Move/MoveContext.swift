@@ -21,6 +21,12 @@ protocol MoveContext: AnyObject {
     /// Post a marked synthetic `leftMouseUp` at the HID tap. `NoDragMoveMode`
     /// uses it to close its synthesized title-bar drag on modifier release.
     func postSyntheticLeftUp(at point: CGPoint)
+    /// True when the virtual "Hyper" modifier (CapsLock via HyperCapslock) is
+    /// currently held — needed by the drag matcher, since Hyper carries no event flag.
+    var isHyperHeld: Bool { get }
+    /// Drop any stranded tile/resize gesture state before a fresh move begins
+    /// (defensive: a lost otherMouseUp/rightUp could otherwise commit later).
+    func clearStrandedGesturesForMoveStart()
     func log(_ message: String)
 }
 

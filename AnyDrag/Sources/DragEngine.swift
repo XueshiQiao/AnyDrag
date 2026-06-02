@@ -198,6 +198,7 @@ final class DragEngine {
             // the main thread (config apply + chip toggle), same as every other
             // `modifiers` write.
             hyperCapslockSource.setEnabled(modifiers.contains(.hyper))
+            dragMode.modifiers = modifiers
         }
     }
     /// AnyDrag's link to HyperCapslock. Owns the cross-process CapsLock-hold
@@ -218,7 +219,9 @@ final class DragEngine {
             setMouseMovedTapEnabled(false)
         }
     }
-    var dragEnabled: Bool = true
+    var dragEnabled: Bool = true {
+        didSet { dragMode.enabled = dragEnabled }
+    }
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
     /// Master toggle for the modifier+right-drag → resize gesture.
@@ -246,6 +249,7 @@ final class DragEngine {
         set {
             strategy.titleBarYOffset = newValue
             noDragStrategy.titleBarYOffset = newValue
+            dragMode.strategy.titleBarYOffset = newValue
         }
     }
 
@@ -267,6 +271,7 @@ final class DragEngine {
             strategy.showDebugDot = newValue
             resizeStrategy.showDebugDot = newValue
             noDragStrategy.showDebugDot = newValue
+            dragMode.strategy.showDebugDot = newValue
         }
     }
 
@@ -384,11 +389,15 @@ final class DragEngine {
     /// touched on main, so no lock needed.
     private var eventCounterStart: Date = Date()
 
+    /// Legacy title-bar-drag strategy — now used only by the middle-button
+    /// drag-move (the left-drag move moved to `dragMode`).
     private let strategy = TitleBarDragStrategy()
     /// Separate title-bar-drag strategy instance for the no-drag move, so its
     /// state can never collide with the left/middle-drag `strategy`.
     private let noDragStrategy = TitleBarDragStrategy()
     private let resizeStrategy = ResizeStrategy()
+    /// Modifier + left-drag move, extracted into its own mode (issue #13 refactor).
+    let dragMode = DragMoveMode()
     private var savedFrames: [CGWindowID: CGRect] = [:]
     private var tilingPanel: TilingPanel?
     private lazy var tileOverlay = TileOverlay()
@@ -615,6 +624,7 @@ final class DragEngine {
 
         strategy.reset()
         resizeStrategy.reset()
+        dragMode.abort(context: self)
         abortTileGesture()
         // End any in-flight no-drag move so the window server doesn't keep a
         // dangling drag after teardown.
@@ -935,12 +945,19 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
+        // Modifier + left-drag move (extracted into DragMoveMode). It begins on a
+        // single click + modifier over a window; it returns .notHandled for a
+        // double-click so the maximize path below still runs.
+        if case .handled(let result) = dragMode.handle(event, type: .leftMouseDown, context: self) {
+            return result
+        }
+
         // Both left-button features off → nothing to do here.
         if !dragEnabled && !maximizeEnabled {
             return Unmanaged.passUnretained(event)
         }
 
-        // Check if the configured modifier key is held.
+        // Legacy: modifier + double-click → maximize/restore.
         // We also allow an extra Option key for non-Option shortcuts so
         // macOS native tiling can still kick in during an AnyDrag drag.
         guard matchesConfiguredModifier(event.flags) else {
@@ -956,7 +973,7 @@ final class DragEngine {
         }
 
         // Find the topmost normal window (layer 0) under the cursor
-        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+        guard let windowInfo = windowInfoUnderCursor(at: screenPoint) else {
             logNoWindowMiss(button: "left", at: screenPoint)
             return Unmanaged.passUnretained(event)
         }
@@ -973,43 +990,9 @@ final class DragEngine {
             return nil
         }
 
-        guard dragEnabled else {
-            return Unmanaged.passUnretained(event)
-        }
-
-        guard axGuardOrAbort("strategy.handleMouseDown(left)") else {
-            return Unmanaged.passUnretained(event)
-        }
-
-        // Clear any orphaned middle-gesture state (e.g. from a tap-disabled
-        // gesture where we never received the otherMouseUp).
-        let hadStaleTile = cbState.withLock { state -> Bool in
-            if state.tileTarget != nil { return true }
-            state.middleClickOrigin = nil
-            return false
-        }
-        if hadStaleTile {
-            abortTileGesture()
-        }
-        // If the user starts a fresh left drag while a right-resize is
-        // somehow still in flight (lost rightUp, modifier-key remap, etc.),
-        // drop the stale resize state so a stranded gesture can't commit on
-        // some future event.
-        if resizeStrategy.isActive {
-            resizeStrategy.reset()
-            cbState.withLock { state in
-                state.rightTarget = nil
-                state.rightOrigin = nil
-            }
-        }
-        strategy.reset()
-        Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
-        return strategy.handleMouseDown(
-            pid: windowInfo.pid,
-            windowID: windowInfo.windowID,
-            windowFrame: windowInfo.frame,
-            event: event
-        )
+        // Single click + modifier that DragMoveMode didn't begin (drag disabled or
+        // AX guard failed) — nothing more to do.
+        return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Mouse Dragged
@@ -1022,10 +1005,11 @@ final class DragEngine {
             cbState.withLock { $0.noDragLastCursor = event.location }
             return noDragStrategy.handleMouseDragged(event: event)
         }
-        guard strategy.isActive else {
-            return Unmanaged.passUnretained(event)
+        // Modifier + left-drag move (extracted).
+        if case .handled(let result) = dragMode.handle(event, type: .leftMouseDragged, context: self) {
+            return result
         }
-        return strategy.handleMouseDragged(event: event)
+        return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Mouse Up
@@ -1067,18 +1051,11 @@ final class DragEngine {
         case .notEngaged:
             break
         }
-        guard strategy.isActive else {
-            return Unmanaged.passUnretained(event)
+        // Modifier + left-drag move (extracted).
+        if case .handled(let result) = dragMode.handle(event, type: .leftMouseUp, context: self) {
+            return result
         }
-        let didDrag = strategy.didDrag
-        let modsForAnalytics = self.modifiers
-        let result = strategy.handleMouseUp(event: event)
-        if didDrag {
-            DispatchQueue.main.async {
-                Analytics.trackDrag(trigger: .modifier, modifier: modsForAnalytics)
-            }
-        }
-        return result
+        return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Experimental No-drag Move (modifier + mouse-move, no button)
@@ -1130,7 +1107,7 @@ final class DragEngine {
             if Self.isOnPrimaryMenuBar(screenPoint) {
                 return Unmanaged.passUnretained(event)
             }
-            guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            guard let windowInfo = windowInfoUnderCursor(at: screenPoint) else {
                 return Unmanaged.passUnretained(event)
             }
             guard axGuardOrAbort("noDrag.arm") else {
@@ -1336,7 +1313,7 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+        guard let windowInfo = windowInfoUnderCursor(at: screenPoint) else {
             logNoWindowMiss(button: "right", at: screenPoint)
             return Unmanaged.passUnretained(event)
         }
@@ -1480,7 +1457,7 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+        guard let windowInfo = windowInfoUnderCursor(at: screenPoint) else {
             logNoWindowMiss(button: "middle", at: screenPoint)
             return Unmanaged.passUnretained(event)
         }
@@ -2091,7 +2068,7 @@ final class DragEngine {
     /// `app` is the CG-reported process owner name (e.g. "Google Chrome", "Finder") — extracted
     /// here so engagement-point logs can include it without a separate NSRunningApplication
     /// lookup on the tap-callback thread.
-    private func windowUnderCursor(at point: CGPoint) -> (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? {
+    private func windowInfoUnderCursor(at point: CGPoint) -> (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)? {
         guard let windowList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -2154,7 +2131,7 @@ final class DragEngine {
         Self.log.debug("modifier miss [\(button)Down]: observed=\(Self.describeFlags(observed)) target=\(self.modifiers.symbol)")
     }
 
-    /// Log when the configured gesture matched but `windowUnderCursor` found
+    /// Log when the configured gesture matched but `windowInfoUnderCursor` found
     /// nothing — diagnoses "AnyDrag does nothing in app X" reports where
     /// CGWindowListCopyWindowInfo can't see the target window's layer.
     private func logNoWindowMiss(button: String, at point: CGPoint) {
@@ -2173,6 +2150,75 @@ final class DragEngine {
         if flags.contains(.maskControl)                  { combo.insert(.control) }
         if flags.contains(ModifierCombination.fnEventFlag) { combo.insert(.fn) }
         return combo.symbol
+    }
+}
+
+// MARK: - MoveContext conformance
+//
+// The capabilities WindowMoveMode implementations borrow from the engine. These
+// thinly wrap existing private helpers so the modes depend on a narrow interface
+// rather than the whole DragEngine.
+
+extension DragEngine: MoveContext {
+    func windowUnderCursor(at point: CGPoint) -> WindowTarget? {
+        guard let info = windowInfoUnderCursor(at: point) else { return nil }
+        return WindowTarget(pid: info.pid, windowID: info.windowID, frame: info.frame, app: info.app)
+    }
+
+    func isOnPrimaryMenuBar(_ point: CGPoint) -> Bool {
+        Self.isOnPrimaryMenuBar(point)
+    }
+
+    func axGuard(_ site: String) -> Bool {
+        axGuardOrAbort(site)
+    }
+
+    var isHyperHeld: Bool { hyperCapslockSource.isHeld }
+
+    func postSyntheticLeftUp(at point: CGPoint) {
+        let marker = Self.synthesizedEventMarker
+        // Post off the tap thread — posting inside the callback can re-enter our
+        // own tap synchronously (same reasoning as replayMiddleClick).
+        DispatchQueue.main.async {
+            guard let source = CGEventSource(stateID: .hidSystemState) else {
+                Self.log.warn("postSyntheticLeftUp: CGEventSource creation failed")
+                return
+            }
+            source.userData = marker
+            if let up = CGEvent(
+                mouseEventSource: source,
+                mouseType: .leftMouseUp,
+                mouseCursorPosition: point,
+                mouseButton: .left
+            ) {
+                up.post(tap: .cghidEventTap)
+            } else {
+                Self.log.warn("postSyntheticLeftUp: failed to create leftMouseUp")
+            }
+        }
+    }
+
+    func clearStrandedGesturesForMoveStart() {
+        // Drop a stranded tile gesture (e.g. a lost otherMouseUp) and clear the
+        // middle-click origin.
+        let hadStaleTile = cbState.withLock { state -> Bool in
+            if state.tileTarget != nil { return true }
+            state.middleClickOrigin = nil
+            return false
+        }
+        if hadStaleTile { abortTileGesture() }
+        // Drop a stranded right-resize (e.g. a lost rightUp).
+        if resizeStrategy.isActive {
+            resizeStrategy.reset()
+            cbState.withLock { state in
+                state.rightTarget = nil
+                state.rightOrigin = nil
+            }
+        }
+    }
+
+    func log(_ message: String) {
+        Self.log.info(message)
     }
 }
 
