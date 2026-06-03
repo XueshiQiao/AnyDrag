@@ -39,12 +39,12 @@ final class NoDragMoveMode: WindowMoveMode {
     /// `titleBarYOffset`. The drag coordinates are rewritten here in the mode.
     let strategy = TitleBarDragStrategy()
 
-    /// Absolute cap on a single move; the watchdog force-releases past this so a
-    /// synthesized drag can never be left open indefinitely.
+    /// Idle timeout: the watchdog force-releases after this long with no activity,
+    /// so a synthesized drag can't be left open indefinitely. An active drag re-arms.
     private static let watchdogSeconds: TimeInterval = 8
 
     private struct State {
-        var phase: Phase = .idle
+        var phase: Phase = .idle    // .dragging ⇒ a synth drag is in flight (an up is owed)
         var target: WindowTarget? = nil
         /// Title-bar Y minus the cursor Y at engage — added to every move's Y so the
         /// window-server drag tracks the cursor 1:1 from the title-bar grab.
@@ -52,10 +52,11 @@ final class NoDragMoveMode: WindowMoveMode {
         /// Last rewritten (title-bar-relative) drag point — where the closing
         /// `leftMouseUp` is posted, matching the window server's drag position.
         var lastDragPoint: CGPoint = .zero
-        /// A synthesized drag is in flight (an up is owed to release it).
-        var engaged: Bool = false
         /// Bumped on every engage/teardown so a stale watchdog no-ops.
         var generation: Int = 0
+        /// Drag events rewritten since engage. Logged at end to tell a real failure
+        /// (dragged a lot, window didn't move) from a trivial one (barely moved).
+        var trackCount: Int = 0
         /// Monotonic time of the last arm/engage/track activity. The watchdog
         /// force-releases only after `watchdogSeconds` of *inactivity*, so an active
         /// long drag is never dropped mid-move.
@@ -126,7 +127,6 @@ final class NoDragMoveMode: WindowMoveMode {
             state.withLock { st in
                 st.target = target
                 st.phase = .armed
-                st.engaged = false
             }
             strategy.reset()
             context.log("no-drag move arm: app=\"\(target.app)\" wid=\(target.windowID)")
@@ -152,12 +152,13 @@ final class NoDragMoveMode: WindowMoveMode {
                 let titleBarY = t.frame.origin.y + strategy.titleBarYOffset
                 st.yOffset = titleBarY - phys.y
                 st.phase = .dragging
-                st.engaged = true
                 st.generation += 1
+                st.trackCount = 0
                 let down = CGPoint(x: phys.x, y: titleBarY)
                 st.lastDragPoint = down
                 return .engage(down: down, generation: st.generation)
             }
+            st.trackCount += 1
             let relabeled = CGPoint(x: event.location.x, y: event.location.y + st.yOffset)
             st.lastDragPoint = relabeled
             return .track(relabeled: relabeled)
@@ -231,7 +232,7 @@ final class NoDragMoveMode: WindowMoveMode {
             guard let self, let context else { return }
             enum Action { case ignore, release, rearm(TimeInterval) }
             let action: Action = self.state.withLock { st in
-                guard st.phase == .dragging, st.generation == gen, st.engaged else { return .ignore }
+                guard st.phase == .dragging, st.generation == gen else { return .ignore }
                 // Idle-based: only release after watchdogSeconds with no activity, so
                 // a genuinely active long drag re-arms instead of being dropped.
                 let idle = Double(DispatchTime.now().uptimeNanoseconds &- st.lastActivityNanos) / 1_000_000_000
@@ -254,15 +255,15 @@ final class NoDragMoveMode: WindowMoveMode {
     /// End an in-flight gesture: reset, and (if a drag was engaged) post the closing
     /// `leftMouseUp` so the window server can't be left mid-drag.
     private func finish(context: MoveContext) {
-        let snap: (engaged: Bool, upPoint: CGPoint, app: String, windowID: CGWindowID, armFrame: CGRect)? = state.withLock { st in
+        let snap: (engaged: Bool, upPoint: CGPoint, app: String, windowID: CGWindowID, armFrame: CGRect, trackCount: Int)? = state.withLock { st in
             guard st.phase != .idle else { return nil }
-            let s = (st.engaged, st.lastDragPoint,
-                     st.target?.app ?? "?", st.target?.windowID ?? 0, st.target?.frame ?? .zero)
+            let s = (st.phase == .dragging, st.lastDragPoint,
+                     st.target?.app ?? "?", st.target?.windowID ?? 0, st.target?.frame ?? .zero, st.trackCount)
             st.phase = .idle
             st.target = nil
             st.yOffset = 0
             st.lastDragPoint = .zero
-            st.engaged = false
+            st.trackCount = 0
             st.generation += 1   // invalidate any pending watchdog
             return s
         }
@@ -271,10 +272,12 @@ final class NoDragMoveMode: WindowMoveMode {
         guard snap.engaged else { return }
         // Reliability monitor: did the window server actually move the window?
         // A run of moved=false would mean the no-drag synth drag is failing again.
+        // trackCount tells a real failure (dragged a lot, no move) from a trivial
+        // one (barely moved before releasing).
         let moved = Self.currentFrame(of: snap.windowID).map { now in
             abs(now.origin.x - snap.armFrame.origin.x) > 1 || abs(now.origin.y - snap.armFrame.origin.y) > 1
         }
-        context.log("no-drag move end: app=\"\(snap.app)\" moved=\(moved.map(String.init) ?? "unknown")")
+        context.log("no-drag move end: app=\"\(snap.app)\" moved=\(moved.map(String.init) ?? "unknown") drags=\(snap.trackCount)")
         context.postSyntheticLeftUp(at: snap.upPoint)
         let mods = modifiers
         DispatchQueue.main.async {
