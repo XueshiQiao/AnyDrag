@@ -190,6 +190,12 @@ final class DragEngine {
     // Marker carried on synthesized replay events so we ignore them in our own tap.
     private static let synthesizedEventMarker: Int64 = 0x416E794472616701  // "AnyDrag\x01"
 
+    /// Persistent source for the no-drag move's posted closing `leftMouseUp`. Held
+    /// so its `localEventsSuppressionInterval` (set to 0) sticks: the default 0.25s
+    /// would suppress the next move's opening mouse movement and make rapid
+    /// back-to-back no-drag moves fail in clusters.
+    private let syntheticEventSource = CGEventSource(stateID: .hidSystemState)
+
     private static let log = FileLog("DragEngine")
 
     var modifiers: ModifierCombination = .option {
@@ -784,13 +790,11 @@ final class DragEngine {
             // gesture is now stranded. Drop it so we don't apply a stale
             // tile on the next mouse-up.
             abortTileGesture()
-            // NOTE: we deliberately do NOT abort an in-flight no-drag move here.
-            // tapDisabled is transient and immediately re-enabled; the move closes
-            // correctly on its real end signals (modifier release via flagsChanged,
-            // or the real leftUp during buttons-inert). Aborting it here would tear
-            // it down mid-gesture — and during a deferred end (realLeftDown) it
-            // would skip the HID up, leaving the window-server drag stuck (and a
-            // jump on the next real up). A brief disable just pauses the follow.
+            // A no-drag move holds a GENUINE synthetic left button down; a disabled
+            // tap could strand it (catastrophic — a system-wide stuck button). Abort
+            // it, which posts the closing leftMouseUp. (The watchdog is the ultimate
+            // backstop, but release immediately rather than wait it out.)
+            noDragMode.abort(context: self)
             // Same reasoning for the right-button resize gesture: a missed
             // rightUp would leave `resizeStrategy.isActive` stuck true,
             // intercepting the next right-click. Drop it so the next gesture
@@ -1871,26 +1875,51 @@ extension DragEngine: MoveContext {
         return cbState.withLock { $0.tileTarget != nil }
     }
 
+    /// Post the no-drag move's closing `leftMouseUp` from the persistent source.
+    ///
+    /// This is the one event the no-drag move must post rather than rewrite (the
+    /// gesture ends on a modifier release, with no mouse event to rewrite). The
+    /// drag-end up does not move the cursor (the window server keeps it at the
+    /// physical position during a drag), so no cursor warp is needed. The source's
+    /// `localEventsSuppressionInterval` is 0: the default 0.25s would suppress the
+    /// *next* move's opening mouse movement, starving its drag and making rapid
+    /// back-to-back moves fail in clusters.
+    ///
+    /// Posted off the tap thread — posting inside the callback can re-enter our own
+    /// tap synchronously (same reasoning as replayMiddleClick).
     func postSyntheticLeftUp(at point: CGPoint) {
         let marker = Self.synthesizedEventMarker
-        // Post off the tap thread — posting inside the callback can re-enter our
-        // own tap synchronously (same reasoning as replayMiddleClick).
-        DispatchQueue.main.async {
-            guard let source = CGEventSource(stateID: .hidSystemState) else {
-                Self.log.warn("postSyntheticLeftUp: CGEventSource creation failed")
-                return
+        let source = syntheticEventSource
+        let work = {
+            // Do NOT bail if the persistent source is nil — failing to post the
+            // closing up would leave the window server's drag stuck. Fall back to a
+            // default-source event and stamp the marker on it directly so our own
+            // tap still recognizes and passes it through.
+            if let source {
+                source.userData = marker
+                source.localEventsSuppressionInterval = 0
             }
-            source.userData = marker
-            if let up = CGEvent(
+            guard let ev = CGEvent(
                 mouseEventSource: source,
                 mouseType: .leftMouseUp,
                 mouseCursorPosition: point,
                 mouseButton: .left
-            ) {
-                up.post(tap: .cghidEventTap)
-            } else {
-                Self.log.warn("postSyntheticLeftUp: failed to create leftMouseUp")
+            ) else {
+                Self.log.warn("postSyntheticLeftUp: failed to create event")
+                return
             }
+            if source == nil {
+                ev.setIntegerValueField(.eventSourceUserData, value: marker)
+            }
+            ev.post(tap: .cghidEventTap)
+        }
+        // On the tap thread, defer to main (posting inside the callback can re-enter
+        // our own tap synchronously). On main already (stop()/abort during quit),
+        // post synchronously so the closing up can't be lost to an unflushed queue.
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
         }
     }
 

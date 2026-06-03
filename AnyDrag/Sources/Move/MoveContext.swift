@@ -18,8 +18,7 @@ protocol MoveContext: AnyObject {
     func isOnPrimaryMenuBar(_ point: CGPoint) -> Bool
     /// Belt-and-suspenders AX-trust check at an AX call site; false → caller bails.
     func axGuard(_ site: String) -> Bool
-    /// Post a marked synthetic `leftMouseUp` at the HID tap. `NoDragMoveMode`
-    /// uses it to close its synthesized title-bar drag on modifier release.
+    /// Post the no-drag move's closing `leftMouseUp` at the HID tap.
     func postSyntheticLeftUp(at point: CGPoint)
     /// True when the virtual "Hyper" modifier (CapsLock via HyperCapslock) is
     /// currently held — needed by the drag matcher, since Hyper carries no event flag.
