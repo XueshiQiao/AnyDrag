@@ -190,6 +190,11 @@ final class DragEngine {
     // Marker carried on synthesized replay events so we ignore them in our own tap.
     private static let synthesizedEventMarker: Int64 = 0x416E794472616701  // "AnyDrag\x01"
 
+    // Squared cursor travel (in points) past which "drag-only trigger mode"
+    // reveals the tile cancel dot. 5 pt is enough to tell an intentional drag
+    // from the jitter of a plain middle-click. Stored squared to skip the sqrt.
+    private static let tileDragRevealThresholdSquared: CGFloat = 25
+
     private static let log = FileLog("DragEngine")
 
     var modifiers: ModifierCombination = .option {
@@ -216,6 +221,12 @@ final class DragEngine {
     /// any display × any zone in a single gesture. When false, or with one
     /// display, falls back to the original single-display bento.
     var multiDisplayBentoEnabled: Bool = true
+    /// "Drag-only trigger mode" for the tile-by-direction middle gesture. When
+    /// true, the cancel dot / bento panel is withheld on middle-button-down and
+    /// revealed only once the cursor moves past a small threshold — so a static
+    /// middle-click never flashes the panel and replays as a normal click. When
+    /// false (default) the panel appears immediately on press, as before.
+    var tileByDirectionDragOnly: Bool = false
     var middleAction: MiddleAction = .off {
         didSet {
             // If the user changes the middle-button action mid-gesture, abort
@@ -301,6 +312,11 @@ final class DragEngine {
         // gesture never left the center cell (likely just a tap), so the
         // middle-click is replayed so apps see it (browser tab close, etc.).
         var tileSawDirection: Bool = false
+        // Whether the cancel dot / bento panel is currently on screen for this
+        // gesture. In "drag-only trigger mode" it starts false on middle-down
+        // and flips true once the cursor passes the reveal threshold; otherwise
+        // it's true from the start (panel shown immediately on press).
+        var tileDotShown: Bool = false
         // Right-button gesture pending state: set at modifier+rightMouseDown,
         // consumed at rightMouseUp. If no drag happened, we open TilingPanel
         // with this target (preserving the old right-click-to-tile behavior);
@@ -482,7 +498,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) middle=\(self.middleAction.rawValue) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -712,6 +728,7 @@ final class DragEngine {
             state.tileTargetScreen = nil
             state.middleClickOrigin = nil
             state.tileSawDirection = false
+            state.tileDotShown = false
         }
         DispatchQueue.main.async { [weak self] in
             self?.tileOverlay.hide()
@@ -1120,25 +1137,39 @@ final class DragEngine {
 
         case .tileByDirection:
             // Window stays put — we use the middle drag to pick a tile target.
+            // In drag-only mode the panel is withheld until the cursor moves
+            // (see handleOtherMouseDragged); otherwise it shows immediately.
+            let dragOnly = tileByDirectionDragOnly
             cbState.withLock { state in
                 state.middleClickOrigin = screenPoint
                 state.tileTarget = windowInfo
                 state.tileZone = nil
                 state.tileTargetScreen = nil
                 state.tileSawDirection = false
+                state.tileDotShown = !dragOnly
             }
-            let useMulti = multiDisplayBentoEnabled
-            let targetPid = windowInfo.pid
-            let targetApp = windowInfo.app
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.tileCancelDot.multiDisplayEnabled = useMulti
-                self.tileCancelDot.setTarget(pid: targetPid, appName: targetApp)
-                self.tileCancelDot.show(atCGPoint: screenPoint)
+            if !dragOnly {
+                DispatchQueue.main.async { [weak self] in
+                    self?.presentTileCancelDot(at: screenPoint)
+                }
             }
-            Self.log.info("tile gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+            Self.log.info("tile gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) dragOnly=\(dragOnly)")
             return nil  // suppress the down; will replay middle-click on no-drag release
         }
+    }
+
+    /// Configure and show the tile cancel dot for the in-flight gesture,
+    /// anchored at `origin`. Main thread. No-op if the gesture was aborted
+    /// between the dispatch and now.
+    private func presentTileCancelDot(at origin: CGPoint) {
+        let target: (pid: pid_t, app: String)? = cbState.withLock { state in
+            guard let t = state.tileTarget else { return nil }
+            return (t.pid, t.app)
+        }
+        guard let target else { return }
+        tileCancelDot.multiDisplayEnabled = multiDisplayBentoEnabled
+        tileCancelDot.setTarget(pid: target.pid, appName: target.app)
+        tileCancelDot.show(atCGPoint: origin)
     }
 
     private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -1150,30 +1181,37 @@ final class DragEngine {
         // main so the bento panel can resolve (cursor → display + zone)
         // using its current layout. Storing the result back under the lock
         // makes the update visible to abort/mouseUp paths.
-        let hasTileGesture = cbState.withLock { $0.tileTarget != nil && $0.middleClickOrigin != nil }
-        if hasTileGesture {
+        let tileState: (active: Bool, dotShown: Bool, origin: CGPoint) = cbState.withLock { state in
+            guard state.tileTarget != nil, let origin = state.middleClickOrigin else {
+                return (false, false, .zero)
+            }
+            return (true, state.tileDotShown, origin)
+        }
+        if tileState.active {
             let cursorScreenPoint = event.location
+
+            // Drag-only mode: the cancel dot was withheld on mouse-down. Keep
+            // the gesture armed (consume the event) but show nothing until the
+            // cursor travels past the reveal threshold, then anchor the dot at
+            // the ORIGINAL click so directions stay relative to the press.
+            if !tileState.dotShown {
+                let dx = cursorScreenPoint.x - tileState.origin.x
+                let dy = cursorScreenPoint.y - tileState.origin.y
+                guard (dx * dx + dy * dy) >= Self.tileDragRevealThresholdSquared else {
+                    return nil
+                }
+                cbState.withLock { $0.tileDotShown = true }
+                let origin = tileState.origin
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.presentTileCancelDot(at: origin)
+                    self.resolveTileDrag(cursorScreenPoint: cursorScreenPoint)
+                }
+                return nil
+            }
+
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let hit = self.tileCancelDot.resolve(cursorAtCGPoint: cursorScreenPoint)
-                // Update gesture state. Bail if the gesture was aborted
-                // between the dispatch and now.
-                let stillActive: Bool = self.cbState.withLock { state in
-                    guard state.tileTarget != nil else { return false }
-                    state.tileZone = hit?.zone
-                    state.tileTargetScreen = hit?.screen
-                    if hit != nil { state.tileSawDirection = true }
-                    return true
-                }
-                guard stillActive else { return }
-                if let hit {
-                    let target = hit.zone.rect(in: hit.screen.visibleFrame)
-                    self.tileOverlay.show(rect: target)
-                    self.tileCancelDot.setActive(hit)
-                } else {
-                    self.tileOverlay.hide()
-                    self.tileCancelDot.setActive(nil)
-                }
+                self?.resolveTileDrag(cursorScreenPoint: cursorScreenPoint)
             }
             return nil
         }
@@ -1184,6 +1222,29 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
         return strategy.handleMouseDragged(event: event)
+    }
+
+    /// Resolve the bento hit for the current cursor and update the overlay +
+    /// cancel dot. Main thread. No-op if the gesture was aborted between the
+    /// originating drag event and this dispatch.
+    private func resolveTileDrag(cursorScreenPoint: CGPoint) {
+        let hit = tileCancelDot.resolve(cursorAtCGPoint: cursorScreenPoint)
+        let stillActive: Bool = cbState.withLock { state in
+            guard state.tileTarget != nil else { return false }
+            state.tileZone = hit?.zone
+            state.tileTargetScreen = hit?.screen
+            if hit != nil { state.tileSawDirection = true }
+            return true
+        }
+        guard stillActive else { return }
+        if let hit {
+            let target = hit.zone.rect(in: hit.screen.visibleFrame)
+            tileOverlay.show(rect: target)
+            tileCancelDot.setActive(hit)
+        } else {
+            tileOverlay.hide()
+            tileCancelDot.setActive(nil)
+        }
     }
 
     private func handleOtherMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -1215,6 +1276,7 @@ final class DragEngine {
             state.tileZone = nil
             state.tileTargetScreen = nil
             state.tileSawDirection = false
+            state.tileDotShown = false
             return TileFinish(target: target, origin: origin, zone: zone,
                               targetScreen: targetScreen, sawDirection: sawDirection)
         }

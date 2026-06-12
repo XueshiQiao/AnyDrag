@@ -19,6 +19,7 @@ final class AdvancedPaneViewController: NSViewController {
     private let resizeSwitch   = NSSwitch()
     private let cornerBracketSwitch = NSSwitch()
     private let multiDisplayBentoSwitch = NSSwitch()
+    private let tileDragOnlySwitch = NSSwitch()
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
@@ -149,10 +150,17 @@ final class AdvancedPaneViewController: NSViewController {
             action: #selector(multiDisplayBentoToggled(_:))
         )
 
+        let tileDragOnlyRow = buildFeatureRow(
+            title: NSLocalizedString("feature.tileDragOnly", comment: ""),
+            subtitle: NSLocalizedString("feature.tileDragOnly.subtitle", comment: ""),
+            toggle: tileDragOnlySwitch,
+            action: #selector(tileDragOnlyToggled(_:))
+        )
+
         SettingsCardLayout.addSection(
             to: container,
             header: NSLocalizedString("Middle-click action", comment: ""),
-            rows: [middleActionPicker, multiDisplayRow.view],
+            rows: [middleActionPicker, multiDisplayRow.view, tileDragOnlyRow.view],
             bottomSpacing: 0
         )
 
@@ -183,6 +191,7 @@ final class AdvancedPaneViewController: NSViewController {
         resizeSwitch.state          = dragEngine.resizeEnabled ? .on : .off
         cornerBracketSwitch.state   = dragEngine.cornerBracketEnabled ? .on : .off
         multiDisplayBentoSwitch.state = dragEngine.multiDisplayBentoEnabled ? .on : .off
+        tileDragOnlySwitch.state    = dragEngine.tileByDirectionDragOnly ? .on : .off
 
         updateFeatureRowsEnabled()
 
@@ -270,6 +279,16 @@ final class AdvancedPaneViewController: NSViewController {
         UserDefaults.standard.set(on, forKey: Preferences.Key.multiDisplayBentoEnabled)
         if previous != on {
             Analytics.trackPreferenceChanged(key: "multi_display_bento_enabled", value: String(on))
+        }
+    }
+
+    @objc private func tileDragOnlyToggled(_ sender: NSSwitch) {
+        let on = (sender.state == .on)
+        let previous = dragEngine.tileByDirectionDragOnly
+        dragEngine.tileByDirectionDragOnly = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.tileDragOnly)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "tile_drag_only", value: String(on))
         }
     }
 

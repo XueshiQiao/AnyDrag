@@ -22,6 +22,10 @@ enum Preferences {
         static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
         static let multiDisplayBentoEnabled = "AnyDragMultiDisplayBentoEnabled"
         static let middleAction    = "AnyDragMiddleAction"
+        // "Drag-only trigger mode" for the tile-by-direction middle gesture.
+        // Absent = false (panel shows immediately on middle-press, the original
+        // behavior).
+        static let tileDragOnly    = "AnyDragTileDragOnly"
         // Note: the "Hyper" (CapsLock-via-HyperCapslock) modifier needs no key of
         // its own — it's a bit in `modifierFlags`, so it persists with the rest of
         // the modifier combination and drives the CapsLock source via didSet.
@@ -170,6 +174,7 @@ enum Preferences {
         engine.resizeEnabled    = d.object(forKey: Key.resizeEnabled) as? Bool ?? true
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
         engine.multiDisplayBentoEnabled = d.object(forKey: Key.multiDisplayBentoEnabled) as? Bool ?? true
+        engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
 
         // Empty is a valid persisted state (means "AnyDrag off"), so only the
         // first-launch path falls back to .option.

@@ -56,6 +56,8 @@
 "feature.cornerBracket.subtitle" = "缩放时在被抓的窗口角显示发光指示线。关掉可获得更好性能——开启时每秒约读取 30 次窗口位置。";
 "feature.multiDisplayBento"          = "面板内显示所有显示器";
 "feature.multiDisplayBento.subtitle" = "当鼠标中键设为「按方向平铺」并连接了多块显示器时,bento 面板会按真实物理布局画出所有显示器,一次手势就能挑「目标显示器 × 目标区域」。";
+"feature.tileDragOnly"          = "仅拖动时触发";
+"feature.tileDragOnly.subtitle" = "在「按方向平铺」下,只有按住中键并移动光标后才弹出平铺面板。普通中键单击保持完全原生,不会闪现面板。";
 "Drag window" = "拖动窗口";
 "Maximize / Restore" = "最大化 / 恢复";
 "Window tiling" = "窗口平铺";

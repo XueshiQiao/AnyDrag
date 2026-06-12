@@ -56,6 +56,8 @@
 "feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";
 "feature.multiDisplayBento"          = "Show all displays in tile panel";
 "feature.multiDisplayBento.subtitle" = "When middle-click is set to \"Tile by direction\" and multiple displays are connected, the bento panel lays out every display at its real arrangement so you can pick any display × any zone in one gesture.";
+"feature.tileDragOnly"          = "Drag-only trigger mode";
+"feature.tileDragOnly.subtitle" = "With \"Tile by direction\", only show the tile panel after you hold the middle button and move the cursor. A plain middle-click stays fully native and never flashes the panel.";
 "Drag window" = "Drag window";
 "Maximize / Restore" = "Maximize / Restore";
 "Window tiling" = "Window tiling";
