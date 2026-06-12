@@ -91,6 +91,16 @@
 "diagnostics.resizeCornerInset.hint" = "Resize 模拟点击距离窗口角的内缩距离。圆角较大的 app(Safari、Finder)需要更大的值。默认 5 px。";
 "diagnostics.reset" = "重置";
 
+/* Settings — Excluded apps (blacklist) */
+"blacklist.title" = "排除的应用";
+"blacklist.note" = "AnyDrag 会忽略这些应用的窗口——不响应移动、缩放和平铺。";
+"blacklist.add" = "添加应用";
+"blacklist.remove" = "移除应用";
+"blacklist.runningApps" = "正在运行的应用";
+"blacklist.noRunningApps" = "没有其他正在运行的应用";
+"blacklist.browse" = "浏览…";
+"blacklist.choose" = "选择";
+
 /* About pane */
 /* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
 "about.version.format" = "版本 %1$@ (%2$@)";

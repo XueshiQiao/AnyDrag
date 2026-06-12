@@ -1,5 +1,14 @@
 import Foundation
 
+/// One app the user has excluded from AnyDrag. `bundleID` is the match key the
+/// engine compares against (stable across renames / localization); `name` is
+/// kept only so the Settings list can show something readable without a
+/// per-render lookup.
+struct BlacklistedApp: Equatable {
+    let bundleID: String
+    let name: String
+}
+
 /// Centralizes UserDefaults keys, defaults, and migration so the menu, the
 /// Settings window, and the engine read/write through one place.
 enum Preferences {
@@ -22,6 +31,13 @@ enum Preferences {
         static let titleBarYOffset    = "AnyDragTitleBarYOffset"
         static let showDebugDot       = "AnyDragShowDebugDot"
         static let resizeCornerInset  = "AnyDragResizeCornerInset"
+        // Whether the (collapsed-by-default) Diagnostics section is expanded.
+        // Absent = collapsed.
+        static let diagnosticsExpanded = "AnyDragDiagnosticsExpanded"
+
+        // Excluded apps (the blacklist). Stored as an array of
+        // ["bundleID": ..., "name": ...] dictionaries; absent = empty list.
+        static let blacklistedApps    = "AnyDragBlacklistedApps"
 
         // In-app language override. Empty/absent means "follow system".
         static let languageOverride = "AnyDragLanguageOverride"
@@ -89,6 +105,31 @@ enum Preferences {
         if previous != normalized {
             Analytics.trackPreferenceChanged(key: "language", value: normalized ?? "system")
         }
+    }
+
+    /// The user's excluded-app list, in display order. Unparseable or
+    /// empty-bundleID entries are dropped; a missing `name` falls back to the
+    /// bundle id so the row still renders.
+    static func blacklistedApps() -> [BlacklistedApp] {
+        guard let raw = UserDefaults.standard.array(forKey: Key.blacklistedApps) else {
+            return []
+        }
+        // Parse each entry independently — a single malformed element (or a
+        // non-String value snuck in by hand) must not discard the whole list.
+        return raw.compactMap { element in
+            guard let entry = element as? [String: Any],
+                  let bundleID = entry["bundleID"] as? String, !bundleID.isEmpty else { return nil }
+            let name = (entry["name"] as? String) ?? bundleID
+            return BlacklistedApp(bundleID: bundleID, name: name)
+        }
+    }
+
+    /// Persist the excluded-app list. The engine is updated separately via
+    /// `DragEngine.setBlacklistedBundleIDs` so the running tap sees the change
+    /// immediately, not just on next launch.
+    static func setBlacklistedApps(_ apps: [BlacklistedApp]) {
+        let serialized = apps.map { ["bundleID": $0.bundleID, "name": $0.name] }
+        UserDefaults.standard.set(serialized, forKey: Key.blacklistedApps)
     }
 
     /// One-shot migration of pre-1.3 preferences. Idempotent — safe to call every launch.
@@ -162,5 +203,7 @@ enum Preferences {
         }
 
         engine.showDebugDot = d.object(forKey: Key.showDebugDot) as? Bool ?? false
+
+        engine.setBlacklistedBundleIDs(Set(blacklistedApps().map { $0.bundleID }))
     }
 }

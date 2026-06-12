@@ -91,6 +91,16 @@
 "diagnostics.resizeCornerInset.hint" = "How far inside the window's corner the resize click lands. Larger values for apps with rounded outer corners (Safari, Finder). Default 5 px.";
 "diagnostics.reset" = "Reset";
 
+/* Settings — Excluded apps (blacklist) */
+"blacklist.title" = "Excluded Apps";
+"blacklist.note" = "AnyDrag ignores windows of these apps — no move, resize, or tiling.";
+"blacklist.add" = "Add app";
+"blacklist.remove" = "Remove app";
+"blacklist.runningApps" = "Running Apps";
+"blacklist.noRunningApps" = "No other apps running";
+"blacklist.browse" = "Browse…";
+"blacklist.choose" = "Choose";
+
 /* About pane */
 /* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
 "about.version.format" = "Version %1$@ (%2$@)";

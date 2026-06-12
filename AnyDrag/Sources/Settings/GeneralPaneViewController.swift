@@ -1,6 +1,7 @@
 import Cocoa
 import ApplicationServices
 import ServiceManagement
+import UniformTypeIdentifiers
 
 private let log = FileLog("Settings.General")
 
@@ -18,6 +19,12 @@ final class GeneralPaneViewController: NSViewController {
     private let permissionStatusLabel = NSTextField(labelWithString: "")
     private let permissionGrantButton = NSButton()
 
+    // Excluded apps (blacklist)
+    private var blacklistedApps: [BlacklistedApp] = []
+    private let appsTableView = NSTableView()
+    private let appsScrollView = NSScrollView()
+    private let appsControl = NSSegmentedControl()
+
     // Diagnostics
     private let showDotSwitch = NSSwitch()
     private let yOffsetSlider = NSSlider()
@@ -26,6 +33,10 @@ final class GeneralPaneViewController: NSViewController {
     private let resizeInsetSlider = NSSlider()
     private let resizeInsetValueLabel = NSTextField(labelWithString: "")
     private let resizeInsetResetButton = NSButton()
+    // Diagnostics is collapsed by default; these track the disclosure state.
+    private var diagnosticsExpanded = false
+    private weak var diagnosticsTriangle: NSButton?
+    private weak var diagnosticsCard: NSView?
 
     private var trustObserver: NSObjectProtocol?
     private var trustRefreshTasks: [DispatchWorkItem] = []
@@ -74,6 +85,8 @@ final class GeneralPaneViewController: NSViewController {
     }
 
     override func loadView() {
+        blacklistedApps = Preferences.blacklistedApps()
+
         let container = NSStackView()
         container.orientation = .vertical
         container.alignment = .leading
@@ -102,13 +115,15 @@ final class GeneralPaneViewController: NSViewController {
             rows: [buildAccessibilityRow(), launchRow.view]
         )
 
-        // ─── Diagnostics card ────────────────────────────────────────
+        // ─── Excluded apps card ──────────────────────────────────────
         SettingsCardLayout.addSection(
             to: container,
-            header: NSLocalizedString("Diagnostics", comment: ""),
-            rows: buildDiagnosticsRows(),
-            bottomSpacing: 0
+            header: NSLocalizedString("blacklist.title", comment: ""),
+            rows: [buildBlacklistContent()]
         )
+
+        // ─── Diagnostics card (collapsed by default) ─────────────────
+        addCollapsibleDiagnostics(to: container)
 
         let view = NSView()
         view.addSubview(container)
@@ -245,6 +260,290 @@ final class GeneralPaneViewController: NSViewController {
     @objc private func languageChanged(_ sender: NSPopUpButton) {
         let code = sender.selectedItem?.representedObject as? String  // nil for "Follow System"
         Preferences.setLanguageOverride(code)
+    }
+
+    // MARK: - Excluded apps (blacklist)
+
+    /// The card body: an explanatory note, a fixed-height scrolling list of
+    /// excluded apps, and a +/- control. Returned as a single composite row so
+    /// the card draws no hairline separators between the three pieces.
+    private func buildBlacklistContent() -> NSView {
+        let note = SettingsRowBuilder.subLabel(NSLocalizedString("blacklist.note", comment: ""))
+        note.lineBreakMode = .byWordWrapping
+        note.maximumNumberOfLines = 0
+        note.preferredMaxLayoutWidth = 400
+
+        appsTableView.headerView = nil
+        appsTableView.rowHeight = 34
+        appsTableView.intercellSpacing = NSSize(width: 0, height: 2)
+        appsTableView.allowsMultipleSelection = true
+        appsTableView.allowsColumnResizing = false
+        appsTableView.backgroundColor = .clear
+        appsTableView.style = .inset
+        appsTableView.dataSource = self
+        appsTableView.delegate = self
+        appsTableView.doubleAction = nil
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("app"))
+        column.resizingMask = .autoresizingMask
+        appsTableView.addTableColumn(column)
+        appsTableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+
+        appsScrollView.documentView = appsTableView
+        appsScrollView.hasVerticalScroller = true
+        appsScrollView.autohidesScrollers = true
+        appsScrollView.borderType = .bezelBorder
+        appsScrollView.translatesAutoresizingMaskIntoConstraints = false
+        appsScrollView.heightAnchor.constraint(equalToConstant: 120).isActive = true
+
+        let plus = NSImage(systemSymbolName: "plus", accessibilityDescription: NSLocalizedString("blacklist.add", comment: ""))
+        let minus = NSImage(systemSymbolName: "minus", accessibilityDescription: NSLocalizedString("blacklist.remove", comment: ""))
+        appsControl.segmentCount = 2
+        appsControl.setImage(plus, forSegment: 0)
+        appsControl.setImage(minus, forSegment: 1)
+        appsControl.setWidth(28, forSegment: 0)
+        appsControl.setWidth(28, forSegment: 1)
+        appsControl.segmentStyle = .smallSquare
+        appsControl.trackingMode = .momentary
+        appsControl.target = self
+        appsControl.action = #selector(blacklistControlClicked(_:))
+        appsControl.focusRingType = .none
+        appsControl.setContentHuggingPriority(.required, for: .horizontal)
+
+        let controlRow = NSStackView(views: [appsControl, NSView()])
+        controlRow.orientation = .horizontal
+        controlRow.spacing = 8
+        controlRow.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let block = NSStackView(views: [note, appsScrollView, controlRow])
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 8
+        block.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            note.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            appsScrollView.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            appsScrollView.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+            controlRow.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            controlRow.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+        ])
+
+        updateRemoveEnabled()
+        return block
+    }
+
+    @objc private func blacklistControlClicked(_ sender: NSSegmentedControl) {
+        switch sender.selectedSegment {
+        case 0: showAddMenu(from: sender)
+        case 1: removeSelectedApps()
+        default: break
+        }
+    }
+
+    /// Pop the "add app" menu just below the + segment. Lists running, regular
+    /// (Dock-visible) apps for one-click add, plus a Browse… item that opens an
+    /// NSOpenPanel into /Applications for apps that aren't currently running.
+    private func showAddMenu(from control: NSSegmentedControl) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let existing = Set(blacklistedApps.map { $0.bundleID })
+        var seen = Set<String>()
+        let running = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .compactMap { app -> BlacklistedApp? in
+                guard let bundleID = app.bundleIdentifier,
+                      bundleID != Bundle.main.bundleIdentifier,
+                      !existing.contains(bundleID),
+                      seen.insert(bundleID).inserted else { return nil }
+                return BlacklistedApp(bundleID: bundleID, name: app.localizedName ?? bundleID)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        if running.isEmpty {
+            let item = NSMenuItem(title: NSLocalizedString("blacklist.noRunningApps", comment: ""), action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else {
+            let header = NSMenuItem(title: NSLocalizedString("blacklist.runningApps", comment: ""), action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for app in running {
+                let item = NSMenuItem(title: app.name, action: #selector(addRunningApp(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = app
+                if let icon = iconForApp(bundleID: app.bundleID)?.copy() as? NSImage {
+                    icon.size = NSSize(width: 16, height: 16)
+                    item.image = icon
+                }
+                menu.addItem(item)
+            }
+        }
+
+        menu.addItem(.separator())
+        let browse = NSMenuItem(title: NSLocalizedString("blacklist.browse", comment: ""), action: #selector(browseForApp(_:)), keyEquivalent: "")
+        browse.target = self
+        menu.addItem(browse)
+
+        let location = NSPoint(x: 0, y: control.bounds.height + 4)
+        menu.popUp(positioning: nil, at: location, in: control)
+    }
+
+    @objc private func addRunningApp(_ sender: NSMenuItem) {
+        guard let app = sender.representedObject as? BlacklistedApp else { return }
+        addApp(app)
+    }
+
+    @objc private func browseForApp(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [UTType.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.prompt = NSLocalizedString("blacklist.choose", comment: "")
+        guard panel.runModal() == .OK else { return }
+        var changed = false
+        for url in panel.urls {
+            guard let bundle = Bundle(url: url), let bundleID = bundle.bundleIdentifier else { continue }
+            let name = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+                ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+                ?? url.deletingPathExtension().lastPathComponent
+            if appendIfNew(BlacklistedApp(bundleID: bundleID, name: name)) { changed = true }
+        }
+        if changed { commitBlacklist() }
+    }
+
+    private func addApp(_ app: BlacklistedApp) {
+        if appendIfNew(app) { commitBlacklist() }
+    }
+
+    /// Append the app unless its bundle id is already listed. Returns whether it
+    /// was added, so multi-select adds can commit once instead of per item.
+    @discardableResult
+    private func appendIfNew(_ app: BlacklistedApp) -> Bool {
+        guard !blacklistedApps.contains(where: { $0.bundleID == app.bundleID }) else { return false }
+        blacklistedApps.append(app)
+        return true
+    }
+
+    private func removeSelectedApps() {
+        let indexes = appsTableView.selectedRowIndexes
+        guard !indexes.isEmpty else { return }
+        for index in indexes.sorted(by: >) where index < blacklistedApps.count {
+            blacklistedApps.remove(at: index)
+        }
+        commitBlacklist()
+    }
+
+    /// Persist the list, push the bundle-id set to the live engine so the tap
+    /// sees it immediately, then refresh the table and the remove button.
+    private func commitBlacklist() {
+        Preferences.setBlacklistedApps(blacklistedApps)
+        dragEngine.setBlacklistedBundleIDs(Set(blacklistedApps.map { $0.bundleID }))
+        appsTableView.reloadData()
+        updateRemoveEnabled()
+    }
+
+    private func updateRemoveEnabled() {
+        appsControl.setEnabled(appsTableView.selectedRow >= 0, forSegment: 1)
+    }
+
+    /// Best-effort icon for a bundle id: prefer a running instance's icon, then
+    /// the on-disk app bundle, then a generic placeholder.
+    private func iconForApp(bundleID: String) -> NSImage? {
+        if let icon = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.icon {
+            return icon
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            return NSWorkspace.shared.icon(forFile: url.path)
+        }
+        return NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil)
+    }
+
+    // MARK: - Collapsible Diagnostics
+
+    /// Add the Diagnostics section under a clickable disclosure header. Default
+    /// state is collapsed; the expanded flag persists in UserDefaults. Because
+    /// the Settings panes are not scroll views (the window is sized to each
+    /// pane's fitting height), toggling re-fits the window.
+    private func addCollapsibleDiagnostics(to container: NSStackView) {
+        diagnosticsExpanded = UserDefaults.standard.bool(forKey: Preferences.Key.diagnosticsExpanded)
+
+        let triangle = NSButton()
+        triangle.bezelStyle = .disclosure
+        triangle.setButtonType(.pushOnPushOff)
+        triangle.title = ""
+        triangle.state = diagnosticsExpanded ? .on : .off
+        triangle.target = self
+        triangle.action = #selector(toggleDiagnostics(_:))
+        triangle.focusRingType = .none
+        triangle.setContentHuggingPriority(.required, for: .horizontal)
+
+        let titleLabel = NSTextField(labelWithString: NSLocalizedString("Diagnostics", comment: ""))
+        titleLabel.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        titleLabel.addGestureRecognizer(
+            NSClickGestureRecognizer(target: self, action: #selector(toggleDiagnosticsFromLabel(_:)))
+        )
+
+        let headerRow = NSStackView(views: [triangle, titleLabel, NSView()])
+        headerRow.orientation = .horizontal
+        headerRow.alignment = .centerY
+        headerRow.spacing = 4
+        headerRow.arrangedSubviews[2].setContentHuggingPriority(.defaultLow, for: .horizontal)
+        container.addArrangedSubview(headerRow)
+        headerRow.trailingAnchor.constraint(
+            equalTo: container.trailingAnchor, constant: -container.edgeInsets.right
+        ).isActive = true
+        container.setCustomSpacing(6, after: headerRow)
+
+        let card = SettingsSectionCard(rows: buildDiagnosticsRows())
+        card.isHidden = !diagnosticsExpanded
+        container.addArrangedSubview(card)
+        card.trailingAnchor.constraint(
+            equalTo: container.trailingAnchor, constant: -container.edgeInsets.right
+        ).isActive = true
+        container.setCustomSpacing(0, after: card)
+
+        diagnosticsTriangle = triangle
+        diagnosticsCard = card
+    }
+
+    @objc private func toggleDiagnostics(_ sender: NSButton) {
+        // The disclosure button has already flipped its own state.
+        setDiagnosticsExpanded(sender.state == .on)
+    }
+
+    @objc private func toggleDiagnosticsFromLabel(_ recognizer: NSGestureRecognizer) {
+        setDiagnosticsExpanded(!diagnosticsExpanded)
+    }
+
+    private func setDiagnosticsExpanded(_ expanded: Bool) {
+        diagnosticsExpanded = expanded
+        diagnosticsTriangle?.state = expanded ? .on : .off
+        diagnosticsCard?.isHidden = !expanded
+        UserDefaults.standard.set(expanded, forKey: Preferences.Key.diagnosticsExpanded)
+        resizeWindowToFitPane()
+    }
+
+    /// Resize the Settings window so it again fits this pane's content after the
+    /// disclosure toggles. Width is left at whatever the window controller
+    /// locked it to; only the height follows the new fitting size, top-aligned
+    /// so the window grows/shrinks from the bottom edge.
+    private func resizeWindowToFitPane() {
+        guard let window = view.window else { return }
+        view.layoutSubtreeIfNeeded()
+        let targetHeight = view.fittingSize.height
+        let currentContent = window.contentRect(forFrameRect: window.frame)
+        let contentSize = NSSize(width: currentContent.width, height: targetHeight)
+        let targetFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
+        let current = window.frame
+        let topAligned = NSRect(
+            x: current.origin.x,
+            y: current.origin.y + current.height - targetFrame.height,
+            width: targetFrame.width,
+            height: targetFrame.height
+        )
+        window.setFrame(topAligned, display: true, animate: true)
     }
 
     // MARK: - Diagnostics
@@ -439,4 +738,77 @@ final class GeneralPaneViewController: NSViewController {
         }
     }
 
+}
+
+// MARK: - Excluded apps table
+
+extension GeneralPaneViewController: NSTableViewDataSource, NSTableViewDelegate {
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        blacklistedApps.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard row < blacklistedApps.count else { return nil }
+        let app = blacklistedApps[row]
+        let identifier = NSUserInterfaceItemIdentifier("BlacklistCell")
+        let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? BlacklistCellView)
+            ?? BlacklistCellView(reuseIdentifier: identifier)
+        cell.configure(name: app.name, bundleID: app.bundleID, icon: iconForApp(bundleID: app.bundleID))
+        return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        updateRemoveEnabled()
+    }
+}
+
+/// One row in the excluded-apps list: icon + app name over its bundle id.
+private final class BlacklistCellView: NSView {
+    private let iconView = NSImageView()
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let bundleLabel = NSTextField(labelWithString: "")
+
+    init(reuseIdentifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        identifier = reuseIdentifier
+
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        nameLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        bundleLabel.font = .systemFont(ofSize: 10)
+        bundleLabel.textColor = .secondaryLabelColor
+        bundleLabel.lineBreakMode = .byTruncatingMiddle
+        bundleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let textStack = NSStackView(views: [nameLabel, bundleLabel])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 0
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(iconView)
+        addSubview(textStack)
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 20),
+            iconView.heightAnchor.constraint(equalToConstant: 20),
+            textStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            textStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
+            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(name: String, bundleID: String, icon: NSImage?) {
+        nameLabel.stringValue = name
+        bundleLabel.stringValue = bundleID
+        iconView.image = icon
+    }
 }

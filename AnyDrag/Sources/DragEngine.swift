@@ -315,6 +315,21 @@ final class DragEngine {
     }
     private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
 
+    /// User-excluded apps ("blacklist"). The authoritative list (bundle
+    /// identifiers) is held on the main thread; the derived set of the
+    /// *currently-running pids* for those apps is what the tap thread checks, so
+    /// the hot path is a pure `Set<pid_t>` membership test with no Launch
+    /// Services call. The pid set is recomputed on main whenever the list
+    /// changes or any app launches/terminates. When the window under the cursor
+    /// belongs to an excluded pid, `windowUnderCursor` returns nil so every
+    /// gesture (move / resize / tile / middle) goes passive and the event passes
+    /// through untouched. The pid lock is never nested with `cbState`.
+    private var blacklistedAppBundleIDs: Set<String> = []
+    private let blacklistedPids = OSAllocatedUnfairLock<Set<pid_t>>(initialState: [])
+    /// Tokens for the NSWorkspace launch/terminate observers that keep the pid
+    /// set in sync with app lifecycle. Removed in deinit.
+    private var runningAppsObservers: [NSObjectProtocol] = []
+
     private var trustNotificationObserver: NSObjectProtocol?
     /// Staircase of delayed probes scheduled after each
     /// `com.apple.accessibility.api` notification. We probe at multiple
@@ -344,10 +359,12 @@ final class DragEngine {
 
     init() {
         installTrustObserver()
+        installRunningAppsObserver()
     }
 
     deinit {
         removeTrustObserver()
+        removeRunningAppsObserver()
         if let userInfo = tapUserInfo {
             // Balance the `Unmanaged.passRetained(self)` from the first
             // `start()`. Safe at deinit: by the time we get here, no
@@ -543,6 +560,30 @@ final class DragEngine {
             DistributedNotificationCenter.default().removeObserver(observer)
             trustNotificationObserver = nil
         }
+    }
+
+    // MARK: - Running-apps observation (blacklist pid tracking)
+
+    /// Keep the excluded-app pid set current as apps come and go, so the tap
+    /// thread never has to resolve a pid → bundle id itself. Both notifications
+    /// are delivered on the main queue.
+    private func installRunningAppsObserver() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [NSNotification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+        ]
+        runningAppsObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.recomputeBlacklistedPids()
+            }
+        }
+    }
+
+    private func removeRunningAppsObserver() {
+        let center = NSWorkspace.shared.notificationCenter
+        runningAppsObservers.forEach { center.removeObserver($0) }
+        runningAppsObservers.removeAll()
     }
 
     private func handleTrustNotification() {
@@ -1656,6 +1697,42 @@ final class DragEngine {
         return results
     }
 
+    // MARK: - App blacklist
+
+    /// Replace the set of excluded-app bundle identifiers, then refresh the
+    /// derived pid set. Called on main from `Preferences.apply(to:)` at launch
+    /// and whenever the user edits the list.
+    func setBlacklistedBundleIDs(_ ids: Set<String>) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        blacklistedAppBundleIDs = ids
+        recomputeBlacklistedPids()
+    }
+
+    /// Recompute which running pids belong to excluded apps. Main thread only —
+    /// reads NSWorkspace and writes the lock. Costs nothing when the list is
+    /// empty, which keeps the feature free for users who never set it.
+    private func recomputeBlacklistedPids() {
+        guard !blacklistedAppBundleIDs.isEmpty else {
+            blacklistedPids.withLock { $0 = [] }
+            return
+        }
+        var pids = Set<pid_t>()
+        for app in NSWorkspace.shared.runningApplications {
+            if let bundleID = app.bundleIdentifier, blacklistedAppBundleIDs.contains(bundleID) {
+                pids.insert(app.processIdentifier)
+            }
+        }
+        blacklistedPids.withLock { $0 = pids }
+    }
+
+    /// True when the window-owning process belongs to an excluded app. A pure
+    /// set lookup on the tap thread — all Launch Services work happens on main
+    /// in `recomputeBlacklistedPids`. The match is ultimately by bundle id
+    /// (stable across renames / localization), resolved when the pid set is built.
+    private func isBlacklisted(pid: pid_t) -> Bool {
+        blacklistedPids.withLock { $0.contains(pid) }
+    }
+
     // MARK: - Window Detection
 
     /// Finds the topmost normal window at the given screen point using CGWindowListCopyWindowInfo.
@@ -1692,6 +1769,16 @@ final class DragEngine {
             )
 
             if bounds.contains(point) {
+                // Excluded app: treat its window as if it weren't there so the
+                // gesture never engages and the event passes through. We do NOT
+                // fall through to the window behind it — reaching past a
+                // blacklisted window to move a hidden one would be surprising.
+                if isBlacklisted(pid: pid) {
+                    if shouldLogDiagMiss() {
+                        Self.log.debug("blacklisted app skipped: app=\"\(ownerName)\" pid=\(pid)")
+                    }
+                    return nil
+                }
                 return (pid, windowID, bounds, ownerName)
             }
         }
