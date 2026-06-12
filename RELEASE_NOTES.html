@@ -1,3 +1,21 @@
+<h3>What's New in 26.06.105</h3>
+<ul>
+  <li><b>Exclude specific apps</b> — A new <b>Excluded Apps</b> list under <b>Settings → General</b> lets you pick apps where AnyDrag does nothing — no move, resize, or tiling — and the click passes straight through. Useful for apps whose own middle-drag or modifier gestures clash with AnyDrag (design tools, 3D/CAD, remote desktops). Add apps from the running-apps menu or by browsing /Applications. Thanks to 小红书JSON for the suggestion.</li>
+  <li><b>Drag-only trigger mode for the tile gesture</b> — A new switch under <b>Settings → Advanced → Middle-click action</b>: with it on, the tile panel only appears once you hold the middle button and move the cursor, so a plain middle-click stays fully native and never flashes the panel. Off by default — it's for people who already know the tile directions by heart. Thanks to @weixiao-520 for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/14">#14</a>).</li>
+  <li><b>The tile panel now names its target window</b> — During a middle-button tile, a small glass pill floats above the bento overlay showing the icon and name of the window that will be moved, so it's always clear which window you're aiming.</li>
+  <li><b>Diagnostics collapses by default</b> — The Diagnostics section in <b>Settings → General</b> now starts collapsed; click its header to expand. Keeps the everyday settings uncluttered.</li>
+  <li><b>Update prompt no longer hides behind other windows</b> — On macOS 14+, "Check for Updates" now reliably brings its window to the front instead of opening behind whatever app is active (<a href="https://github.com/XueshiQiao/AnyDrag/issues/12">#12</a>).</li>
+</ul>
+
+<h3>26.06.105 更新内容</h3>
+<ul>
+  <li><b>排除指定应用</b> — 「设置 → 通用」新增<b>「排除的应用」</b>列表,可以指定某些应用让 AnyDrag 完全不生效——不移动、不缩放、不平铺,点击原样透传给应用。适合那些自身的中键拖动或修饰键手势会和 AnyDrag 冲突的应用(设计软件、3D/CAD、远程桌面等)。可以从「正在运行的应用」菜单选,或浏览 /Applications 添加。感谢小红书JSON 提出建议。</li>
+  <li><b>平铺手势的「仅拖动时触发」模式</b> — 「设置 → 高级 → 鼠标中键动作」新增一个开关:开启后,只有按住中键并移动光标才会弹出平铺面板,普通中键单击保持完全原生、不会闪现面板。默认关闭——给已经记熟平铺方向的用户。感谢 @weixiao-520 提出建议(<a href="https://github.com/XueshiQiao/AnyDrag/issues/14">#14</a>)。</li>
+  <li><b>平铺面板会标出目标窗口</b> — 中键平铺时,bento 浮层上方会浮出一个小玻璃标签,显示将被移动的窗口的图标和名称,随时清楚自己瞄的是哪个窗口。</li>
+  <li><b>诊断区默认折叠</b> — 「设置 → 通用」里的「诊断」分区现在默认折叠,点标题展开,让常用设置更清爽。</li>
+  <li><b>更新提示不再被其它窗口挡住</b> — 在 macOS 14+ 上,「检查更新」现在会可靠地把窗口带到最前,而不是开在当前应用的后面(<a href="https://github.com/XueshiQiao/AnyDrag/issues/12">#12</a>)。</li>
+</ul>
+
 <h3>What's New in 26.06.104</h3>
 <ul>
   <li><b>New "Hyper" modifier — arm AnyDrag by holding CapsLock</b> — Choose <b>Hyper</b> (shown as the ⇪ glyph) under <b>Settings → Advanced → Modifier Keys</b>, and AnyDrag's gestures arm whenever you hold CapsLock — no Option/Control/etc. required. This relies on the companion app <a href="https://github.com/XueshiQiao/HyperCapslock">HyperCapslock</a> running with its <b>Hold CapsLock to drag windows (AnyDrag)</b> setting turned on: HyperCapslock turns a held CapsLock into a real hyper key and broadcasts the hold to AnyDrag. If HyperCapslock quits mid-hold, AnyDrag disarms on its own within about a second.</li>
