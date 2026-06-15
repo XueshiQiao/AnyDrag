@@ -41,6 +41,11 @@ final class AdvancedPaneViewController: NSViewController {
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
     private var modifierGatedRows: [FeatureRowViews] = []
+    /// The Corner Bracket row labels, gated separately (dimmed when no modifier)
+    /// rather than via `modifierGatedRows`.
+    private var cornerBracketRowViews: FeatureRowViews?
+    /// The Corner Bracket row container, hidden entirely when resize is off.
+    private weak var cornerBracketRowView: NSView?
 
     private struct FeatureRowViews {
         let title: NSTextField
@@ -48,9 +53,11 @@ final class AdvancedPaneViewController: NSViewController {
         let toggle: NSSwitch
     }
 
-    private func buildFeatureRow(title: String, subtitle: String?, toggle: NSSwitch, action: Selector) -> SettingsRow {
+    /// `gated`: when true (default) the row dims with the rest whenever no
+    /// primary modifier is set. Pass false for rows with bespoke gating.
+    private func buildFeatureRow(title: String, subtitle: String?, toggle: NSSwitch, action: Selector, gated: Bool = true) -> SettingsRow {
         let row = SettingsRowBuilder.feature(title: title, subtitle: subtitle, toggle: toggle, target: self, action: action)
-        if let subtitleLabel = row.subtitle {
+        if gated, let subtitleLabel = row.subtitle {
             modifierGatedRows.append(FeatureRowViews(title: row.title, subtitle: subtitleLabel, toggle: toggle))
         }
         return row
@@ -67,9 +74,12 @@ final class AdvancedPaneViewController: NSViewController {
             let previous = self.dragEngine.resizeTrigger
             self.dragEngine.resizeTrigger = trigger
             UserDefaults.standard.set(trigger.rawValue, forKey: Preferences.Key.resizeTrigger)
-            // Show/hide the secondary-modifier picker for the left-drag trigger,
-            // re-fitting the window when that changes its height.
-            if self.updateAugmentPickerState() {
+            // Show/hide the secondary-modifier picker (left-drag) and the Corner
+            // Bracket row (hidden when resize is off); re-fit the window if either
+            // changed the pane height.
+            let augmentChanged = self.updateAugmentPickerState()
+            let cornerChanged = self.updateCornerBracketRow()
+            if augmentChanged || cornerChanged {
                 self.resizeWindowToFitPane()
             }
             if previous != trigger {
@@ -104,18 +114,36 @@ final class AdvancedPaneViewController: NSViewController {
         augmentSubBlock.isHidden = (dragEngine.resizeTrigger != .leftClick)
         self.augmentSubBlock = augmentSubBlock
 
-        let block = NSStackView(views: [resizeTriggerPicker, augmentSubBlock])
+        // Corner Bracket lives in this same cell so it can hide cleanly when
+        // resize is off — a hidden NSStackView arranged subview collapses, whereas
+        // a hidden top-level card row would strand its separator.
+        let cornerBracketRow = buildFeatureRow(
+            title: NSLocalizedString("feature.cornerBracket", comment: ""),
+            subtitle: NSLocalizedString("feature.cornerBracket.subtitle", comment: ""),
+            toggle: cornerBracketSwitch,
+            action: #selector(cornerBracketToggled(_:)),
+            gated: false
+        )
+        if let cbSubtitle = cornerBracketRow.subtitle {
+            cornerBracketRowViews = FeatureRowViews(title: cornerBracketRow.title, subtitle: cbSubtitle, toggle: cornerBracketSwitch)
+        }
+        cornerBracketRow.view.isHidden = (dragEngine.resizeTrigger == .off)
+        self.cornerBracketRowView = cornerBracketRow.view
+
+        let block = NSStackView(views: [resizeTriggerPicker, augmentSubBlock, cornerBracketRow.view])
         block.orientation = .vertical
         block.alignment = .leading
         block.spacing = 12
         block.translatesAutoresizingMaskIntoConstraints = false
-        // Stretch the picker and the sub-block to the full card width; the
-        // vertical stack's .leading alignment won't do it on its own.
+        // Stretch the picker, sub-block, and corner-bracket row to the full card
+        // width; the vertical stack's .leading alignment won't do it on its own.
         NSLayoutConstraint.activate([
             resizeTriggerPicker.leadingAnchor.constraint(equalTo: block.leadingAnchor),
             resizeTriggerPicker.trailingAnchor.constraint(equalTo: block.trailingAnchor),
             augmentSubBlock.leadingAnchor.constraint(equalTo: block.leadingAnchor),
             augmentSubBlock.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+            cornerBracketRow.view.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            cornerBracketRow.view.trailingAnchor.constraint(equalTo: block.trailingAnchor),
         ])
         return block
     }
@@ -257,18 +285,13 @@ final class AdvancedPaneViewController: NSViewController {
         )
 
         // ─── Window Resize card ───────────────────────────────────────
-        let resizeTriggerBlock = buildResizeTriggerBlock()
-        let cornerBracketRow = buildFeatureRow(
-            title: NSLocalizedString("feature.cornerBracket", comment: ""),
-            subtitle: NSLocalizedString("feature.cornerBracket.subtitle", comment: ""),
-            toggle: cornerBracketSwitch,
-            action: #selector(cornerBracketToggled(_:))
-        )
-
+        // The trigger picker, the secondary-modifier sub-block, and the Corner
+        // Bracket row are all one cell (built in buildResizeTriggerBlock) so the
+        // bracket can hide cleanly when resize is off.
         SettingsCardLayout.addSection(
             to: container,
             header: NSLocalizedString("section.windowResize", comment: ""),
-            rows: [resizeTriggerBlock, cornerBracketRow.view]
+            rows: [buildResizeTriggerBlock()]
         )
 
         // ─── Middle-click action card ─────────────────────────────────
@@ -318,9 +341,10 @@ final class AdvancedPaneViewController: NSViewController {
         dragSwitch.state            = dragEngine.dragEnabled ? .on : .off
         maximizeSwitch.state        = dragEngine.maximizeEnabled ? .on : .off
         tilingSwitch.state          = dragEngine.tilingEnabled ? .on : .off
-        cornerBracketSwitch.state   = dragEngine.cornerBracketEnabled ? .on : .off
         multiDisplayBentoSwitch.state = dragEngine.multiDisplayBentoEnabled ? .on : .off
         tileDragOnlySwitch.state    = dragEngine.tileByDirectionDragOnly ? .on : .off
+        // cornerBracketSwitch state is owned by updateCornerBracketRow() (called
+        // from updateFeatureRowsEnabled below), since it also reflects resize-off.
 
         resizeTriggerPicker.selection = dragEngine.resizeTrigger
         augmentChipRow.selection = dragEngine.leftResizeModifier
@@ -357,6 +381,26 @@ final class AdvancedPaneViewController: NSViewController {
         // is set (mirrors the gated toggles). The middle-click picker is left
         // enabled — it triggers on the middle button alone, no modifier needed.
         resizeTriggerPicker.isEnabled = enabled
+        updateCornerBracketRow()
+    }
+
+    /// The Corner Bracket only matters during a resize, so its whole row is
+    /// hidden when resize is off. When shown, it still dims/disables if no
+    /// primary modifier is set (like the other gated rows). The stored
+    /// preference is never touched. Returns whether the row's visibility
+    /// changed, so the caller can re-fit the window.
+    @discardableResult
+    private func updateCornerBracketRow() -> Bool {
+        let visible = dragEngine.resizeTrigger != .off
+        let visibilityChanged = (cornerBracketRowView?.isHidden == visible)
+        cornerBracketRowView?.isHidden = !visible
+
+        let active = visible && !dragEngine.modifiers.isEmpty
+        cornerBracketSwitch.isEnabled = active
+        cornerBracketSwitch.state = dragEngine.cornerBracketEnabled ? .on : .off
+        cornerBracketRowViews?.title.textColor = active ? .labelColor : .tertiaryLabelColor
+        cornerBracketRowViews?.subtitle.textColor = active ? .secondaryLabelColor : .tertiaryLabelColor
+        return visibilityChanged
     }
 
     // MARK: - Actions
@@ -434,7 +478,12 @@ final class AdvancedPaneViewController: NSViewController {
             width: targetFrame.width,
             height: targetFrame.height
         )
-        window.setFrame(topAligned, display: true, animate: true)
+        // Resize instantly, NOT animated. The pane's content stack is pinned top
+        // AND bottom to the content view, so an animated frame change stretches
+        // the stack across the in-between frames and makes every card (incl. the
+        // Window Drag card above) jitter. An instant resize folds the show/hide
+        // and the height change into one redraw — no intermediate frames.
+        window.setFrame(topAligned, display: true, animate: false)
     }
 
     /// After the base modifier changes, move the augment off any key it now
