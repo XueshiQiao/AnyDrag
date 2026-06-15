@@ -22,10 +22,10 @@ final class SettingsSectionCard: NSView {
         wantsLayer = true
         layer?.cornerRadius = Self.cornerRadius
         layer?.cornerCurve = .continuous
-        // Hairline border so each section reads as a distinct grouped "form"
-        // card, matching macOS System Settings. Color is re-resolved in
-        // `updateLayer()` so it tracks light/dark + Increase Contrast.
-        layer?.borderWidth = 1
+        // Borderless, like macOS System Settings' grouped boxes: the elevated
+        // fill alone separates the card from the window. A hard hairline border
+        // stroked on top of the fill read as non-native / "boxy" in dark mode.
+        layer?.borderWidth = 0
 
         var lastAnchor: NSLayoutYAxisAnchor = topAnchor
         var lastSpacing: CGFloat = Self.verticalInset
@@ -61,14 +61,29 @@ final class SettingsSectionCard: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Card fill: a tone that reads as *raised* above the window background in
+    /// both appearances. `controlBackgroundColor` works in light (white card on
+    /// the grey window), but in dark mode it equals `windowBackgroundColor`
+    /// (both ~rgb(30,30,30)), so the card wouldn't look elevated — only the
+    /// hairline border would separate it. We lift the dark tone a notch so the
+    /// cards read like macOS System Settings' grouped boxes.
+    private static let fillColor = NSColor(name: "AnyDragSettingsCardFill") { appearance in
+        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return isDark
+            ? NSColor(srgbRed: 44 / 255.0, green: 44 / 255.0, blue: 46 / 255.0, alpha: 1)
+            : .controlBackgroundColor
+    }
+
     // CGColor is not appearance-reactive on its own — re-resolve the dynamic
     // color whenever AppKit asks us to redraw the layer (covers light/dark
     // toggles and Increase Contrast).
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        layer?.borderColor = NSColor.separatorColor.cgColor
+        // Resolve the dynamic fill against this view's current appearance.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = Self.fillColor.cgColor
+        }
     }
 
     // `wantsUpdateLayer` alone doesn't reliably trigger on appearance flips —
