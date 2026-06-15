@@ -17,9 +17,25 @@ final class AdvancedPaneViewController: NSViewController {
     private let maximizeSwitch = NSSwitch()
     private let tilingSwitch   = NSSwitch()
     private let resizeSwitch   = NSSwitch()
+    private let leftResizeSwitch = NSSwitch()
     private let cornerBracketSwitch = NSSwitch()
     private let multiDisplayBentoSwitch = NSSwitch()
     private let tileDragOnlySwitch = NSSwitch()
+
+    /// Single-select picker for the extra key held with the base modifier to
+    /// trigger a left-click resize. Limited to the eligible augment keys.
+    private let augmentChipRow = ModifierChipRow(
+        initial: .shift,
+        candidates: ModifierCombination.augmentCandidates,
+        singleSelect: true
+    )
+    private let augmentLabel = SettingsRowBuilder.subLabel("")
+    /// The "Secondary Modifier" label + chip row, wrapped so it can be
+    /// shown/hidden as a unit. Visible only while "Resize with left-click" is on.
+    private weak var augmentSubBlock: NSStackView?
+    /// The left-resize toggle's subtitle, kept so it can re-render the live
+    /// primary-modifier symbol when the base modifier changes.
+    private weak var leftResizeSubtitleLabel: NSTextField?
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
@@ -37,6 +53,60 @@ final class AdvancedPaneViewController: NSViewController {
             modifierGatedRows.append(FeatureRowViews(title: row.title, subtitle: subtitleLabel, toggle: toggle))
         }
         return row
+    }
+
+    /// The "Resize with left-click" toggle plus its extra-key picker, grouped as
+    /// one card cell (no hairline between them) since the picker only makes
+    /// sense as a sub-setting of the toggle.
+    private func buildLeftResizeBlock() -> NSView {
+        let leftResizeRow = buildFeatureRow(
+            title: NSLocalizedString("feature.leftResize", comment: ""),
+            subtitle: leftResizeSubtitleText(),
+            toggle: leftResizeSwitch,
+            action: #selector(leftResizeToggled(_:))
+        )
+        leftResizeSubtitleLabel = leftResizeRow.subtitle
+
+        augmentLabel.stringValue = NSLocalizedString("leftResize.augment", comment: "")
+
+        augmentChipRow.onChange = { [weak self] proposed in
+            guard let self = self else { return false }
+            // Only a single eligible key that doesn't collide with the base —
+            // otherwise the resize trigger wouldn't differ from the move trigger.
+            guard proposed.isValidAugment,
+                  proposed.isDisjoint(with: self.dragEngine.modifiers) else { return false }
+            let previous = self.dragEngine.leftResizeModifier
+            self.dragEngine.leftResizeModifier = proposed
+            UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.leftResizeModifier)
+            if previous != proposed {
+                Analytics.trackPreferenceChanged(key: "left_resize_modifier", value: proposed.analyticsKey)
+            }
+            return true
+        }
+
+        let augmentSubBlock = NSStackView(views: [augmentLabel, augmentChipRow])
+        augmentSubBlock.orientation = .vertical
+        augmentSubBlock.alignment = .leading
+        augmentSubBlock.spacing = 6
+        // Hidden unless the feature is on. Set here (before the window measures
+        // the pane's fitting height) so it opens at the right size; an NSStackView
+        // collapses hidden arranged subviews, so the card shrinks to just the
+        // toggle row when off.
+        augmentSubBlock.isHidden = !dragEngine.leftResizeEnabled
+        self.augmentSubBlock = augmentSubBlock
+
+        let block = NSStackView(views: [leftResizeRow.view, augmentSubBlock])
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 10
+        block.translatesAutoresizingMaskIntoConstraints = false
+        // The toggle row must span the full card width so the switch sits at the
+        // right edge; the vertical stack's .leading alignment won't stretch it.
+        NSLayoutConstraint.activate([
+            leftResizeRow.view.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            leftResizeRow.view.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+        ])
+        return block
     }
 
     init(dragEngine: DragEngine) {
@@ -62,6 +132,8 @@ final class AdvancedPaneViewController: NSViewController {
             UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.modifierFlags)
             self.updateModifierPreview()
             self.updateFeatureRowsEnabled()
+            self.revalidateAugmentForBaseChange()
+            self.updateLeftResizeSubtitle()
             if previous != proposed {
                 Analytics.trackPreferenceChanged(key: "modifier", value: proposed.analyticsKey)
             }
@@ -77,8 +149,14 @@ final class AdvancedPaneViewController: NSViewController {
         hyperHint.maximumNumberOfLines = 0
         hyperHint.stringValue = NSLocalizedString("modifier.hyper.hint", comment: "")
 
+        // The primary modifier is the most important control in the pane, so its
+        // label is bold and full-size (matching the other row titles) rather than
+        // a small grey sub-label.
+        let primaryModifierLabel = NSTextField(labelWithString: NSLocalizedString("label.primaryModifier", comment: ""))
+        primaryModifierLabel.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+
         let modifierBlock = NSStackView(views: [
-            SettingsRowBuilder.subLabel(NSLocalizedString("Modifier Keys", comment: "")),
+            primaryModifierLabel,
             modifierChipRow,
             modifierPreview,
             hyperHint,
@@ -119,6 +197,7 @@ final class AdvancedPaneViewController: NSViewController {
             toggle: resizeSwitch,
             action: #selector(resizeToggled(_:))
         )
+        let leftResizeBlock = buildLeftResizeBlock()
         let cornerBracketRow = buildFeatureRow(
             title: NSLocalizedString("feature.cornerBracket", comment: ""),
             subtitle: NSLocalizedString("feature.cornerBracket.subtitle", comment: ""),
@@ -129,7 +208,7 @@ final class AdvancedPaneViewController: NSViewController {
         SettingsCardLayout.addSection(
             to: container,
             header: NSLocalizedString("section.windowResize", comment: ""),
-            rows: [resizeRow.view, cornerBracketRow.view]
+            rows: [resizeRow.view, cornerBracketRow.view, leftResizeBlock]
         )
 
         // ─── Middle-click action card ─────────────────────────────────
@@ -189,9 +268,14 @@ final class AdvancedPaneViewController: NSViewController {
         maximizeSwitch.state        = dragEngine.maximizeEnabled ? .on : .off
         tilingSwitch.state          = dragEngine.tilingEnabled ? .on : .off
         resizeSwitch.state          = dragEngine.resizeEnabled ? .on : .off
+        leftResizeSwitch.state      = dragEngine.leftResizeEnabled ? .on : .off
         cornerBracketSwitch.state   = dragEngine.cornerBracketEnabled ? .on : .off
         multiDisplayBentoSwitch.state = dragEngine.multiDisplayBentoEnabled ? .on : .off
         tileDragOnlySwitch.state    = dragEngine.tileByDirectionDragOnly ? .on : .off
+
+        augmentChipRow.selection = dragEngine.leftResizeModifier
+        updateAugmentPickerState()
+        updateLeftResizeSubtitle()
 
         updateFeatureRowsEnabled()
 
@@ -260,6 +344,84 @@ final class AdvancedPaneViewController: NSViewController {
         if previous != on {
             Analytics.trackPreferenceChanged(key: "resize_enabled", value: String(on))
         }
+    }
+
+    @objc private func leftResizeToggled(_ sender: NSSwitch) {
+        let on = (sender.state == .on)
+        let previous = dragEngine.leftResizeEnabled
+        dragEngine.leftResizeEnabled = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.leftResizeEnabled)
+        if updateAugmentPickerState() {
+            resizeWindowToFitPane()
+        }
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "left_resize_enabled", value: String(on))
+        }
+    }
+
+    /// The left-resize subtitle with the current primary-modifier symbol spliced
+    /// into its "%@" slot (e.g. "Hold the primary modifier (⇧) + …").
+    private func leftResizeSubtitleText() -> String {
+        String(format: NSLocalizedString("feature.leftResize.subtitle", comment: ""),
+               dragEngine.modifiers.symbol)
+    }
+
+    /// Re-render the left-resize subtitle so its inline primary-modifier symbol
+    /// tracks changes made in the primary-modifier picker.
+    private func updateLeftResizeSubtitle() {
+        leftResizeSubtitleLabel?.stringValue = leftResizeSubtitleText()
+    }
+
+    /// Mask of every eligible augment key, for intersection math against the base.
+    private var augmentCandidatesMask: ModifierCombination {
+        ModifierCombination.augmentCandidates.reduce(into: ModifierCombination()) { $0.formUnion($1) }
+    }
+
+    /// Show the augment picker only while "Resize with left-click" is on; when
+    /// visible, forbid any key already taken by the base modifier. Returns
+    /// whether the visibility changed, so the caller can re-fit the window.
+    @discardableResult
+    private func updateAugmentPickerState() -> Bool {
+        let enabled = dragEngine.leftResizeEnabled
+        let visibilityChanged = (augmentSubBlock?.isHidden == enabled)
+        augmentSubBlock?.isHidden = !enabled
+        if enabled {
+            augmentChipRow.disabledElements = augmentCandidatesMask.intersection(dragEngine.modifiers)
+        }
+        return visibilityChanged
+    }
+
+    /// Re-fit the Settings window to this pane after showing/hiding the augment
+    /// picker changes its height. Mirrors the General pane's diagnostics
+    /// disclosure: width stays locked, height follows the new fitting size,
+    /// top-aligned so the window grows/shrinks from the bottom edge.
+    private func resizeWindowToFitPane() {
+        guard let window = view.window else { return }
+        view.layoutSubtreeIfNeeded()
+        let targetHeight = view.fittingSize.height
+        let currentContent = window.contentRect(forFrameRect: window.frame)
+        let contentSize = NSSize(width: currentContent.width, height: targetHeight)
+        let targetFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
+        let current = window.frame
+        let topAligned = NSRect(
+            x: current.origin.x,
+            y: current.origin.y + current.height - targetFrame.height,
+            width: targetFrame.width,
+            height: targetFrame.height
+        )
+        window.setFrame(topAligned, display: true, animate: true)
+    }
+
+    /// After the base modifier changes, move the augment off any key it now
+    /// collides with (persisting + reflecting the move) and refresh the picker.
+    private func revalidateAugmentForBaseChange() {
+        let sanitized = dragEngine.leftResizeModifier.sanitizedAugment(base: dragEngine.modifiers)
+        if sanitized != dragEngine.leftResizeModifier {
+            dragEngine.leftResizeModifier = sanitized
+            UserDefaults.standard.set(sanitized.rawValue, forKey: Preferences.Key.leftResizeModifier)
+            augmentChipRow.selection = sanitized
+        }
+        updateAugmentPickerState()
     }
 
     @objc private func cornerBracketToggled(_ sender: NSSwitch) {

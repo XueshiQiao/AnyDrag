@@ -105,11 +105,14 @@ final class MenuBarController: NSObject {
         return menu
     }
 
-    // Tip key, the feature toggle that gates it (nil = always show).
-    private let tipKeys: [(key: String, gate: (DragEngine) -> Bool)] = [
-        ("tip.drag",     { $0.dragEnabled }),
-        ("tip.maximize", { $0.maximizeEnabled }),
-        ("tip.tiling",   { $0.tilingEnabled }),
+    // Tip key, the feature toggle that gates it, and the modifier symbol to
+    // substitute into its "%@" placeholder. Most tips use the bare base
+    // modifier; left-click resize uses base + its extra key.
+    private let tipKeys: [(key: String, gate: (DragEngine) -> Bool, symbol: (DragEngine) -> String)] = [
+        ("tip.drag",       { $0.dragEnabled },       { $0.modifiers.symbol }),
+        ("tip.maximize",   { $0.maximizeEnabled },   { $0.modifiers.symbol }),
+        ("tip.tiling",     { $0.tilingEnabled },     { $0.modifiers.symbol }),
+        ("tip.leftResize", { $0.leftResizeEnabled }, { $0.modifiers.union($0.leftResizeModifier).symbol }),
     ]
 
     // MARK: - Actions
@@ -145,15 +148,13 @@ extension MenuBarController: NSMenuDelegate {
         // Update usage tips with current modifier symbol; hide tips whose
         // feature is currently disabled, and hide all tips when no modifier is
         // selected (otherwise we'd render "Hold — and drag" with a placeholder).
-        let modifiers = dragEngine.modifiers
-        let sym = modifiers.symbol
-        let hasModifier = !modifiers.isEmpty
+        let hasModifier = !dragEngine.modifiers.isEmpty
         for (i, entry) in tipKeys.enumerated() {
             guard let item = menu.item(withTag: 500 + i) else { continue }
             let visible = hasModifier && entry.gate(dragEngine)
             item.isHidden = !visible
             if visible {
-                item.title = String(format: NSLocalizedString(entry.key, comment: ""), sym)
+                item.title = String(format: NSLocalizedString(entry.key, comment: ""), entry.symbol(dragEngine))
             }
         }
 

@@ -9,6 +9,7 @@
 "tip.drag" = "%@ + 左键拖动:移动窗口";
 "tip.maximize" = "%@ + 左键双击:最大化 / 恢复";
 "tip.tiling" = "%@ + 右键:窗口布局";
+"tip.leftResize" = "%@ + 左键拖动:缩放窗口";
 
 /* Tiling Panel */
 "Move & Resize" = "移动与调整大小";
@@ -25,7 +26,7 @@
 
 /* Permission alert */
 "permission.title" = "AnyDrag 需要授权";
-"permission.message" = "AnyDrag 需要「辅助功能」权限,用于检测修饰键和移动窗口。\n\n请在系统设置中授权,然后回到这里。AnyDrag 会自动检测到授权变化。";
+"permission.message" = "AnyDrag 需要「辅助功能」权限,用于检测主修饰键和移动窗口。\n\n请在系统设置中授权,然后回到这里。AnyDrag 会自动检测到授权变化。";
 "permission.openSettings" = "打开系统设置";
 "permission.quit" = "退出";
 
@@ -35,6 +36,7 @@
 
 /* Settings — Modifier section */
 "Modifier Keys" = "修饰键";
+"label.primaryModifier" = "主修饰键";
 "Command" = "Command";
 "Shift" = "Shift";
 "Option" = "Option";
@@ -43,7 +45,7 @@
 "Hyper" = "Hyper";
 /* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
 "modifier.preview.format" = "按住 %1$@ (%2$@) 使用 AnyDrag";
-"modifier.preview.empty" = "AnyDrag 已关闭 — 选择修饰键以启用";
+"modifier.preview.empty" = "AnyDrag 已关闭 — 选择主修饰键以启用";
 "modifier.hyper.hint" = "Hyper = 按住 CapsLock。需运行 HyperCapslock 并启用“按住 CapsLock 拖动窗口（AnyDrag）”。";
 
 /* Settings — Features section */
@@ -51,7 +53,11 @@
 "section.windowDrag"   = "窗口拖动";
 "section.windowResize" = "窗口缩放";
 "feature.resize"            = "缩放窗口";
-"feature.resize.subtitle"   = "按住修饰键 + 右键拖动,从最近的窗口角进行缩放。";
+"feature.resize.subtitle"   = "按住主修饰键 + 右键拖动,从最近的窗口角进行缩放。";
+"feature.leftResize"          = "左键缩放窗口";
+/* %@ = 用户当前设置的主修饰键符号(如 ⇧) */
+"feature.leftResize.subtitle" = "按住主修饰键(%@) + 辅助修饰键,左键拖动从最近的窗口角缩放。";
+"leftResize.augment"          = "辅助修饰键";
 "feature.cornerBracket"          = "角标指示线";
 "feature.cornerBracket.subtitle" = "缩放时在被抓的窗口角显示发光指示线。关掉可获得更好性能——开启时每秒约读取 30 次窗口位置。";
 "feature.multiDisplayBento"          = "面板内显示所有显示器";
@@ -61,9 +67,9 @@
 "Drag window" = "拖动窗口";
 "Maximize / Restore" = "最大化 / 恢复";
 "Window tiling" = "窗口平铺";
-"feature.drag.subtitle" = "按住修饰键,在窗口任意处拖动";
-"feature.maximize.subtitle" = "按住修饰键,双击窗口最大化或恢复";
-"feature.tiling.subtitle" = "按住修饰键,右键打开平铺面板";
+"feature.drag.subtitle" = "按住主修饰键,在窗口任意处拖动";
+"feature.maximize.subtitle" = "按住主修饰键,双击窗口最大化或恢复";
+"feature.tiling.subtitle" = "按住主修饰键,右键打开平铺面板";
 
 /* Settings — Middle-click action */
 "Middle-click action" = "鼠标中键动作";

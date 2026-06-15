@@ -9,6 +9,7 @@
 "tip.drag" = "%@ + Left-drag: Move window";
 "tip.maximize" = "%@ + Left-double-click: Maximize / Restore";
 "tip.tiling" = "%@ + Right-click: Window tiling";
+"tip.leftResize" = "%@ + Left-drag: Resize window";
 
 /* Tiling Panel */
 "Move & Resize" = "Move & Resize";
@@ -25,7 +26,7 @@
 
 /* Permission alert */
 "permission.title" = "AnyDrag Needs Permissions";
-"permission.message" = "AnyDrag requires Accessibility permission to detect modifier keys and move windows.\n\nPlease grant the permission in System Settings, then return here. AnyDrag will detect the change automatically.";
+"permission.message" = "AnyDrag requires Accessibility permission to detect the primary modifier and move windows.\n\nPlease grant the permission in System Settings, then return here. AnyDrag will detect the change automatically.";
 "permission.openSettings" = "Open System Settings";
 "permission.quit" = "Quit";
 
@@ -35,6 +36,7 @@
 
 /* Settings — Modifier section */
 "Modifier Keys" = "Modifier Keys";
+"label.primaryModifier" = "Primary Modifier";
 "Command" = "Command";
 "Shift" = "Shift";
 "Option" = "Option";
@@ -43,7 +45,7 @@
 "Hyper" = "Hyper";
 /* %1$@ = symbol (e.g. ⇧⌘), %2$@ = name (e.g. Shift + Command) */
 "modifier.preview.format" = "Hold %1$@ (%2$@) to use AnyDrag";
-"modifier.preview.empty" = "AnyDrag is off — choose a modifier key to enable";
+"modifier.preview.empty" = "AnyDrag is off — choose a primary modifier to enable";
 "modifier.hyper.hint" = "Hyper = hold CapsLock. Requires HyperCapslock running with “Hold CapsLock to drag windows (AnyDrag)” enabled.";
 
 /* Settings — Features section */
@@ -51,7 +53,11 @@
 "section.windowDrag"   = "Window Drag";
 "section.windowResize" = "Window Resize";
 "feature.resize"            = "Resize from anywhere";
-"feature.resize.subtitle"   = "Hold the modifier + right-click and drag to resize from the nearest window corner.";
+"feature.resize.subtitle"   = "Hold the primary modifier + right-click and drag to resize from the nearest window corner.";
+"feature.leftResize"          = "Resize with left-click";
+/* %@ = the primary modifier symbol (e.g. ⇧) the user has set */
+"feature.leftResize.subtitle" = "Hold the primary modifier (%@) + a secondary modifier and left-drag to resize from the nearest window corner.";
+"leftResize.augment"          = "Secondary Modifier";
 "feature.cornerBracket"          = "Corner Bracket";
 "feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";
 "feature.multiDisplayBento"          = "Show all displays in tile panel";
@@ -61,9 +67,9 @@
 "Drag window" = "Drag window";
 "Maximize / Restore" = "Maximize / Restore";
 "Window tiling" = "Window tiling";
-"feature.drag.subtitle" = "Hold the modifier and drag anywhere on a window";
-"feature.maximize.subtitle" = "Hold the modifier and double-click to maximize or restore";
-"feature.tiling.subtitle" = "Hold the modifier and right-click to open the tiling panel";
+"feature.drag.subtitle" = "Hold the primary modifier and drag anywhere on a window";
+"feature.maximize.subtitle" = "Hold the primary modifier and double-click to maximize or restore";
+"feature.tiling.subtitle" = "Hold the primary modifier and right-click to open the tiling panel";
 
 /* Settings — Middle-click action */
 "Middle-click action" = "Middle-click action";

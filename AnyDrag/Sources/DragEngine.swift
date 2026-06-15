@@ -82,6 +82,38 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
         contains(.hyper) ? .hyper : self
     }
 
+    // MARK: - Left-click resize augment
+
+    /// The single extra keys eligible as the "add one more key" augment for the
+    /// left-click resize gesture (base modifier + this key + left-drag → resize).
+    /// Order is the preference order used when picking a default.
+    ///
+    /// Option is intentionally excluded: the move gesture already treats
+    /// "base + Option" as a pass-through so macOS native window-tiling can kick
+    /// in (`supportsOptionAugmentation`), so reusing Option here would make
+    /// "base + Option" ambiguous between move and resize. Hyper isn't a real
+    /// event flag (it's a CapsLock hold), so it can't be an *added* key either.
+    static let augmentCandidates: [ModifierCombination] = [.shift, .control, .command, .fn]
+
+    /// True when this combination is exactly one eligible augment key.
+    var isValidAugment: Bool {
+        Self.augmentCandidates.contains(self)
+    }
+
+    /// First eligible augment key that doesn't overlap `base`, so the resize
+    /// trigger is always a strict superset of the move trigger.
+    static func defaultAugment(excluding base: ModifierCombination) -> ModifierCombination {
+        augmentCandidates.first { $0.isDisjoint(with: base) } ?? .shift
+    }
+
+    /// Normalize a persisted/hand-edited augment for the given base: keep it if
+    /// it's a single eligible key disjoint from the base, otherwise fall back to
+    /// the first non-conflicting default. Guarantees the engine never arms the
+    /// resize path on the same flags as the move path.
+    func sanitizedAugment(base: ModifierCombination) -> ModifierCombination {
+        (isValidAugment && isDisjoint(with: base)) ? self : Self.defaultAugment(excluding: base)
+    }
+
     /// Migrate the pre-1.3 `ModifierKey` string preference.
     init?(legacyString: String) {
         switch legacyString {
@@ -216,6 +248,16 @@ final class DragEngine {
     /// When false, the right-click still opens TilingPanel as before but
     /// the drag-to-resize path is skipped.
     var resizeEnabled: Bool = true
+    /// Master toggle for the modifier + extra-key + left-drag → resize gesture.
+    /// Lets users whose right mouse button is bound elsewhere resize with the
+    /// left button instead. Independent of `resizeEnabled` (which gates the
+    /// right-click path), so either path can be on without the other.
+    var leftResizeEnabled: Bool = false
+    /// The single extra key held alongside the base modifier to trigger a
+    /// left-click resize (e.g. `.shift` → base + Shift + left-drag resizes).
+    /// Always kept disjoint from `modifiers` so the resize trigger is a strict
+    /// superset of the move trigger — see `sanitizedAugment(base:)`.
+    var leftResizeModifier: ModifierCombination = .shift
     /// When true (default) and ≥2 displays are connected, the bento panel
     /// renders all displays at their real arrangement so the user can pick
     /// any display × any zone in a single gesture. When false, or with one
@@ -498,7 +540,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resize=\(self.resizeEnabled) leftResize=\(self.leftResizeEnabled)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -843,6 +885,30 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
+        // Left-click resize: base modifier + the configured extra key + drag →
+        // resize-from-anywhere, the same engine as the right-click resize.
+        // Checked before everything else because its modifier set is a strict
+        // superset of the move trigger (and, for a Hyper base, would otherwise
+        // be swallowed by `matchesConfiguredModifier`, which ignores flags when
+        // CapsLock is held).
+        if matchesLeftResizeModifier(event.flags) {
+            return beginLeftResize(event: event)
+        }
+
+        // Not a left-resize press. A leftMouseDown can't be continuing an
+        // in-flight gesture (the button was up), so a resize strategy still
+        // flagged active is stranded from a lost mouse-up — drop it now, before
+        // any pass-through return below, so the next plain `leftMouseDragged`
+        // (which routes straight into `resizeStrategy` when it's active) can't
+        // be hijacked into a resize. The move path re-arms its own strategy.
+        if resizeStrategy.isActive {
+            resizeStrategy.reset()
+            cbState.withLock { state in
+                state.rightTarget = nil
+                state.rightOrigin = nil
+            }
+        }
+
         // Both left-button features off → nothing to do here.
         if !dragEnabled && !maximizeEnabled {
             return Unmanaged.passUnretained(event)
@@ -899,17 +965,8 @@ final class DragEngine {
         if hadStaleTile {
             abortTileGesture()
         }
-        // If the user starts a fresh left drag while a right-resize is
-        // somehow still in flight (lost rightUp, modifier-key remap, etc.),
-        // drop the stale resize state so a stranded gesture can't commit on
-        // some future event.
-        if resizeStrategy.isActive {
-            resizeStrategy.reset()
-            cbState.withLock { state in
-                state.rightTarget = nil
-                state.rightOrigin = nil
-            }
-        }
+        // A stranded right-resize is already dropped at the top of this method
+        // (the stale-`resizeStrategy` guard), so nothing to clear here.
         strategy.reset()
         Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
         return strategy.handleMouseDown(
@@ -920,9 +977,64 @@ final class DragEngine {
         )
     }
 
+    // MARK: - Left-click resize
+
+    /// Start a resize-from-anywhere gesture driven by the left button (the
+    /// modifier+extra-key combo matched in `handleMouseDown`). Mirrors the
+    /// right-click resize setup in `handleRightMouseDown`, minus the
+    /// TilingPanel-on-no-drag fallback — a bare press just gets swallowed.
+    private func beginLeftResize(event: CGEvent) -> Unmanaged<CGEvent>? {
+        let screenPoint = event.location
+
+        // Pass clicks on the primary screen's menu bar through.
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            logNoWindowMiss(button: "left-resize", at: screenPoint)
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard axGuardOrAbort("resizeStrategy.handleMouseDown(left-resize)") else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Drop any stranded move/tile/resize state so a lost up can't leave a
+        // stale gesture armed underneath this one.
+        if strategy.isActive { strategy.reset() }
+        let hadStaleTile = cbState.withLock { state -> Bool in
+            if state.tileTarget != nil { return true }
+            state.middleClickOrigin = nil
+            return false
+        }
+        if hadStaleTile { abortTileGesture() }
+        if resizeStrategy.isActive { resizeStrategy.reset() }
+
+        // Scrub the augment flag from the synthesized native-resize events so a
+        // Shift / Control / Command held to trigger us can't perturb the window
+        // server's resize tracking. (The base modifier is left on, matching the
+        // proven right-click path.)
+        resizeStrategy.extraFlagsToStrip = leftResizeModifier.eventFlags
+
+        Self.log.info("left-resize start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) keys=\(self.modifiers.union(self.leftResizeModifier).symbol)")
+        return resizeStrategy.handleMouseDown(
+            pid: windowInfo.pid,
+            windowID: windowInfo.windowID,
+            windowFrame: windowInfo.frame,
+            event: event
+        )
+    }
+
     // MARK: - Mouse Dragged
 
     private func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Left-click resize in flight: feed the resize strategy, which rewrites
+        // the drag into a native corner resize (same path as the right-click
+        // resize, just driven by left-button events).
+        if resizeStrategy.isActive {
+            return resizeStrategy.handleMouseDragged(event: event)
+        }
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -932,6 +1044,12 @@ final class DragEngine {
     // MARK: - Mouse Up
 
     private func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Left-click resize in flight: let the resize strategy commit (on drag)
+        // or quietly swallow the press (no drag). Unlike the right-click path
+        // there's no TilingPanel fallback — a bare base+extra click is a no-op.
+        if resizeStrategy.isActive {
+            return resizeStrategy.handleMouseUp(event: event)
+        }
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
@@ -1010,6 +1128,15 @@ final class DragEngine {
         }
 
         Self.log.info("right gesture start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+
+        // Drop a stranded resize (e.g. an interrupted left-resize that lost its
+        // up) so its lingering overlay / AX poll / isActive can't bleed into
+        // this gesture — symmetric with `beginLeftResize`.
+        if resizeStrategy.isActive { resizeStrategy.reset() }
+
+        // Right-click resize carries no extra augment key to scrub from the
+        // synthesized native events; clear any value a prior left-resize set.
+        resizeStrategy.extraFlagsToStrip = []
 
         // Suppress the down; the strategy will replay it as a leftMouseDown
         // on the first drag (resize) — or `handleRightMouseUp` will open the
@@ -1465,6 +1592,35 @@ final class DragEngine {
         // Allow base shortcut + Option so users can combine AnyDrag with
         // the macOS "Hold Option key while dragging windows to tile" feature.
         return activeModifiers == targetModifiers.union(.maskAlternate)
+    }
+
+    /// True when the held flags are exactly the base modifier PLUS the
+    /// configured left-resize augment key — the trigger for left-click resize.
+    /// Returns false (so the event falls through to the move/maximize path)
+    /// whenever the feature is off or the augment would overlap the base, which
+    /// keeps the move gesture working no matter how the two are configured.
+    private func matchesLeftResizeModifier(_ flags: CGEventFlags) -> Bool {
+        guard leftResizeEnabled else { return false }
+        let augment = leftResizeModifier
+        // The augment must be a single real flag key that isn't already part of
+        // the base — otherwise base+augment wouldn't differ from the move trigger.
+        guard augment.isValidAugment, augment.isDisjoint(with: modifiers) else { return false }
+        let augmentFlags = augment.eventFlags
+        guard !augmentFlags.isEmpty else { return false }
+
+        let cleanedFlags = flags.subtracting(.maskNonCoalesced)
+        let activeModifiers = cleanedFlags.intersection(Self.relevantModifierMask)
+
+        // Hyper base: arm on a held CapsLock plus exactly the augment flag
+        // (CapsLock itself carries no event flag, so it never appears here).
+        if modifiers.contains(.hyper) {
+            guard hyperCapslockSource.isHeld else { return false }
+            return activeModifiers == augmentFlags
+        }
+
+        let baseFlags = modifiers.eventFlags
+        guard !baseFlags.isEmpty else { return false }
+        return activeModifiers == baseFlags.union(augmentFlags)
     }
 
     private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {

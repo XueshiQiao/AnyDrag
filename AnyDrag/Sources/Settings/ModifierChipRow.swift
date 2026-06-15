@@ -15,29 +15,59 @@ final class ModifierChipRow: NSView {
     /// because we never optimistically flip it.
     var onChange: ((ModifierCombination) -> Bool)?
 
+    /// Elements that are shown but greyed-out and unclickable. Used by the
+    /// left-click resize augment picker to forbid keys already in the base
+    /// modifier (picking one would make the resize trigger identical to the
+    /// move trigger). Setting this restyles the affected chips.
+    var disabledElements: ModifierCombination = [] {
+        didSet { guard oldValue != disabledElements else { return }; syncChips() }
+    }
+
+    /// Radio behavior: at most one chip on at a time, and the on chip can't be
+    /// toggled off by re-clicking it. Used by the augment picker.
+    private let singleSelect: Bool
+
     private struct Spec {
         let element: ModifierCombination
         let glyph: String
         let title: String
     }
 
-    private let specs: [Spec] = [
-        Spec(element: .fn,      glyph: "fn", title: NSLocalizedString("fn", comment: "")),
-        Spec(element: .control, glyph: "⌃",  title: NSLocalizedString("Control", comment: "")),
-        Spec(element: .option,  glyph: "⌥",  title: NSLocalizedString("Option", comment: "")),
-        Spec(element: .shift,   glyph: "⇧",  title: NSLocalizedString("Shift", comment: "")),
-        Spec(element: .command, glyph: "⌘",  title: NSLocalizedString("Command", comment: "")),
-        // Virtual "Hyper" = hold CapsLock via HyperCapslock. Shown with the
-        // macOS CapsLock glyph (⇪, U+21EA) since that's literally what's held;
-        // accessibility label stays the word "Hyper".
-        Spec(element: .hyper,   glyph: "⇪", title: NSLocalizedString("Hyper", comment: "")),
-    ]
+    private static func allSpecs() -> [Spec] {
+        [
+            Spec(element: .fn,      glyph: "fn", title: NSLocalizedString("fn", comment: "")),
+            Spec(element: .control, glyph: "⌃",  title: NSLocalizedString("Control", comment: "")),
+            Spec(element: .option,  glyph: "⌥",  title: NSLocalizedString("Option", comment: "")),
+            Spec(element: .shift,   glyph: "⇧",  title: NSLocalizedString("Shift", comment: "")),
+            Spec(element: .command, glyph: "⌘",  title: NSLocalizedString("Command", comment: "")),
+            // Virtual "Hyper" = hold CapsLock via HyperCapslock. Shown with the
+            // macOS CapsLock glyph (⇪, U+21EA) since that's literally what's held;
+            // accessibility label stays the word "Hyper".
+            Spec(element: .hyper,   glyph: "⇪", title: NSLocalizedString("Hyper", comment: "")),
+        ]
+    }
+
     private var chips: [ModifierChip] = []
 
-    init(initial: ModifierCombination) {
+    /// - Parameters:
+    ///   - initial: starting selection.
+    ///   - candidates: when non-nil, only these single-key elements get a chip
+    ///     (in the canonical fn ⌃ ⌥ ⇧ ⌘ ⇪ order); nil shows all six.
+    ///   - singleSelect: radio behavior (see `singleSelect`).
+    init(initial: ModifierCombination,
+         candidates: [ModifierCombination]? = nil,
+         singleSelect: Bool = false) {
         self.selection = initial
+        self.singleSelect = singleSelect
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+
+        let specs: [Spec]
+        if let candidates {
+            specs = Self.allSpecs().filter { candidates.contains($0.element) }
+        } else {
+            specs = Self.allSpecs()
+        }
 
         setAccessibilityRole(.group)
         setAccessibilityLabel(NSLocalizedString("Modifier Keys", comment: ""))
@@ -67,8 +97,17 @@ final class ModifierChipRow: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func userToggled(_ element: ModifierCombination) {
+        // Disabled chips are inert (their `ModifierChip` already swallows the
+        // click, but guard here too in case of keyboard/AX activation).
+        guard disabledElements.isDisjoint(with: element) else { return }
+
         var proposed = selection
-        if proposed.contains(element) {
+        if singleSelect {
+            // Radio: clicking the already-on chip keeps it on (no empty state);
+            // clicking another moves the selection there.
+            guard !proposed.contains(element) else { return }
+            proposed = element
+        } else if proposed.contains(element) {
             proposed.remove(element)
         } else {
             proposed.insert(element)
@@ -91,6 +130,7 @@ final class ModifierChipRow: NSView {
     private func syncChips() {
         for chip in chips {
             chip.isOn = selection.contains(chip.element)
+            chip.isDisabled = !disabledElements.isDisjoint(with: chip.element)
         }
     }
 }
@@ -108,6 +148,12 @@ private final class ModifierChip: NSView {
             applyAppearance()
             NSAccessibility.post(element: self, notification: .valueChanged)
         }
+    }
+
+    /// Greyed-out and unclickable. Used to forbid keys already taken by the
+    /// base modifier in the augment picker.
+    var isDisabled: Bool = false {
+        didSet { guard oldValue != isDisabled else { return }; applyAppearance() }
     }
 
     private var isHovering: Bool = false {
@@ -172,6 +218,7 @@ private final class ModifierChip: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        guard !isDisabled else { return }
         isHovering = true
         NSCursor.pointingHand.set()
     }
@@ -182,6 +229,7 @@ private final class ModifierChip: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !isDisabled else { return }
         isPressed = true
         var inside = true
         let mask: NSEvent.EventTypeMask = [.leftMouseUp, .leftMouseDragged]
@@ -202,14 +250,14 @@ private final class ModifierChip: NSView {
 
     // MARK: - Keyboard
 
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool { !isDisabled }
 
     override func keyDown(with event: NSEvent) {
         let space = (event.charactersIgnoringModifiers == " ")
         let returnKey = (event.keyCode == 36)
         let keypadEnter = (event.keyCode == 76)
         if space || returnKey || keypadEnter {
-            onClick?()
+            if !isDisabled { onClick?() }
             return
         }
         super.keyDown(with: event)
@@ -218,6 +266,7 @@ private final class ModifierChip: NSView {
     // MARK: - Accessibility
 
     override func accessibilityPerformPress() -> Bool {
+        guard !isDisabled else { return false }
         onClick?()
         return true
     }
@@ -234,6 +283,11 @@ private final class ModifierChip: NSView {
     }
 
     private func applyAppearance() {
+        // Dim the whole chip when disabled; the on/off styling below still
+        // draws so a forbidden-but-selected key reads as "this is the choice,
+        // just not available right now".
+        alphaValue = isDisabled ? 0.35 : 1.0
+
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let accent = NSColor.controlAccentColor
 

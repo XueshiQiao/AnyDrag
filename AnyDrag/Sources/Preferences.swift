@@ -19,6 +19,11 @@ enum Preferences {
         static let maximizeEnabled = "AnyDragMaximizeEnabled"
         static let tilingEnabled   = "AnyDragTilingEnabled"
         static let resizeEnabled   = "AnyDragResizeEnabled"
+        // Left-click resize: hold base modifier + an extra key + left-drag to
+        // resize. Absent = off. `leftResizeModifier` stores the extra key as a
+        // ModifierCombination rawValue (single flag chip); absent = Shift.
+        static let leftResizeEnabled  = "AnyDragLeftResizeEnabled"
+        static let leftResizeModifier = "AnyDragLeftResizeModifier"
         static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
         static let multiDisplayBentoEnabled = "AnyDragMultiDisplayBentoEnabled"
         static let middleAction    = "AnyDragMiddleAction"
@@ -184,6 +189,17 @@ enum Preferences {
             engine.modifiers = ModifierCombination(rawValue: raw).hyperNormalized
         } else {
             engine.modifiers = .option
+        }
+
+        // Left-click resize. Read after `modifiers` so the augment can be
+        // sanitized against the (now-known) base — it must stay a single valid
+        // key disjoint from the base, else the resize trigger wouldn't differ
+        // from the move trigger.
+        engine.leftResizeEnabled = d.object(forKey: Key.leftResizeEnabled) as? Bool ?? false
+        if let raw = d.object(forKey: Key.leftResizeModifier) as? UInt {
+            engine.leftResizeModifier = ModifierCombination(rawValue: raw).sanitizedAugment(base: engine.modifiers)
+        } else {
+            engine.leftResizeModifier = ModifierCombination.defaultAugment(excluding: engine.modifiers)
         }
 
         if let raw = d.string(forKey: Key.middleAction),

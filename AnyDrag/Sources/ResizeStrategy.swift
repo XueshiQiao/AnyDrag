@@ -161,6 +161,16 @@ final class ResizeStrategy {
     /// layer, which would defeat the resize.
     private static let modifierFlagsToStrip: CGEventFlags = [.maskControl]
 
+    /// Extra modifier flags to scrub from the synthesized events on top of
+    /// `modifierFlagsToStrip`. Set by the engine to the left-click resize
+    /// augment key (Shift / Command / …) so it can't perturb the window
+    /// server's native resize; left empty for the right-click path. Reset to
+    /// empty in `reset()`.
+    var extraFlagsToStrip: CGEventFlags = []
+
+    /// All flags scrubbed from synthesized events this gesture.
+    private var flagsToStrip: CGEventFlags { Self.modifierFlagsToStrip.union(extraFlagsToStrip) }
+
     func handleMouseDown(pid: pid_t,
                         windowID: CGWindowID,
                         windowFrame: CGRect,
@@ -238,7 +248,7 @@ final class ResizeStrategy {
 
     func handleMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
         didDrag = true
-        event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
+        event.flags = event.flags.subtracting(flagsToStrip)
 
         // Snapshot the ORIGINAL cursor position before any rewrite — both
         // branches below use it (the early-return branch synthesizes a
@@ -315,7 +325,7 @@ final class ResizeStrategy {
         }
         event.type = .leftMouseUp
         event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
-        event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
+        event.flags = event.flags.subtracting(flagsToStrip)
         let pos = event.location
         event.location = CGPoint(x: pos.x + xOffset, y: pos.y + yOffset)
         isActive = false
@@ -339,6 +349,7 @@ final class ResizeStrategy {
         axWindow = nil
         observedFrame = nil
         lastAXPoll = .distantPast
+        extraFlagsToStrip = []
     }
 
     private func closeFeedback() {
