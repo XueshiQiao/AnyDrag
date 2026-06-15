@@ -68,10 +68,12 @@ final class NoDragMoveMode: WindowMoveMode {
 
     var isActive: Bool { state.withLock { $0.phase != .idle } }
 
-    /// Exact flag match against the dedicated modifier (no Hyper, no Option
-    /// augmentation). Empty target — or a flag-less combination — never matches,
-    /// so plain pointer movement can't trigger the gesture.
-    func matches(_ flags: CGEventFlags) -> Bool {
+    /// Exact match against the configured modifier. Virtual Hyper (CapsLock) is
+    /// tracked out-of-band and carries no event flag, so it's matched via
+    /// `hyperHeld`. Otherwise: exact flag match. A flag-less, non-Hyper combination
+    /// never matches, so plain pointer movement can't trigger the gesture.
+    func matches(_ flags: CGEventFlags, hyperHeld: Bool) -> Bool {
+        if modifiers.contains(.hyper) { return hyperHeld }
         let targetFlags = modifiers.eventFlags
         guard !targetFlags.isEmpty else { return false }
         let active = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
@@ -118,7 +120,7 @@ final class NoDragMoveMode: WindowMoveMode {
         let phase = state.withLock { $0.phase }
 
         if phase == .idle {
-            guard matches(event.flags) else { return .notHandled }
+            guard matches(event.flags, hyperHeld: context.isHyperHeld) else { return .notHandled }
             if context.isAnotherGestureActive { return .notHandled }
             let screenPoint = event.location
             guard !context.isOnPrimaryMenuBar(screenPoint) else { return .notHandled }
@@ -139,7 +141,7 @@ final class NoDragMoveMode: WindowMoveMode {
         }
 
         // armed / dragging — must still hold the modifier.
-        guard matches(event.flags) else {
+        guard matches(event.flags, hyperHeld: context.isHyperHeld) else {
             finish(context: context)
             return .handled(Unmanaged.passUnretained(event))
         }
@@ -190,7 +192,9 @@ final class NoDragMoveMode: WindowMoveMode {
     // MARK: - flagsChanged (end)
 
     private func handleFlags(_ event: CGEvent, context: MoveContext) {
-        let stillHeld = matches(event.flags)
+        // Flag modifiers end here. Hyper (no event flag) ends via the engine's
+        // Hyper-release hook calling abort(); see DragEngine.
+        let stillHeld = matches(event.flags, hyperHeld: context.isHyperHeld)
         let shouldFinish = state.withLock { $0.phase != .idle && !stillHeld }
         if shouldFinish { finish(context: context) }
     }

@@ -7,6 +7,7 @@
 
 /* Usage Tips — %@ is the modifier key symbol */
 "tip.drag" = "%@ + Left-drag: Move window";
+"tip.pointerMove" = "%@ + Move pointer: Move window";
 "tip.maximize" = "%@ + Left-double-click: Maximize / Restore";
 "tip.tiling" = "%@ + Right-click: Window tiling";
 
@@ -60,6 +61,8 @@
 "Maximize / Restore" = "Maximize / Restore";
 "Window tiling" = "Window tiling";
 "feature.drag.subtitle" = "Hold the modifier and drag anywhere on a window";
+"feature.pointerMove" = "Move by pointer (no button)";
+"feature.pointerMove.subtitle" = "Hold the modifier and just move the pointer — the window under it follows, no button needed. While on, modifier + left-drag no longer moves the window. Resize is still modifier + right-drag.";
 "feature.maximize.subtitle" = "Hold the modifier and double-click to maximize or restore";
 "feature.tiling.subtitle" = "Hold the modifier and right-click to open the tiling panel";
 
@@ -101,8 +104,3 @@
 /* About — analytics opt-out (co-located with the disclosure line) */
 "about.analytics.toggle" = "Send anonymous usage data";
 "about.analytics.subtitle" = "Helps us understand which features are used. No personal data, app names, or window contents are collected.";
-
-/* Settings — Experimental (issue #13 no-drag move prototype) */
-"experimental.section" = "Experimental";
-"experimental.noDragMove.label" = "No-drag move modifier";
-"experimental.noDragMove.hint" = "Hold this modifier (and no mouse button) and move the pointer — the window under it follows, then stops when you release the modifier. Pick a combination different from your main modifier; leave empty to disable. Experimental.";

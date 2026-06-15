@@ -13,11 +13,15 @@ enum Preferences {
         static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
         static let multiDisplayBentoEnabled = "AnyDragMultiDisplayBentoEnabled"
         static let middleAction    = "AnyDragMiddleAction"
-        // Experimental (issue #13 prototype): dedicated modifier for the
-        // "modifier + mouse-move, no button → move window" trigger. Absent /
-        // empty = feature off. Kept separate from `modifierFlags` so it never
-        // competes with the main button-drag gesture.
-        static let noDragMoveModifierFlags = "AnyDragNoDragMoveModifierFlags"
+        // Mutually-exclusive move/resize gesture scheme (see `GestureScheme`).
+        // Absent = `.classic` (the long-standing default).
+        static let gestureScheme   = "AnyDragGestureScheme"
+        // Removed: the standalone "no-drag move" used a dedicated modifier under
+        // these keys. It is superseded by `gestureScheme == .pointerMove`, which
+        // runs the no-drag move on the MAIN modifier. The stored values are cleared
+        // in `migrateLegacyKeysIfNeeded`.
+        static let legacyNoDragMoveModifierFlags = "AnyDragNoDragMoveModifierFlags"
+        static let legacyNoButtonMoveModifierFlags = "AnyDragNoButtonMoveModifierFlags"
         // Note: the "Hyper" (CapsLock-via-HyperCapslock) modifier needs no key of
         // its own — it's a bit in `modifierFlags`, so it persists with the rest of
         // the modifier combination and drives the CapsLock source via didSet.
@@ -119,6 +123,11 @@ enum Preferences {
         // Master enable toggle removed — drop the stored value so it doesn't
         // linger as orphaned state for users upgrading from <= 1.3.
         d.removeObject(forKey: Key.legacyEnabled)
+
+        // The standalone no-drag-move modifier is superseded by the gesture
+        // scheme; drop its (never-shipped) stored values.
+        d.removeObject(forKey: Key.legacyNoDragMoveModifierFlags)
+        d.removeObject(forKey: Key.legacyNoButtonMoveModifierFlags)
     }
 
     /// Apply current UserDefaults to a freshly-created DragEngine. Reading
@@ -168,15 +177,8 @@ enum Preferences {
 
         engine.showDebugDot = d.object(forKey: Key.showDebugDot) as? Bool ?? false
 
-        // Experimental no-drag move modifier (flags-only; no Hyper). Absent
-        // or empty means the feature is off.
-        if let raw = d.object(forKey: Key.noDragMoveModifierFlags) as? UInt {
-            // Flags-only feature — strip any stray Hyper bit (the UI can't set
-            // it, but a hand-edited default could) so it can't masquerade as a
-            // non-empty combination with no event flags.
-            engine.noDragMoveModifiers = ModifierCombination(rawValue: raw).subtracting(.hyper)
-        } else {
-            engine.noDragMoveModifiers = []
-        }
+        // Move/resize gesture scheme. Absent (or an unknown value) → classic.
+        engine.gestureScheme = (d.string(forKey: Key.gestureScheme)
+            .flatMap(GestureScheme.init(rawValue:))) ?? .classic
     }
 }

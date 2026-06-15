@@ -205,21 +205,33 @@ final class DragEngine {
             // `modifiers` write.
             hyperCapslockSource.setEnabled(modifiers.contains(.hyper))
             dragMode.modifiers = modifiers
+            applyScheme()
         }
     }
     /// AnyDrag's link to HyperCapslock. Owns the cross-process CapsLock-hold
     /// listening and the liveness watchdog; consulted via `isHeld` on the tap
     /// thread. Active only while `.hyper` is selected.
     let hyperCapslockSource = HyperCapslockCapsHoldSource()
-    /// Experimental (issue #13 prototype): dedicated modifier for the
-    /// "modifier + mouse-move, no button → move window" trigger. Empty = off.
-    /// Read on the tap thread, written on main — same lock-free cross-thread
-    /// pattern as `modifiers` (a UInt-backed value; arm64 word reads are atomic).
-    var noDragMoveModifiers: ModifierCombination = [] {
-        didSet { noDragMode.modifiers = noDragMoveModifiers }
+    /// How the move gesture is triggered (see `GestureScheme`). `.classic` =
+    /// left-drag move; `.pointerMove` = no-button pointer-move move. Resize
+    /// (right-drag), maximize, and tiling are the same in both.
+    var gestureScheme: GestureScheme = .classic {
+        didSet { applyScheme() }
     }
     var dragEnabled: Bool = true {
-        didSet { dragMode.enabled = dragEnabled }
+        didSet { applyScheme() }
+    }
+
+    /// Reconcile the move modes with the current scheme + main modifier. Called
+    /// from the `modifiers`, `gestureScheme`, and `dragEnabled` setters; idempotent.
+    private func applyScheme() {
+        // `dragEnabled` ("Drag window") is the master move switch for BOTH triggers.
+        let moveEnabled = dragEnabled
+        // Classic: left-drag move via DragMoveMode.
+        dragMode.enabled = (gestureScheme == .classic) && moveEnabled
+        // PointerMove: the no-drag move runs on the MAIN modifier. Off otherwise
+        // (an empty modifier never matches → the lock-free mouseMoved bail stays cheap).
+        noDragMode.modifiers = (gestureScheme == .pointerMove && moveEnabled) ? modifiers : []
     }
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
@@ -374,6 +386,13 @@ final class DragEngine {
 
     init() {
         installTrustObserver()
+        // Hyper (CapsLock) carries no event flag and emits no flagsChanged, so the
+        // pointer-move move can't end via the normal modifier-release path. End it
+        // when the Hyper source reports release. (No-op when no move is in flight.)
+        hyperCapslockSource.onReleased = { [weak self] in
+            guard let self else { return }
+            self.noDragMode.abort(context: self)
+        }
     }
 
     deinit {
@@ -501,7 +520,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) middle=\(self.middleAction.rawValue) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) scheme=\(self.gestureScheme.rawValue) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) middle=\(self.middleAction.rawValue) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -728,7 +747,7 @@ final class DragEngine {
         // nothing. (An engaged move always has the modifier held → matches true →
         // proceeds; a held physical button generates leftMouseDragged, not
         // mouseMoved, so this never strands a buttons-inert move.)
-        if type == .mouseMoved && !noDragMode.matches(event.flags) {
+        if type == .mouseMoved && !noDragMode.matches(event.flags, hyperHeld: hyperCapslockSource.isHeld) {
             return Unmanaged.passUnretained(event)
         }
 
@@ -896,8 +915,8 @@ final class DragEngine {
             return nil
         }
 
-        // Single click + modifier that DragMoveMode didn't begin (drag disabled or
-        // AX guard failed) — nothing more to do.
+        // Single click + modifier that DragMoveMode didn't begin (drag disabled, the
+        // pointer-move scheme is active, or AX guard failed) — nothing more to do.
         return Unmanaged.passUnretained(event)
     }
 

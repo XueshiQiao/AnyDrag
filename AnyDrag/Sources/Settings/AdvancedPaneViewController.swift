@@ -14,6 +14,9 @@ final class AdvancedPaneViewController: NSViewController {
     private let hyperHint = NSTextField(wrappingLabelWithString: "")
 
     private let dragSwitch     = NSSwitch()
+    /// Move-trigger switch: off = classic left-drag move, on = no-button pointer
+    /// move (GestureScheme.pointerMove). Resize stays modifier+right-drag either way.
+    private let pointerMoveSwitch = NSSwitch()
     private let maximizeSwitch = NSSwitch()
     private let tilingSwitch   = NSSwitch()
     private let resizeSwitch   = NSSwitch()
@@ -21,11 +24,6 @@ final class AdvancedPaneViewController: NSViewController {
     private let multiDisplayBentoSwitch = NSSwitch()
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
-
-    /// Experimental (issue #13 prototype): dedicated modifier for no-drag move.
-    /// Hyper excluded — the CapsLock source is wired to the main modifier only.
-    private let noDragModifierChipRow = ModifierChipRow(initial: ModifierCombination(), includeHyper: false)
-    private let noDragHint = NSTextField(wrappingLabelWithString: "")
 
     private var modifierGatedRows: [FeatureRowViews] = []
 
@@ -97,6 +95,12 @@ final class AdvancedPaneViewController: NSViewController {
             toggle: dragSwitch,
             action: #selector(dragToggled(_:))
         )
+        let pointerMoveRow = buildFeatureRow(
+            title: NSLocalizedString("feature.pointerMove", comment: ""),
+            subtitle: NSLocalizedString("feature.pointerMove.subtitle", comment: ""),
+            toggle: pointerMoveSwitch,
+            action: #selector(pointerMoveToggled(_:))
+        )
         let maximizeRow = buildFeatureRow(
             title: NSLocalizedString("Maximize / Restore", comment: ""),
             subtitle: NSLocalizedString("feature.maximize.subtitle", comment: ""),
@@ -113,7 +117,7 @@ final class AdvancedPaneViewController: NSViewController {
         SettingsCardLayout.addSection(
             to: container,
             header: NSLocalizedString("section.windowDrag", comment: ""),
-            rows: [modifierBlock, dragToggleRow.view, maximizeRow.view, tilingRow.view]
+            rows: [modifierBlock, dragToggleRow.view, pointerMoveRow.view, maximizeRow.view, tilingRow.view]
         )
 
         // ─── Window Resize card ───────────────────────────────────────
@@ -160,40 +164,6 @@ final class AdvancedPaneViewController: NSViewController {
             rows: [middleActionPicker, multiDisplayRow.view]
         )
 
-        // ─── Experimental card (issue #13 prototype) ──────────────────
-        noDragModifierChipRow.onChange = { [weak self] proposed in
-            guard let self = self else { return false }
-            let previous = self.dragEngine.noDragMoveModifiers
-            self.dragEngine.noDragMoveModifiers = proposed
-            UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.noDragMoveModifierFlags)
-            if previous != proposed {
-                Analytics.trackPreferenceChanged(key: "nodrag_move_modifier", value: proposed.analyticsKey)
-            }
-            return true
-        }
-
-        noDragHint.font = .systemFont(ofSize: 11)
-        noDragHint.textColor = .secondaryLabelColor
-        noDragHint.lineBreakMode = .byWordWrapping
-        noDragHint.maximumNumberOfLines = 0
-        noDragHint.stringValue = NSLocalizedString("experimental.noDragMove.hint", comment: "")
-
-        let noDragBlock = NSStackView(views: [
-            SettingsRowBuilder.subLabel(NSLocalizedString("experimental.noDragMove.label", comment: "")),
-            noDragModifierChipRow,
-            noDragHint,
-        ])
-        noDragBlock.orientation = .vertical
-        noDragBlock.alignment = .leading
-        noDragBlock.spacing = 6
-
-        SettingsCardLayout.addSection(
-            to: container,
-            header: NSLocalizedString("experimental.section", comment: ""),
-            rows: [noDragBlock],
-            bottomSpacing: 0
-        )
-
         let view = NSView()
         view.addSubview(container)
         NSLayoutConstraint.activate([
@@ -216,6 +186,7 @@ final class AdvancedPaneViewController: NSViewController {
         updateModifierPreview()
 
         dragSwitch.state            = dragEngine.dragEnabled ? .on : .off
+        pointerMoveSwitch.state     = (dragEngine.gestureScheme == .pointerMove) ? .on : .off
         maximizeSwitch.state        = dragEngine.maximizeEnabled ? .on : .off
         tilingSwitch.state          = dragEngine.tilingEnabled ? .on : .off
         resizeSwitch.state          = dragEngine.resizeEnabled ? .on : .off
@@ -225,7 +196,6 @@ final class AdvancedPaneViewController: NSViewController {
         updateFeatureRowsEnabled()
 
         middleActionPicker.selection = dragEngine.middleAction
-        noDragModifierChipRow.selection = dragEngine.noDragMoveModifiers
     }
 
     private func updateModifierPreview() {
@@ -259,6 +229,17 @@ final class AdvancedPaneViewController: NSViewController {
         UserDefaults.standard.set(on, forKey: Preferences.Key.dragEnabled)
         if previous != on {
             Analytics.trackPreferenceChanged(key: "drag_enabled", value: String(on))
+        }
+    }
+
+    @objc private func pointerMoveToggled(_ sender: NSSwitch) {
+        let on = (sender.state == .on)
+        let scheme: GestureScheme = on ? .pointerMove : .classic
+        let previous = dragEngine.gestureScheme
+        dragEngine.gestureScheme = scheme
+        UserDefaults.standard.set(scheme.rawValue, forKey: Preferences.Key.gestureScheme)
+        if previous != scheme {
+            Analytics.trackPreferenceChanged(key: "gesture_scheme", value: scheme.rawValue)
         }
     }
 

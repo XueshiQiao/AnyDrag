@@ -107,9 +107,10 @@ final class MenuBarController: NSObject {
 
     // Tip key, the feature toggle that gates it (nil = always show).
     private let tipKeys: [(key: String, gate: (DragEngine) -> Bool)] = [
-        ("tip.drag",     { $0.dragEnabled }),
-        ("tip.maximize", { $0.maximizeEnabled }),
-        ("tip.tiling",   { $0.tilingEnabled }),
+        ("tip.drag",        { $0.dragEnabled && $0.gestureScheme == .classic }),
+        ("tip.pointerMove", { $0.dragEnabled && $0.gestureScheme == .pointerMove }),
+        ("tip.maximize",    { $0.maximizeEnabled }),
+        ("tip.tiling",      { $0.tilingEnabled }),
     ]
 
     // MARK: - Actions

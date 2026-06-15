@@ -30,6 +30,11 @@ final class HyperCapslockCapsHoldSource {
     private let heldLock = OSAllocatedUnfairLock(initialState: false)
     var isHeld: Bool { heldLock.withLock { $0 } }
 
+    /// Fired on main when a hold ends (release, disable, or liveness timeout).
+    /// The engine uses it to end a pointer-move move, since Hyper emits no
+    /// `flagsChanged`. Set once at init.
+    var onReleased: (() -> Void)?
+
     // Everything below is main-thread only.
     private var enabled = false
     private var observers: [NSObjectProtocol] = []
@@ -73,8 +78,12 @@ final class HyperCapslockCapsHoldSource {
     }
 
     private func endHold() {
-        heldLock.withLock { $0 = false }
+        let wasHeld = heldLock.withLock { held -> Bool in
+            defer { held = false }
+            return held
+        }
         stopHeartbeat()
+        if wasHeld { onReleased?() }
     }
 
     // MARK: - Liveness watchdog (main queue)

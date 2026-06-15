@@ -7,6 +7,7 @@
 
 /* Usage Tips — %@ is the modifier key symbol */
 "tip.drag" = "%@ + 左键拖动:移动窗口";
+"tip.pointerMove" = "%@ + 移动鼠标:移动窗口";
 "tip.maximize" = "%@ + 左键双击:最大化 / 恢复";
 "tip.tiling" = "%@ + 右键:窗口布局";
 
@@ -60,6 +61,8 @@
 "Maximize / Restore" = "最大化 / 恢复";
 "Window tiling" = "窗口平铺";
 "feature.drag.subtitle" = "按住修饰键,在窗口任意处拖动";
+"feature.pointerMove" = "移动鼠标移动窗口（无需按键）";
+"feature.pointerMove.subtitle" = "开启后:按住修饰键并移动鼠标(无需按任何键),指针下的窗口即跟随移动;此时「修饰键+左键拖动」不再移动窗口。缩放仍为「修饰键+右键拖动」。";
 "feature.maximize.subtitle" = "按住修饰键,双击窗口最大化或恢复";
 "feature.tiling.subtitle" = "按住修饰键,右键打开平铺面板";
 
@@ -101,8 +104,3 @@
 /* About — analytics opt-out (co-located with the disclosure line) */
 "about.analytics.toggle" = "发送匿名使用数据";
 "about.analytics.subtitle" = "帮助我们了解哪些功能被使用。不会收集任何个人信息、应用名称或窗口内容。";
-
-/* Settings — Experimental (issue #13 no-drag move prototype) */
-"experimental.section" = "实验性功能";
-"experimental.noDragMove.label" = "无拖拽移动修饰键";
-"experimental.noDragMove.hint" = "按住此修饰键（不按任何鼠标键）移动指针，指针下的窗口会跟随移动，松开修饰键即停止。请选择与主修饰键不同的组合；留空则关闭。实验性功能。";
