@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AnyDrag · Bento overlay — target-window indicator placements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     PAGE CHROME  (editorial, distinct from the macOS overlay)
+     ============================================================ */
+  :root{
+    --page-bg:#0b0c10;
+    --ink:#f4f1ea;
+    --ink-dim:#a7a39a;
+    --ink-faint:#6f6c64;
+    --line:rgba(255,255,255,.09);
+    --card:#131419;
+    --card-2:#0f1015;
+    --hot:#ff7a3d;          /* warm editorial accent */
+    --hot-2:#ffd0a8;
+    --good:#7fd6a3;
+    --watch:#e8b765;
+    --display:"Bricolage Grotesque", "Helvetica Neue", system-ui, sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --body:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{
+    background:
+      radial-gradient(120% 80% at 85% -10%, rgba(255,122,61,.10), transparent 55%),
+      radial-gradient(90% 70% at -10% 0%, rgba(90,120,255,.08), transparent 50%),
+      var(--page-bg);
+    color:var(--ink);
+    font-family:var(--body);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.55;
+    min-height:100vh;
+  }
+  /* faint grain */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.035;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    mix-blend-mode:overlay;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:72px 40px 120px;position:relative;z-index:1;}
+
+  /* ---- header ---- */
+  .eyebrow{
+    font-family:var(--mono);font-size:12px;letter-spacing:.32em;text-transform:uppercase;
+    color:var(--hot);display:flex;align-items:center;gap:14px;margin:0 0 26px;
+  }
+  .eyebrow::after{content:"";height:1px;flex:1;background:linear-gradient(90deg,var(--hot),transparent);}
+  h1{
+    font-family:var(--display);font-weight:700;letter-spacing:-.02em;line-height:1.02;
+    font-size:clamp(38px,6vw,68px);margin:0 0 22px;
+  }
+  h1 em{font-style:italic;color:var(--hot-2);}
+  .lede{font-size:18px;color:var(--ink-dim);max-width:64ch;margin:0 0 14px;}
+  .lede b{color:var(--ink);font-weight:600;}
+
+  /* ---- legend / controls ---- */
+  .toolbar{
+    display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;
+    margin:42px 0 8px;padding:16px 20px;border:1px solid var(--line);border-radius:16px;
+    background:linear-gradient(180deg,var(--card),var(--card-2));
+  }
+  .legend{display:flex;flex-wrap:wrap;gap:20px;font-family:var(--mono);font-size:12px;color:var(--ink-dim);}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:8px;vertical-align:-1px;}
+  .legend .sw-cur{background:transparent;border:1.5px solid #0a84ff;}
+  .legend .sw-act{background:rgba(10,132,255,.5);border:1px solid #0a84ff;}
+  .legend .sw-app{background:linear-gradient(180deg,#1ec1ff,#0a73e6);}
+  .seg{display:inline-flex;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:11px;padding:3px;gap:2px;}
+  .seg button{
+    font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--ink-dim);
+    background:transparent;border:0;padding:7px 16px;border-radius:8px;cursor:pointer;transition:.18s;
+  }
+  .seg button[aria-pressed="true"]{background:var(--ink);color:#111;font-weight:600;}
+
+  /* ---- option block ---- */
+  .opt{margin-top:64px;opacity:0;transform:translateY(26px);}
+  .opt.in{opacity:1;transform:none;transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1);}
+  .opt-head{display:flex;align-items:baseline;gap:18px;margin-bottom:8px;flex-wrap:wrap;}
+  .opt-num{
+    font-family:var(--display);font-weight:800;font-size:42px;line-height:1;color:transparent;
+    -webkit-text-stroke:1.4px var(--hot);letter-spacing:-.02em;
+  }
+  .opt-name{font-family:var(--display);font-weight:700;font-size:30px;letter-spacing:-.01em;}
+  .opt-tag{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    color:#111;background:var(--hot-2);padding:5px 11px;border-radius:20px;align-self:center;}
+  .opt-tag.rec{background:var(--good);}
+  .opt-sub{color:var(--ink-dim);max-width:70ch;margin:0 0 26px;font-size:16px;}
+
+  /* ---- stage (faux desktop) ---- */
+  .stage{
+    position:relative;border-radius:20px;overflow:hidden;border:1px solid var(--line);
+    box-shadow:0 30px 80px rgba(0,0,0,.45);
+    min-height:430px;display:flex;align-items:center;justify-content:center;
+    padding:70px 30px 60px;
+  }
+  /* desktop wallpapers (theme aware) */
+  [data-theme="dark"] .stage{
+    background:
+      radial-gradient(120% 130% at 18% -10%, #5b3aa6 0%, #2a2f72 38%, #131a44 66%, #070a22 100%);
+  }
+  [data-theme="light"] .stage{
+    background:
+      radial-gradient(120% 130% at 82% -10%, #ffe6c2 0%, #ffc0a6 30%, #b9a7ff 62%, #8fb6ff 100%);
+  }
+  .stage::after{content:"";position:absolute;inset:0;pointer-events:none;
+    box-shadow:inset 0 0 140px rgba(0,0,0,.35);}
+  /* faux menu bar */
+  .menubar{
+    position:absolute;top:0;left:0;right:0;height:26px;z-index:5;
+    display:flex;align-items:center;gap:18px;padding:0 14px;
+    font:500 12.5px/1 var(--body);color:#fff;
+    background:rgba(0,0,0,.18);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+  }
+  [data-theme="light"] .menubar{background:rgba(255,255,255,.28);color:#1d1d1f;}
+  .menubar .apple{font-size:14px;margin-right:2px;}
+  .menubar .mb-app{font-weight:700;}
+  .menubar .mb-right{margin-left:auto;display:flex;gap:14px;align-items:center;font-family:var(--mono);font-size:12px;opacity:.92;}
+
+  /* ============================================================
+     THE OVERLAY  — faithful to TileCancelDot.swift
+     ============================================================ */
+  .overlay-wrap{position:relative;}
+  /* accent + material variables, theme aware (mirrors NSColor.controlAccentColor + .popover) */
+  [data-theme="dark"]{
+    --accent:#0a84ff;
+    --pop-bg:rgba(44,44,46,.62);
+    --pop-border:rgba(255,255,255,.18);
+    --tile-bg:rgba(255,255,255,.10);
+    --tile-border:rgba(255,255,255,.14);
+    --prev:rgba(255,255,255,.70);
+    --ring:rgba(255,255,255,.42);
+    --cardlabel:rgba(255,255,255,.55);
+    --txt:rgba(255,255,255,.94);
+    --txt2:rgba(235,235,245,.6);
+    --spec:rgba(255,255,255,.12);
+  }
+  [data-theme="light"]{
+    --accent:#007aff;
+    --pop-bg:rgba(246,246,248,.7);
+    --pop-border:rgba(0,0,0,.16);
+    --tile-bg:rgba(0,0,0,.06);
+    --tile-border:rgba(0,0,0,.10);
+    --prev:rgba(0,0,0,.62);
+    --ring:rgba(0,0,0,.42);
+    --cardlabel:rgba(0,0,0,.55);
+    --txt:rgba(0,0,0,.86);
+    --txt2:rgba(60,60,67,.6);
+    --spec:rgba(255,255,255,.5);
+  }
+  .panel{
+    position:relative;display:flex;flex-direction:column;padding:12px;border-radius:14px;
+    background:var(--pop-bg);
+    backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+    box-shadow:0 1px 0 var(--pop-border) inset, 0 0 0 1px var(--pop-border),
+               0 24px 70px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.3);
+    color:var(--txt);
+  }
+  .panel::after{content:"";position:absolute;top:.5px;left:16px;right:16px;height:1px;background:var(--spec);border-radius:1px;}
+  .slots{display:flex;gap:8px;}
+  .slot{display:flex;flex-direction:column;align-items:center;width:290px;}
+  .card{
+    position:relative;width:290px;height:185px;padding:12px;border-radius:10px;
+    display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:5px;
+  }
+  .card.current{box-shadow:inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 85%, transparent);}
+  .card-label{
+    margin-top:12px;height:13px;font:500 10px/13px var(--mono);letter-spacing:.8px;text-transform:uppercase;
+    color:var(--cardlabel);
+  }
+  .card-label.current{color:var(--accent);}
+
+  .tile{position:relative;border-radius:5px;background:var(--tile-bg);box-shadow:inset 0 0 0 1px var(--tile-border);}
+  .tile.active{background:color-mix(in srgb, var(--accent) 42%, transparent);
+    box-shadow:inset 0 0 0 1.2px color-mix(in srgb, var(--accent) 95%, transparent);}
+  .tile .mini{position:absolute;inset:5px;}
+  .tile .win{position:absolute;background:var(--prev);border-radius:1.5px;}
+  .tile.active .win{background:#fff;}
+  [data-theme="light"] .tile.active .win{background:#fff;}
+  /* zone geometry */
+  .win-full{inset:0;}
+  .win-centered{inset:7.5%;}
+  .win-left{left:0;top:0;bottom:0;width:calc(50% - 1.5px);}
+  .win-right{right:0;top:0;bottom:0;width:calc(50% - 1.5px);}
+  .win-topLeft{left:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+  .win-topRight{right:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+  .win-bottomLeft{left:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+  .win-bottomRight{right:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+  /* cancel ring */
+  .tile.cancel{background:transparent;box-shadow:none;display:flex;align-items:center;justify-content:center;}
+  .tile.cancel .ring{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 1.4px var(--ring);}
+
+  .appicon{display:block;border-radius:22%;flex:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35));}
+
+  /* ---------- placement: A header ---------- */
+  .app-header{
+    display:flex;align-items:center;justify-content:center;gap:9px;
+    padding:2px 4px 11px;margin-bottom:11px;border-bottom:1px solid var(--pop-border);
+  }
+  .ah-name{font:600 14px/1 var(--body);color:var(--txt);}
+  .ah-dot{color:var(--txt2);font-size:13px;}
+  .ah-title{font:400 13px/1 var(--body);color:var(--txt2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* ---------- placement: B floating chip ---------- */
+  .app-chip{
+    position:absolute;left:50%;bottom:100%;transform:translate(-50%,-12px);
+    display:flex;align-items:center;gap:9px;white-space:nowrap;
+    padding:8px 14px 8px 9px;border-radius:13px;color:var(--txt);
+    background:var(--pop-bg);backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+    box-shadow:0 0 0 1px var(--pop-border),0 12px 34px rgba(0,0,0,.42);
+    animation:floaty 4.5s ease-in-out infinite;
+  }
+  @keyframes floaty{0%,100%{transform:translate(-50%,-12px);}50%{transform:translate(-50%,-16px);}}
+  .ac-name{font:600 14px/1 var(--body);}
+  .ac-sep{width:1px;height:15px;background:var(--pop-border);}
+  .ac-title{font:400 13px/1 var(--body);color:var(--txt2);}
+
+  /* ---------- placement: C footer ---------- */
+  .app-footer{
+    margin-top:12px;align-self:center;display:flex;align-items:center;gap:8px;
+    padding:6px 13px 6px 7px;border-radius:11px;color:var(--txt);
+    background:color-mix(in srgb, var(--accent) 14%, transparent);
+    box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .app-footer span{font:600 13px/1 var(--body);}
+
+  /* ---------- placement: D home-card badge ---------- */
+  .app-badge{
+    position:absolute;top:8px;left:8px;z-index:3;display:flex;align-items:center;gap:6px;
+    padding:4px 9px 4px 4px;border-radius:9px;color:var(--txt);
+    background:var(--pop-bg);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);
+    box-shadow:0 0 0 1px var(--pop-border),0 4px 12px rgba(0,0,0,.35);
+  }
+  .app-badge span{font:600 11px/1 var(--body);}
+
+  /* ---- notes ---- */
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px;}
+  @media(max-width:720px){.notes{grid-template-columns:1fr;}}
+  .note{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:var(--card-2);}
+  .note h4{margin:0 0 10px;font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);}
+  .note ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;}
+  .note li{display:flex;gap:10px;font-size:14.5px;color:var(--ink-dim);}
+  .note li::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;margin-top:7px;}
+  .note.good li::before{background:var(--good);box-shadow:0 0 10px var(--good);}
+  .note.watch li::before{background:var(--watch);box-shadow:0 0 10px var(--watch);}
+  .note li b{color:var(--ink);font-weight:600;}
+
+  /* ---- closing ---- */
+  .closing{margin-top:84px;border-top:1px solid var(--line);padding-top:42px;}
+  .closing h2{font-family:var(--display);font-weight:700;font-size:30px;letter-spacing:-.01em;margin:0 0 16px;}
+  .rec-row{display:flex;flex-wrap:wrap;gap:14px;margin:22px 0 8px;}
+  .rec-pill{border:1px solid var(--line);border-radius:13px;padding:14px 18px;background:var(--card-2);flex:1;min-width:220px;}
+  .rec-pill .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--hot);}
+  .rec-pill .v{font-size:15px;color:var(--ink-dim);margin-top:6px;}
+  .rec-pill .v b{color:var(--ink);}
+  .foot{margin-top:46px;font-family:var(--mono);font-size:12px;color:var(--ink-faint);letter-spacing:.04em;}
+</style>
+</head>
+<body>
+
+<!-- reusable Safari-style app icon -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ico-safari" viewBox="0 0 64 64">
+    <defs>
+      <linearGradient id="sfbg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#22c3ff"/><stop offset="1" stop-color="#0a73e6"/>
+      </linearGradient>
+      <radialGradient id="sfgloss" cx="0.5" cy="0" r="1">
+        <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/>
+        <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#sfbg)"/>
+    <circle cx="32" cy="32" r="21" fill="#1761c0"/>
+    <circle cx="32" cy="32" r="21" fill="none" stroke="#eaf4ff" stroke-width="2.3"/>
+    <g stroke="#eaf4ff" stroke-width="1.4" opacity=".9" stroke-linecap="round">
+      <line x1="32" y1="12.6" x2="32" y2="16.2"/><line x1="32" y1="47.8" x2="32" y2="51.4"/>
+      <line x1="12.6" y1="32" x2="16.2" y2="32"/><line x1="47.8" y1="32" x2="51.4" y2="32"/>
+    </g>
+    <g transform="rotate(45 32 32)">
+      <polygon points="32,14 36.4,32 27.6,32" fill="#ff4136"/>
+      <polygon points="32,50 36.4,32 27.6,32" fill="#f4f6fb"/>
+    </g>
+    <circle cx="32" cy="32" r="2.1" fill="#fff"/>
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#sfgloss)"/>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <p class="eyebrow">AnyDrag · Design exploration</p>
+  <h1>Show <em>which window</em><br>the bento is about to move.</h1>
+  <p class="lede">The middle-button overlay already shows one card per display, each a 3×3 zone grid with a cancel ring. What it never says is <b>which window</b> you're tiling. Below are four faithful placements for the target app's icon&nbsp;+&nbsp;name — same glass material, geometry, accent border and labels as the shipping overlay. Pick one.</p>
+
+  <div class="toolbar">
+    <div class="legend">
+      <span><i class="sw-cur"></i>current display</span>
+      <span><i class="sw-act"></i>resolved zone</span>
+      <span><i class="sw-app"></i>target app</span>
+    </div>
+    <div class="seg" role="group" aria-label="Appearance">
+      <button data-theme-btn="dark" aria-pressed="true">Dark</button>
+      <button data-theme-btn="light" aria-pressed="false">Light</button>
+    </div>
+  </div>
+
+  <div id="options"></div>
+
+  <div class="closing">
+    <h2>My read</h2>
+    <p class="lede" style="margin-bottom:0">All four reuse the existing material and accent, so any of them ships cleanly. They differ in <b>prominence</b> vs. <b>how much they touch the grid</b>.</p>
+    <div class="rec-row">
+      <div class="rec-pill"><div class="k">Default pick</div><div class="v"><b>B · Floating chip.</b> Most glanceable, leaves the grid pixel-for-pixel as today, and behaves identically for 1 or N displays.</div></div>
+      <div class="rec-pill"><div class="k">If you want the window title</div><div class="v"><b>A · Title header.</b> The only one with comfortable room for app + window title together.</div></div>
+      <div class="rec-pill"><div class="k">Most precise meaning</div><div class="v"><b>D · Home-card badge.</b> Visually says "this window lives on this screen → send it to a zone."</div></div>
+    </div>
+    <p class="opt-sub" style="margin-top:22px">Single-display behaves the same — there's just one card, so the chip/header/footer/badge attaches to it. Reply with a letter (A/B/C/D) or mix-and-match and I'll wire it into <code>TileCancelDot.swift</code>.</p>
+    <p class="foot">faithful to TileCancelDot.swift · card 290×185 · pad 12 · gap 5 · accent = controlAccentColor · material = .popover</p>
+  </div>
+</div>
+
+<script>
+  const ZONES = ["topLeft","full","topRight","left","cancel","right","bottomLeft","centered","bottomRight"];
+  const ICON = s => `<svg class="appicon" width="${s}" height="${s}" viewBox="0 0 64 64"><use href="#ico-safari"/></svg>`;
+
+  function card(isCurrent, label, innerExtra=""){
+    const tiles = ZONES.map(z=>{
+      if(z==="cancel") return `<div class="tile cancel"><span class="ring"></span></div>`;
+      const active = isCurrent && z==="right";       // demo: window resolves to right-half of the current display
+      return `<div class="tile ${active?"active":""}"><span class="mini"><span class="win win-${z}"></span></span></div>`;
+    }).join("");
+    return `<div class="slot">
+      <div class="card ${isCurrent?"current":""}">${tiles}${innerExtra}</div>
+      <div class="card-label ${isCurrent?"current":""}">${label}</div>
+    </div>`;
+  }
+
+  const APP = {name:"Safari", title:"Apple · Start Page"};
+
+  function overlay(placement){
+    const badge = placement==="badge"
+      ? `<div class="app-badge">${ICON(16)}<span>${APP.name}</span></div>` : "";
+    const slots = `<div class="slots">${card(true,"BUILT-IN DISPLAY",badge)}${card(false,"STUDIO DISPLAY")}</div>`;
+
+    const header = placement==="header"
+      ? `<div class="app-header">${ICON(22)}<span class="ah-name">${APP.name}</span><span class="ah-dot">—</span><span class="ah-title">${APP.title}</span></div>` : "";
+    const footer = placement==="footer"
+      ? `<div class="app-footer">${ICON(17)}<span>${APP.name}</span></div>` : "";
+    const chip = placement==="chip"
+      ? `<div class="app-chip">${ICON(18)}<span class="ac-name">${APP.name}</span><span class="ac-sep"></span><span class="ac-title">${APP.title}</span></div>` : "";
+
+    return `<div class="overlay-wrap">${chip}<div class="panel">${header}${slots}${footer}</div></div>`;
+  }
+
+  const OPTIONS = [
+    {n:"A", name:"Title header", placement:"header", tag:"prominent",
+     sub:"A header strip across the top of the whole panel — app icon, name, and window title. Reads like a title bar for the operation.",
+     good:["<b>Most explicit</b> — biggest, hardest to miss.","Only layout with <b>room for the window title</b>, not just the app name.","Clear hierarchy: who → where."],
+     watch:["Grows the panel taller, nudging the grid a little further from the cursor.","Adds horizontal chrome even on a 1-display setup."]},
+    {n:"B", name:"Floating chip", placement:"chip", tag:"recommended", rec:true,
+     sub:"A self-contained pill hovering just above the bento, like a nameplate. The grid stays exactly as it ships today.",
+     good:["<b>Zero disruption</b> — the grid is untouched, pixel-for-pixel.","Very glanceable; sits right where your eyes enter the overlay.","<b>Identical for 1 or N displays</b> — it's anchored to the panel, not a card."],
+     watch:["It's a second floating element (slightly more on-screen chrome).","Needs a few px of headroom above the panel near the screen top edge."]},
+    {n:"C", name:"Footer caption", placement:"footer", tag:"familiar",
+     sub:"A centered, accent-tinted pill beneath the cards — mirroring the existing display-name labels.",
+     good:["Familiar position, visually balanced under the grid.","Reuses the label rhythm already at the bottom of each card."],
+     watch:["<b>Competes with the per-display labels</b> right next to it — can read as 'another display label'.","Adds a row of height below the cards."]},
+    {n:"D", name:"Home-card badge", placement:"badge", tag:"contextual",
+     sub:"A small badge pinned inside the current display's card — anchoring the window to the screen it currently lives on.",
+     good:["<b>Most semantically precise:</b> this window, on this screen → pick a zone.","Tucks into existing chrome; no new panel height.","Naturally scales — the badge always rides the accent-bordered card."],
+     watch:["Smallest / least prominent of the four.","On a busy card the corner can feel crowded next to the top-left tile."]},
+  ];
+
+  const host = document.getElementById("options");
+  OPTIONS.forEach(o=>{
+    const el = document.createElement("section");
+    el.className = "opt";
+    el.innerHTML = `
+      <div class="opt-head">
+        <span class="opt-num">${o.n}</span>
+        <span class="opt-name">${o.name}</span>
+        <span class="opt-tag ${o.rec?"rec":""}">${o.tag}</span>
+      </div>
+      <p class="opt-sub">${o.sub}</p>
+      <div class="stage">
+        <div class="menubar">
+          <span class="apple"></span><span class="mb-app">Safari</span>
+          <span>File</span><span>Edit</span><span>View</span><span>History</span>
+          <span class="mb-right"><span>􀙇</span><span>􀛨</span><span>9:41</span></span>
+        </div>
+        ${overlay(o.placement)}
+      </div>
+      <div class="notes">
+        <div class="note good"><h4>Where it shines</h4><ul>${o.good.map(g=>`<li>${g}</li>`).join("")}</ul></div>
+        <div class="note watch"><h4>Watch-outs</h4><ul>${o.watch.map(w=>`<li>${w}</li>`).join("")}</ul></div>
+      </div>`;
+    host.appendChild(el);
+  });
+
+  // theme toggle
+  document.querySelectorAll("[data-theme-btn]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const t = btn.getAttribute("data-theme-btn");
+      document.documentElement.setAttribute("data-theme", t);
+      document.querySelectorAll("[data-theme-btn]").forEach(b=>
+        b.setAttribute("aria-pressed", b===btn ? "true":"false"));
+    });
+  });
+
+  // staggered reveal
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach((e,i)=>{ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); }});
+  },{threshold:.12});
+  document.querySelectorAll(".opt").forEach(s=>io.observe(s));
+</script>
+</body>
+</html>
