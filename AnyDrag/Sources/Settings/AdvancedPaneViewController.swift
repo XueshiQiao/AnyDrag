@@ -16,14 +16,15 @@ final class AdvancedPaneViewController: NSViewController {
     private let dragSwitch     = NSSwitch()
     private let maximizeSwitch = NSSwitch()
     private let tilingSwitch   = NSSwitch()
-    private let resizeSwitch   = NSSwitch()
-    private let leftResizeSwitch = NSSwitch()
     private let cornerBracketSwitch = NSSwitch()
     private let multiDisplayBentoSwitch = NSSwitch()
     private let tileDragOnlySwitch = NSSwitch()
 
-    /// Single-select picker for the extra key held with the base modifier to
-    /// trigger a left-click resize. Limited to the eligible augment keys.
+    /// Three-card picker for how resize is triggered (off / right-drag / left-drag).
+    private let resizeTriggerPicker = ResizeTriggerCardPicker(initial: .rightClick)
+
+    /// Single-select picker for the secondary modifier held with the primary to
+    /// trigger a left-drag resize. Limited to the eligible augment keys.
     private let augmentChipRow = ModifierChipRow(
         initial: .shift,
         candidates: ModifierCombination.augmentCandidates,
@@ -31,11 +32,11 @@ final class AdvancedPaneViewController: NSViewController {
     )
     private let augmentLabel = SettingsRowBuilder.subLabel("")
     /// The "Secondary Modifier" label + chip row, wrapped so it can be
-    /// shown/hidden as a unit. Visible only while "Resize with left-click" is on.
+    /// shown/hidden as a unit. Visible only when the resize trigger is left-drag.
     private weak var augmentSubBlock: NSStackView?
-    /// The left-resize toggle's subtitle, kept so it can re-render the live
-    /// primary-modifier symbol when the base modifier changes.
-    private weak var leftResizeSubtitleLabel: NSTextField?
+    /// The two tile sub-options (multi-display + drag-only), shown only for the
+    /// "Tile by direction" middle action.
+    private weak var middleTileOptionsBlock: NSStackView?
 
     private let middleActionPicker = MiddleActionCardPicker(initial: .off)
 
@@ -55,24 +56,33 @@ final class AdvancedPaneViewController: NSViewController {
         return row
     }
 
-    /// The "Resize with left-click" toggle plus its extra-key picker, grouped as
-    /// one card cell (no hairline between them) since the picker only makes
-    /// sense as a sub-setting of the toggle.
-    private func buildLeftResizeBlock() -> NSView {
-        let leftResizeRow = buildFeatureRow(
-            title: NSLocalizedString("feature.leftResize", comment: ""),
-            subtitle: leftResizeSubtitleText(),
-            toggle: leftResizeSwitch,
-            action: #selector(leftResizeToggled(_:))
-        )
-        leftResizeSubtitleLabel = leftResizeRow.subtitle
+    /// The resize-trigger card picker plus the secondary-modifier picker, grouped
+    /// as one card cell. The secondary-modifier picker shows only when the
+    /// trigger is left-drag.
+    private func buildResizeTriggerBlock() -> NSView {
+        resizeTriggerPicker.selection = dragEngine.resizeTrigger
+        resizeTriggerPicker.setPrimaryModifierSymbol(dragEngine.modifiers.symbol)
+        resizeTriggerPicker.onChange = { [weak self] trigger in
+            guard let self = self else { return }
+            let previous = self.dragEngine.resizeTrigger
+            self.dragEngine.resizeTrigger = trigger
+            UserDefaults.standard.set(trigger.rawValue, forKey: Preferences.Key.resizeTrigger)
+            // Show/hide the secondary-modifier picker for the left-drag trigger,
+            // re-fitting the window when that changes its height.
+            if self.updateAugmentPickerState() {
+                self.resizeWindowToFitPane()
+            }
+            if previous != trigger {
+                Analytics.trackPreferenceChanged(key: "resize_trigger", value: trigger.rawValue)
+            }
+        }
 
         augmentLabel.stringValue = NSLocalizedString("leftResize.augment", comment: "")
 
         augmentChipRow.onChange = { [weak self] proposed in
             guard let self = self else { return false }
-            // Only a single eligible key that doesn't collide with the base —
-            // otherwise the resize trigger wouldn't differ from the move trigger.
+            // Only a single eligible key that doesn't collide with the primary —
+            // otherwise the left-drag trigger wouldn't differ from the move trigger.
             guard proposed.isValidAugment,
                   proposed.isDisjoint(with: self.dragEngine.modifiers) else { return false }
             let previous = self.dragEngine.leftResizeModifier
@@ -88,25 +98,81 @@ final class AdvancedPaneViewController: NSViewController {
         augmentSubBlock.orientation = .vertical
         augmentSubBlock.alignment = .leading
         augmentSubBlock.spacing = 6
-        // Hidden unless the feature is on. Set here (before the window measures
-        // the pane's fitting height) so it opens at the right size; an NSStackView
-        // collapses hidden arranged subviews, so the card shrinks to just the
-        // toggle row when off.
-        augmentSubBlock.isHidden = !dragEngine.leftResizeEnabled
+        // Shown only for the left-drag trigger. Set before the window measures
+        // the pane's fitting height so it opens at the right size; an NSStackView
+        // collapses hidden arranged subviews, so the card shrinks when hidden.
+        augmentSubBlock.isHidden = (dragEngine.resizeTrigger != .leftClick)
         self.augmentSubBlock = augmentSubBlock
 
-        let block = NSStackView(views: [leftResizeRow.view, augmentSubBlock])
+        let block = NSStackView(views: [resizeTriggerPicker, augmentSubBlock])
         block.orientation = .vertical
         block.alignment = .leading
-        block.spacing = 10
+        block.spacing = 12
         block.translatesAutoresizingMaskIntoConstraints = false
-        // The toggle row must span the full card width so the switch sits at the
-        // right edge; the vertical stack's .leading alignment won't stretch it.
+        // Stretch the picker and the sub-block to the full card width; the
+        // vertical stack's .leading alignment won't do it on its own.
         NSLayoutConstraint.activate([
-            leftResizeRow.view.leadingAnchor.constraint(equalTo: block.leadingAnchor),
-            leftResizeRow.view.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+            resizeTriggerPicker.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            resizeTriggerPicker.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+            augmentSubBlock.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            augmentSubBlock.trailingAnchor.constraint(equalTo: block.trailingAnchor),
         ])
         return block
+    }
+
+    /// The middle-click action picker plus its two tile sub-options, grouped as
+    /// one card cell. The sub-options apply only to "Tile by direction", so they
+    /// collapse out of view for the other actions — kept in one card row so
+    /// hiding them never strands a separator.
+    private func buildMiddleClickBlock() -> NSView {
+        let multiDisplayRow = buildFeatureRow(
+            title: NSLocalizedString("feature.multiDisplayBento", comment: ""),
+            subtitle: NSLocalizedString("feature.multiDisplayBento.subtitle", comment: ""),
+            toggle: multiDisplayBentoSwitch,
+            action: #selector(multiDisplayBentoToggled(_:))
+        )
+        let tileDragOnlyRow = buildFeatureRow(
+            title: NSLocalizedString("feature.tileDragOnly", comment: ""),
+            subtitle: NSLocalizedString("feature.tileDragOnly.subtitle", comment: ""),
+            toggle: tileDragOnlySwitch,
+            action: #selector(tileDragOnlyToggled(_:))
+        )
+
+        let tileOptions = NSStackView(views: [multiDisplayRow.view, tileDragOnlyRow.view])
+        tileOptions.orientation = .vertical
+        tileOptions.alignment = .leading
+        tileOptions.spacing = 12
+        tileOptions.isHidden = (dragEngine.middleAction != .tileByDirection)
+        self.middleTileOptionsBlock = tileOptions
+
+        let block = NSStackView(views: [middleActionPicker, tileOptions])
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 12
+        block.translatesAutoresizingMaskIntoConstraints = false
+        // Stretch the picker and each sub-row to the full card width; the
+        // vertical stack's .leading alignment won't do it on its own.
+        NSLayoutConstraint.activate([
+            middleActionPicker.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            middleActionPicker.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+            tileOptions.leadingAnchor.constraint(equalTo: block.leadingAnchor),
+            tileOptions.trailingAnchor.constraint(equalTo: block.trailingAnchor),
+            multiDisplayRow.view.leadingAnchor.constraint(equalTo: tileOptions.leadingAnchor),
+            multiDisplayRow.view.trailingAnchor.constraint(equalTo: tileOptions.trailingAnchor),
+            tileDragOnlyRow.view.leadingAnchor.constraint(equalTo: tileOptions.leadingAnchor),
+            tileDragOnlyRow.view.trailingAnchor.constraint(equalTo: tileOptions.trailingAnchor),
+        ])
+        return block
+    }
+
+    /// Show the tile sub-options only for "Tile by direction". Returns whether
+    /// visibility changed, so the caller can re-fit the window.
+    @discardableResult
+    private func updateMiddleTileOptionsVisibility() -> Bool {
+        let show = (dragEngine.middleAction == .tileByDirection)
+        let changed = (middleTileOptionsBlock?.isHidden == show)
+        middleTileOptionsBlock?.isHidden = !show
+        return changed
     }
 
     init(dragEngine: DragEngine) {
@@ -133,7 +199,7 @@ final class AdvancedPaneViewController: NSViewController {
             self.updateModifierPreview()
             self.updateFeatureRowsEnabled()
             self.revalidateAugmentForBaseChange()
-            self.updateLeftResizeSubtitle()
+            self.updateResizeTriggerSubtitle()
             if previous != proposed {
                 Analytics.trackPreferenceChanged(key: "modifier", value: proposed.analyticsKey)
             }
@@ -191,13 +257,7 @@ final class AdvancedPaneViewController: NSViewController {
         )
 
         // ─── Window Resize card ───────────────────────────────────────
-        let resizeRow = buildFeatureRow(
-            title: NSLocalizedString("feature.resize", comment: ""),
-            subtitle: NSLocalizedString("feature.resize.subtitle", comment: ""),
-            toggle: resizeSwitch,
-            action: #selector(resizeToggled(_:))
-        )
-        let leftResizeBlock = buildLeftResizeBlock()
+        let resizeTriggerBlock = buildResizeTriggerBlock()
         let cornerBracketRow = buildFeatureRow(
             title: NSLocalizedString("feature.cornerBracket", comment: ""),
             subtitle: NSLocalizedString("feature.cornerBracket.subtitle", comment: ""),
@@ -208,7 +268,7 @@ final class AdvancedPaneViewController: NSViewController {
         SettingsCardLayout.addSection(
             to: container,
             header: NSLocalizedString("section.windowResize", comment: ""),
-            rows: [resizeRow.view, cornerBracketRow.view, leftResizeBlock]
+            rows: [resizeTriggerBlock, cornerBracketRow.view]
         )
 
         // ─── Middle-click action card ─────────────────────────────────
@@ -217,29 +277,20 @@ final class AdvancedPaneViewController: NSViewController {
             let previous = self.dragEngine.middleAction
             self.dragEngine.middleAction = action
             UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
+            // The two tile sub-options only apply to "Tile by direction"; show
+            // them only for that action and re-fit the window when that changes.
+            if self.updateMiddleTileOptionsVisibility() {
+                self.resizeWindowToFitPane()
+            }
             if previous != action {
                 Analytics.trackPreferenceChanged(key: "middle_action", value: action.rawValue)
             }
         }
 
-        let multiDisplayRow = buildFeatureRow(
-            title: NSLocalizedString("feature.multiDisplayBento", comment: ""),
-            subtitle: NSLocalizedString("feature.multiDisplayBento.subtitle", comment: ""),
-            toggle: multiDisplayBentoSwitch,
-            action: #selector(multiDisplayBentoToggled(_:))
-        )
-
-        let tileDragOnlyRow = buildFeatureRow(
-            title: NSLocalizedString("feature.tileDragOnly", comment: ""),
-            subtitle: NSLocalizedString("feature.tileDragOnly.subtitle", comment: ""),
-            toggle: tileDragOnlySwitch,
-            action: #selector(tileDragOnlyToggled(_:))
-        )
-
         SettingsCardLayout.addSection(
             to: container,
             header: NSLocalizedString("Middle-click action", comment: ""),
-            rows: [middleActionPicker, multiDisplayRow.view, tileDragOnlyRow.view],
+            rows: [buildMiddleClickBlock()],
             bottomSpacing: 0
         )
 
@@ -267,19 +318,19 @@ final class AdvancedPaneViewController: NSViewController {
         dragSwitch.state            = dragEngine.dragEnabled ? .on : .off
         maximizeSwitch.state        = dragEngine.maximizeEnabled ? .on : .off
         tilingSwitch.state          = dragEngine.tilingEnabled ? .on : .off
-        resizeSwitch.state          = dragEngine.resizeEnabled ? .on : .off
-        leftResizeSwitch.state      = dragEngine.leftResizeEnabled ? .on : .off
         cornerBracketSwitch.state   = dragEngine.cornerBracketEnabled ? .on : .off
         multiDisplayBentoSwitch.state = dragEngine.multiDisplayBentoEnabled ? .on : .off
         tileDragOnlySwitch.state    = dragEngine.tileByDirectionDragOnly ? .on : .off
 
+        resizeTriggerPicker.selection = dragEngine.resizeTrigger
         augmentChipRow.selection = dragEngine.leftResizeModifier
         updateAugmentPickerState()
-        updateLeftResizeSubtitle()
+        updateResizeTriggerSubtitle()
 
         updateFeatureRowsEnabled()
 
         middleActionPicker.selection = dragEngine.middleAction
+        updateMiddleTileOptionsVisibility()
     }
 
     private func updateModifierPreview() {
@@ -302,6 +353,10 @@ final class AdvancedPaneViewController: NSViewController {
             row.title.textColor = enabled ? .labelColor : .tertiaryLabelColor
             row.subtitle.textColor = enabled ? .secondaryLabelColor : .tertiaryLabelColor
         }
+        // Resize needs a primary modifier to fire, so dim its picker when none
+        // is set (mirrors the gated toggles). The middle-click picker is left
+        // enabled — it triggers on the middle button alone, no modifier needed.
+        resizeTriggerPicker.isEnabled = enabled
     }
 
     // MARK: - Actions
@@ -336,40 +391,10 @@ final class AdvancedPaneViewController: NSViewController {
         }
     }
 
-    @objc private func resizeToggled(_ sender: NSSwitch) {
-        let on = (sender.state == .on)
-        let previous = dragEngine.resizeEnabled
-        dragEngine.resizeEnabled = on
-        UserDefaults.standard.set(on, forKey: Preferences.Key.resizeEnabled)
-        if previous != on {
-            Analytics.trackPreferenceChanged(key: "resize_enabled", value: String(on))
-        }
-    }
-
-    @objc private func leftResizeToggled(_ sender: NSSwitch) {
-        let on = (sender.state == .on)
-        let previous = dragEngine.leftResizeEnabled
-        dragEngine.leftResizeEnabled = on
-        UserDefaults.standard.set(on, forKey: Preferences.Key.leftResizeEnabled)
-        if updateAugmentPickerState() {
-            resizeWindowToFitPane()
-        }
-        if previous != on {
-            Analytics.trackPreferenceChanged(key: "left_resize_enabled", value: String(on))
-        }
-    }
-
-    /// The left-resize subtitle with the current primary-modifier symbol spliced
-    /// into its "%@" slot (e.g. "Hold the primary modifier (⇧) + …").
-    private func leftResizeSubtitleText() -> String {
-        String(format: NSLocalizedString("feature.leftResize.subtitle", comment: ""),
-               dragEngine.modifiers.symbol)
-    }
-
-    /// Re-render the left-resize subtitle so its inline primary-modifier symbol
-    /// tracks changes made in the primary-modifier picker.
-    private func updateLeftResizeSubtitle() {
-        leftResizeSubtitleLabel?.stringValue = leftResizeSubtitleText()
+    /// Re-render the resize picker's left-drag subtitle so its inline
+    /// primary-modifier symbol tracks changes in the primary-modifier picker.
+    private func updateResizeTriggerSubtitle() {
+        resizeTriggerPicker.setPrimaryModifierSymbol(dragEngine.modifiers.symbol)
     }
 
     /// Mask of every eligible augment key, for intersection math against the base.

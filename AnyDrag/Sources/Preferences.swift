@@ -18,12 +18,16 @@ enum Preferences {
         static let dragEnabled     = "AnyDragDragEnabled"
         static let maximizeEnabled = "AnyDragMaximizeEnabled"
         static let tilingEnabled   = "AnyDragTilingEnabled"
-        static let resizeEnabled   = "AnyDragResizeEnabled"
-        // Left-click resize: hold base modifier + an extra key + left-drag to
-        // resize. Absent = off. `leftResizeModifier` stores the extra key as a
-        // ModifierCombination rawValue (single flag chip); absent = Shift.
-        static let leftResizeEnabled  = "AnyDragLeftResizeEnabled"
+        // How resize is triggered: "off" / "right" / "left" (ResizeTrigger).
+        // Absent → derived from the legacy `resizeEnabled` + `leftResizeEnabled`
+        // booleans (see `apply`). `leftResizeModifier` stores the secondary
+        // modifier for the "left" trigger as a ModifierCombination rawValue.
+        static let resizeTrigger      = "AnyDragResizeTrigger"
         static let leftResizeModifier = "AnyDragLeftResizeModifier"
+        // Legacy resize toggles, now folded into `resizeTrigger`. Read only for
+        // one-time migration; preserved (not deleted) so a downgrade still works.
+        static let resizeEnabled      = "AnyDragResizeEnabled"
+        static let leftResizeEnabled  = "AnyDragLeftResizeEnabled"
         static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
         static let multiDisplayBentoEnabled = "AnyDragMultiDisplayBentoEnabled"
         static let middleAction    = "AnyDragMiddleAction"
@@ -176,7 +180,6 @@ enum Preferences {
         engine.dragEnabled      = d.object(forKey: Key.dragEnabled) as? Bool ?? true
         engine.maximizeEnabled  = d.object(forKey: Key.maximizeEnabled) as? Bool ?? true
         engine.tilingEnabled    = d.object(forKey: Key.tilingEnabled) as? Bool ?? true
-        engine.resizeEnabled    = d.object(forKey: Key.resizeEnabled) as? Bool ?? true
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
         engine.multiDisplayBentoEnabled = d.object(forKey: Key.multiDisplayBentoEnabled) as? Bool ?? true
         engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
@@ -191,11 +194,22 @@ enum Preferences {
             engine.modifiers = .option
         }
 
-        // Left-click resize. Read after `modifiers` so the augment can be
-        // sanitized against the (now-known) base — it must stay a single valid
-        // key disjoint from the base, else the resize trigger wouldn't differ
-        // from the move trigger.
-        engine.leftResizeEnabled = d.object(forKey: Key.leftResizeEnabled) as? Bool ?? false
+        // Resize trigger. Prefer the new key; otherwise migrate from the legacy
+        // booleans — favour an explicitly-enabled left-click path, else the
+        // right-click path (on by default), else off. Self-contained so it does
+        // not depend on migration running first.
+        if let raw = d.string(forKey: Key.resizeTrigger), let trigger = ResizeTrigger(rawValue: raw) {
+            engine.resizeTrigger = trigger
+        } else {
+            let leftOn = d.object(forKey: Key.leftResizeEnabled) as? Bool ?? false
+            let rightOn = d.object(forKey: Key.resizeEnabled) as? Bool ?? true
+            engine.resizeTrigger = leftOn ? .leftClick : (rightOn ? .rightClick : .off)
+        }
+
+        // Secondary modifier for the "left" trigger. Read after `modifiers` so
+        // the augment can be sanitized against the (now-known) base — it must
+        // stay a single valid key disjoint from the base, else the resize
+        // trigger wouldn't differ from the move trigger.
         if let raw = d.object(forKey: Key.leftResizeModifier) as? UInt {
             engine.leftResizeModifier = ModifierCombination(rawValue: raw).sanitizedAugment(base: engine.modifiers)
         } else {

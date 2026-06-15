@@ -52,11 +52,13 @@
 "Features" = "Features";
 "section.windowDrag"   = "Window Drag";
 "section.windowResize" = "Window Resize";
-"feature.resize"            = "Resize from anywhere";
-"feature.resize.subtitle"   = "Hold the primary modifier + right-click and drag to resize from the nearest window corner.";
-"feature.leftResize"          = "Resize with left-click";
+/* Window Resize — trigger picker (Off / Right-drag / Left-drag) */
+"resizeTrigger.right" = "Right-drag";
+"resizeTrigger.left"  = "Left-drag";
+"resizeTrigger.off.subtitle"   = "Window resize is off.";
+"resizeTrigger.right.subtitle" = "Hold the primary modifier + right-drag to resize from the nearest window corner.";
 /* %@ = the primary modifier symbol (e.g. ⇧) the user has set */
-"feature.leftResize.subtitle" = "Hold the primary modifier (%@) + a secondary modifier and left-drag to resize from the nearest window corner.";
+"resizeTrigger.left.subtitle"  = "Hold the primary modifier (%@) + a secondary modifier and left-drag to resize from the nearest window corner.";
 "leftResize.augment"          = "Secondary Modifier";
 "feature.cornerBracket"          = "Corner Bracket";
 "feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";

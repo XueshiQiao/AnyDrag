@@ -144,6 +144,25 @@ enum MiddleAction: String, CaseIterable {
     }
 }
 
+// MARK: - Resize Trigger Model
+
+/// How the resize-from-anywhere gesture is triggered. Mutually exclusive — the
+/// user picks one (or off). Replaces the old pair of independent booleans
+/// (`resizeEnabled` for right-click, `leftResizeEnabled` for modifier+left).
+enum ResizeTrigger: String, CaseIterable {
+    case off       = "off"
+    case rightClick = "right"   // primary modifier + right-drag
+    case leftClick  = "left"    // primary + secondary modifier + left-drag
+
+    var displayName: String {
+        switch self {
+        case .off:        return NSLocalizedString("Off", comment: "")
+        case .rightClick: return NSLocalizedString("resizeTrigger.right", comment: "")
+        case .leftClick:  return NSLocalizedString("resizeTrigger.left", comment: "")
+        }
+    }
+}
+
 // MARK: - Tile Zone Model
 
 /// A target region on the screen, selected by drag direction.
@@ -244,15 +263,18 @@ final class DragEngine {
     var dragEnabled: Bool = true
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
-    /// Master toggle for the modifier+right-drag → resize gesture.
-    /// When false, the right-click still opens TilingPanel as before but
-    /// the drag-to-resize path is skipped.
-    var resizeEnabled: Bool = true
-    /// Master toggle for the modifier + extra-key + left-drag → resize gesture.
-    /// Lets users whose right mouse button is bound elsewhere resize with the
-    /// left button instead. Independent of `resizeEnabled` (which gates the
-    /// right-click path), so either path can be on without the other.
-    var leftResizeEnabled: Bool = false
+    /// How the resize-from-anywhere gesture is triggered (right-click,
+    /// modifier+left-click, or off). Single source of truth; the two booleans
+    /// below are derived from it so the gesture logic keeps reading the same
+    /// flags it always has.
+    var resizeTrigger: ResizeTrigger = .rightClick
+    /// True when resize is on the modifier+right-drag path. Drives
+    /// `handleRightMouseDown` (suppress-and-defer vs. open the TilingPanel).
+    var resizeEnabled: Bool { resizeTrigger == .rightClick }
+    /// True when resize is on the modifier + extra-key + left-drag path. Drives
+    /// `matchesLeftResizeModifier`. Lets users whose right mouse button is bound
+    /// elsewhere resize with the left button instead.
+    var leftResizeEnabled: Bool { resizeTrigger == .leftClick }
     /// The single extra key held alongside the base modifier to trigger a
     /// left-click resize (e.g. `.shift` → base + Shift + left-drag resizes).
     /// Always kept disjoint from `modifiers` so the resize trigger is a strict
@@ -540,7 +562,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resize=\(self.resizeEnabled) leftResize=\(self.leftResizeEnabled)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {

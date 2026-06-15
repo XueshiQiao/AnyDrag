@@ -112,7 +112,7 @@ final class MenuBarController: NSObject {
         ("tip.drag",       { $0.dragEnabled },       { $0.modifiers.symbol }),
         ("tip.maximize",   { $0.maximizeEnabled },   { $0.modifiers.symbol }),
         ("tip.tiling",     { $0.tilingEnabled },     { $0.modifiers.symbol }),
-        ("tip.leftResize", { $0.leftResizeEnabled }, { $0.modifiers.union($0.leftResizeModifier).symbol }),
+        ("tip.leftResize", { $0.resizeTrigger == .leftClick }, { $0.modifiers.union($0.leftResizeModifier).symbol }),
     ]
 
     // MARK: - Actions

@@ -52,11 +52,13 @@
 "Features" = "功能";
 "section.windowDrag"   = "窗口拖动";
 "section.windowResize" = "窗口缩放";
-"feature.resize"            = "缩放窗口";
-"feature.resize.subtitle"   = "按住主修饰键 + 右键拖动,从最近的窗口角进行缩放。";
-"feature.leftResize"          = "左键缩放窗口";
+/* 窗口缩放 — 触发方式选择(关闭 / 右键拖动 / 左键拖动) */
+"resizeTrigger.right" = "右键拖动";
+"resizeTrigger.left"  = "左键拖动";
+"resizeTrigger.off.subtitle"   = "不缩放窗口。";
+"resizeTrigger.right.subtitle" = "按住主修饰键 + 右键拖动,从最近的窗口角缩放。";
 /* %@ = 用户当前设置的主修饰键符号(如 ⇧) */
-"feature.leftResize.subtitle" = "按住主修饰键(%@) + 辅助修饰键,左键拖动从最近的窗口角缩放。";
+"resizeTrigger.left.subtitle"  = "按住主修饰键(%@) + 辅助修饰键,左键拖动从最近的窗口角缩放。";
 "leftResize.augment"          = "辅助修饰键";
 "feature.cornerBracket"          = "角标指示线";
 "feature.cornerBracket.subtitle" = "缩放时在被抓的窗口角显示发光指示线。关掉可获得更好性能——开启时每秒约读取 30 次窗口位置。";
