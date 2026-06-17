@@ -84,15 +84,15 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
 
     // MARK: - Left-click resize augment
 
-    /// The single extra keys eligible as the "add one more key" augment for the
-    /// left-click resize gesture (base modifier + this key + left-drag → resize).
-    /// Order is the preference order used when picking a default.
+    /// The single keys eligible as the secondary modifier for the left-click
+    /// resize gesture (this key alone + left-drag → resize). Order is the
+    /// preference order used when picking a default.
     ///
     /// Option is intentionally excluded: the move gesture already treats
     /// "base + Option" as a pass-through so macOS native window-tiling can kick
-    /// in (`supportsOptionAugmentation`), so reusing Option here would make
-    /// "base + Option" ambiguous between move and resize. Hyper isn't a real
-    /// event flag (it's a CapsLock hold), so it can't be an *added* key either.
+    /// in (`supportsOptionAugmentation`), and a bare Option-drag is itself a
+    /// system gesture — so resize must not claim Option. Hyper isn't a real
+    /// event flag (it's a CapsLock hold), so it can't be the secondary either.
     static let augmentCandidates: [ModifierCombination] = [.shift, .control, .command, .fn]
 
     /// True when this combination is exactly one eligible augment key.
@@ -100,8 +100,8 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
         Self.augmentCandidates.contains(self)
     }
 
-    /// First eligible augment key that doesn't overlap `base`, so the resize
-    /// trigger is always a strict superset of the move trigger.
+    /// First eligible secondary key that doesn't overlap `base`, so the resize
+    /// trigger can never collide with the move trigger (the base modifier).
     static func defaultAugment(excluding base: ModifierCombination) -> ModifierCombination {
         augmentCandidates.first { $0.isDisjoint(with: base) } ?? .shift
     }
@@ -148,11 +148,11 @@ enum MiddleAction: String, CaseIterable {
 
 /// How the resize-from-anywhere gesture is triggered. Mutually exclusive — the
 /// user picks one (or off). Replaces the old pair of independent booleans
-/// (`resizeEnabled` for right-click, `leftResizeEnabled` for modifier+left).
+/// (`resizeEnabled` for right-click, `leftResizeEnabled` for secondary+left).
 enum ResizeTrigger: String, CaseIterable {
     case off       = "off"
     case rightClick = "right"   // primary modifier + right-drag
-    case leftClick  = "left"    // primary + secondary modifier + left-drag
+    case leftClick  = "left"    // secondary modifier + left-drag (no primary)
 
     var displayName: String {
         switch self {
@@ -271,14 +271,14 @@ final class DragEngine {
     /// True when resize is on the modifier+right-drag path. Drives
     /// `handleRightMouseDown` (suppress-and-defer vs. open the TilingPanel).
     var resizeEnabled: Bool { resizeTrigger == .rightClick }
-    /// True when resize is on the modifier + extra-key + left-drag path. Drives
+    /// True when resize is on the secondary-modifier + left-drag path. Drives
     /// `matchesLeftResizeModifier`. Lets users whose right mouse button is bound
     /// elsewhere resize with the left button instead.
     var leftResizeEnabled: Bool { resizeTrigger == .leftClick }
-    /// The single extra key held alongside the base modifier to trigger a
-    /// left-click resize (e.g. `.shift` → base + Shift + left-drag resizes).
-    /// Always kept disjoint from `modifiers` so the resize trigger is a strict
-    /// superset of the move trigger — see `sanitizedAugment(base:)`.
+    /// The single secondary key that triggers a left-click resize on its own
+    /// (e.g. `.shift` → Shift + left-drag resizes; the primary modifier is not
+    /// required). Always kept disjoint from `modifiers` so this trigger can
+    /// never collide with the move gesture — see `sanitizedAugment(base:)`.
     var leftResizeModifier: ModifierCombination = .shift
     /// When true (default) and ≥2 displays are connected, the bento panel
     /// renders all displays at their real arrangement so the user can pick
@@ -907,12 +907,12 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        // Left-click resize: base modifier + the configured extra key + drag →
-        // resize-from-anywhere, the same engine as the right-click resize.
-        // Checked before everything else because its modifier set is a strict
-        // superset of the move trigger (and, for a Hyper base, would otherwise
-        // be swallowed by `matchesConfiguredModifier`, which ignores flags when
-        // CapsLock is held).
+        // Left-click resize: the configured secondary modifier alone + drag →
+        // resize-from-anywhere, the same engine as the right-click resize. The
+        // primary modifier is NOT required here. Checked before the move path
+        // so that with a Hyper (CapsLock) base, holding CapsLock + the secondary
+        // still resizes rather than being swallowed by `matchesConfiguredModifier`,
+        // which matches on a held CapsLock regardless of the other flags.
         if matchesLeftResizeModifier(event.flags) {
             return beginLeftResize(event: event)
         }
@@ -1033,13 +1033,14 @@ final class DragEngine {
         if hadStaleTile { abortTileGesture() }
         if resizeStrategy.isActive { resizeStrategy.reset() }
 
-        // Scrub the augment flag from the synthesized native-resize events so a
-        // Shift / Control / Command held to trigger us can't perturb the window
-        // server's resize tracking. (The base modifier is left on, matching the
-        // proven right-click path.)
+        // Scrub the secondary flag from the synthesized native-resize events so
+        // the Shift / Control / Command held to trigger us can't perturb the
+        // window server's resize tracking (Shift would constrain aspect ratio,
+        // etc.). No primary modifier is held on this path, so there's nothing
+        // else to leave on.
         resizeStrategy.extraFlagsToStrip = leftResizeModifier.eventFlags
 
-        Self.log.info("left-resize start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) keys=\(self.modifiers.union(self.leftResizeModifier).symbol)")
+        Self.log.info("left-resize start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) keys=\(self.leftResizeModifier.symbol)")
         return resizeStrategy.handleMouseDown(
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
@@ -1616,33 +1617,32 @@ final class DragEngine {
         return activeModifiers == targetModifiers.union(.maskAlternate)
     }
 
-    /// True when the held flags are exactly the base modifier PLUS the
-    /// configured left-resize augment key — the trigger for left-click resize.
-    /// Returns false (so the event falls through to the move/maximize path)
-    /// whenever the feature is off or the augment would overlap the base, which
-    /// keeps the move gesture working no matter how the two are configured.
+    /// True when the held flags are exactly the configured secondary modifier —
+    /// the trigger for left-click resize. The secondary key arms it on its own;
+    /// the primary modifier is NOT required (it gates only the move/right-resize
+    /// gestures). Returns false (so the event falls through to the move/maximize
+    /// path) whenever the feature is off, the app has no primary modifier
+    /// configured (effectively off), or the secondary would overlap the base —
+    /// which keeps the move gesture working no matter how the two are configured.
     private func matchesLeftResizeModifier(_ flags: CGEventFlags) -> Bool {
         guard leftResizeEnabled else { return false }
+        // No primary modifier configured means AnyDrag is off; don't arm resize
+        // on the bare secondary in that state. (`modifiers` still counts as
+        // non-empty for a Hyper/CapsLock base, whose eventFlags are empty.)
+        guard !modifiers.isEmpty else { return false }
         let augment = leftResizeModifier
-        // The augment must be a single real flag key that isn't already part of
-        // the base — otherwise base+augment wouldn't differ from the move trigger.
+        // The secondary must be a single real flag key that isn't already part
+        // of the base — otherwise "secondary alone" could collide with the move
+        // trigger (which arms on the base).
         guard augment.isValidAugment, augment.isDisjoint(with: modifiers) else { return false }
         let augmentFlags = augment.eventFlags
         guard !augmentFlags.isEmpty else { return false }
 
         let cleanedFlags = flags.subtracting(.maskNonCoalesced)
         let activeModifiers = cleanedFlags.intersection(Self.relevantModifierMask)
-
-        // Hyper base: arm on a held CapsLock plus exactly the augment flag
-        // (CapsLock itself carries no event flag, so it never appears here).
-        if modifiers.contains(.hyper) {
-            guard hyperCapslockSource.isHeld else { return false }
-            return activeModifiers == augmentFlags
-        }
-
-        let baseFlags = modifiers.eventFlags
-        guard !baseFlags.isEmpty else { return false }
-        return activeModifiers == baseFlags.union(augmentFlags)
+        // Exactly the secondary flag held — no primary, no extras. (CapsLock
+        // carries no event flag, so a Hyper base is simply ignored here.)
+        return activeModifiers == augmentFlags
     }
 
     private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {

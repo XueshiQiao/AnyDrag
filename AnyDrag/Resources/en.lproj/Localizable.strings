@@ -63,9 +63,9 @@
 "resizeTrigger.left"  = "Left-drag";
 "resizeTrigger.off.subtitle"   = "Window resize is off.";
 "resizeTrigger.right.subtitle" = "Hold the primary modifier + right-drag to resize from the nearest window corner.";
-/* %@ = the secondary modifier symbol (e.g. ⇧) the user has set */
-"resizeTrigger.left.subtitle"  = "Hold the secondary modifier (%@) and left-drag to resize from the nearest window corner.";
-"leftResize.augment"          = "Secondary Modifier";
+/* %@ = the Left-drag Resize Modifier symbol (e.g. ⇧) the user has set */
+"resizeTrigger.left.subtitle"  = "Hold %@ and left-drag to resize from the nearest window corner.";
+"leftResize.augment"          = "Left-drag Resize Modifier";
 "feature.cornerBracket"          = "Corner Bracket";
 "feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";
 "feature.multiDisplayBento"          = "Show all displays in tile panel";
