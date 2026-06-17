@@ -1,210 +1,420 @@
 import Cocoa
+import SwiftUI
+import ServiceManagement
+import ApplicationServices
 
-/// Three-tab Settings window (General, Advanced, About) using NSToolbar to
-/// switch panes, matching the macOS standard Settings UX.
-///
-/// The window is sized once to fit the tallest pane and never resizes when
-/// switching tabs, so the chrome stays stable as the user clicks around.
-final class PreferencesWindowController: NSWindowController, NSToolbarDelegate, NSWindowDelegate {
+// MARK: - SettingsStore
+//
+// The single SwiftUI source of truth for the Settings window. It mirrors the
+// live `DragEngine` state and the persisted `Preferences` into `@Published`
+// properties so SwiftUI can bind to them, and writes every change back through
+// the SAME three channels the old AppKit panes used:
+//   1. the live `DragEngine` (so the running event tap sees it immediately),
+//   2. `UserDefaults` (via `Preferences.Key`, so it survives relaunch),
+//   3. `Analytics.trackPreferenceChanged` (only on an actual value change).
+//
+// All the subtle invariants the panes enforced are preserved here: Hyper is
+// exclusive with the flag modifiers, the left-resize augment is kept disjoint
+// from the base, and the corner-bracket / tile sub-options gate on their parent
+// selection. The views stay dumb — they read these properties and call the
+// `set*` methods; the store owns the rules.
+//
+// Not actor-isolated: it is only ever touched on the main thread — SwiftUI
+// bindings run on main, and every notification observer below uses `queue:
+// .main`. Keeping it non-isolated avoids cascading `@MainActor` onto the
+// AppKit controllers that create it, and stays compatible with macOS 13.
+final class SettingsStore: ObservableObject {
 
-    private enum Tab: String {
-        case general
-        case advanced
-        case about
+    let engine: DragEngine
+    let updateController: UpdateController
 
-        var label: String {
-            switch self {
-            case .general:  return NSLocalizedString("General", comment: "")
-            case .advanced: return NSLocalizedString("Advanced", comment: "")
-            case .about:    return NSLocalizedString("About", comment: "")
-            }
-        }
+    private static let log = FileLog("Settings.Store")
 
-        var image: NSImage? {
-            switch self {
-            case .general:  return NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-            case .advanced: return NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
-            case .about:    return NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
-            }
-        }
-    }
+    // Which sidebar page is showing. Kept in the store (not @State) so it
+    // survives the `.id(languageRevision)` rebuild on a language switch.
+    @Published var page: SettingsPage = .windowDrag
 
-    private let dragEngine: DragEngine
-    private let updateController: UpdateController
+    // Bumped whenever the in-app language changes; the root view keys its
+    // identity off this so the whole SwiftUI tree re-reads NSLocalizedString.
+    @Published private(set) var languageRevision = 0
 
-    private var generalVC: GeneralPaneViewController
-    private var advancedVC: AdvancedPaneViewController
-    private var aboutVC: AboutPaneViewController
+    // ─── Engine-backed ───────────────────────────────────────────────
+    @Published private(set) var modifiers: ModifierCombination
+    @Published private(set) var leftResizeModifier: ModifierCombination
+    @Published private(set) var dragEnabled: Bool
+    @Published private(set) var maximizeEnabled: Bool
+    @Published private(set) var tilingEnabled: Bool
+    @Published private(set) var resizeTrigger: ResizeTrigger
+    @Published private(set) var cornerBracketEnabled: Bool
+    @Published private(set) var multiDisplayBentoEnabled: Bool
+    @Published private(set) var tileByDirectionDragOnly: Bool
+    @Published private(set) var middleAction: MiddleAction
+    @Published private(set) var titleBarYOffset: CGFloat
+    @Published private(set) var resizeCornerInset: CGFloat
+    @Published private(set) var showDebugDot: Bool
 
-    private var currentTab: Tab = .general
-    private var fixedContentWidth: CGFloat = 480
+    // ─── Non-engine ──────────────────────────────────────────────────
+    @Published private(set) var launchAtLogin: Bool
+    @Published private(set) var accessibilityGranted: Bool
+    @Published private(set) var languageCode: String?   // nil = follow system
+    @Published private(set) var analyticsEnabled: Bool
+    @Published private(set) var blacklist: [BlacklistedApp]
 
-    init(dragEngine: DragEngine, updateController: UpdateController) {
-        self.dragEngine = dragEngine
+    private var trustObserver: NSObjectProtocol?
+    private var languageObserver: NSObjectProtocol?
+    private var trustRefreshTasks: [DispatchWorkItem] = []
+
+    init(engine: DragEngine, updateController: UpdateController) {
+        self.engine = engine
         self.updateController = updateController
-        self.generalVC = GeneralPaneViewController(dragEngine: dragEngine)
-        self.advancedVC = AdvancedPaneViewController(dragEngine: dragEngine)
-        self.aboutVC = AboutPaneViewController(updateController: updateController)
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 360),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = NSLocalizedString("AnyDrag Settings", comment: "")
-        window.isReleasedWhenClosed = false
-        window.center()
-        window.setFrameAutosaveName("AnyDragPreferences")
+        modifiers = engine.modifiers
+        leftResizeModifier = engine.leftResizeModifier
+        dragEnabled = engine.dragEnabled
+        maximizeEnabled = engine.maximizeEnabled
+        tilingEnabled = engine.tilingEnabled
+        resizeTrigger = engine.resizeTrigger
+        cornerBracketEnabled = engine.cornerBracketEnabled
+        multiDisplayBentoEnabled = engine.multiDisplayBentoEnabled
+        tileByDirectionDragOnly = engine.tileByDirectionDragOnly
+        middleAction = engine.middleAction
+        titleBarYOffset = engine.titleBarYOffset
+        resizeCornerInset = engine.resizeCornerInset
+        showDebugDot = engine.showDebugDot
 
-        super.init(window: window)
+        launchAtLogin = (SMAppService.mainApp.status == .enabled)
+        accessibilityGranted = AXIsProcessTrusted()
+        let savedLang = UserDefaults.standard.string(forKey: Preferences.Key.languageOverride) ?? ""
+        languageCode = savedLang.isEmpty ? nil : savedLang
+        let d = UserDefaults.standard
+        analyticsEnabled = (d.object(forKey: Preferences.Key.analyticsEnabled) == nil)
+            ? true : d.bool(forKey: Preferences.Key.analyticsEnabled)
+        blacklist = Preferences.blacklistedApps()
 
-        window.delegate = self
-
-        let toolbar = NSToolbar(identifier: "AnyDragPreferencesToolbar")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconAndLabel
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        toolbar.selectedItemIdentifier = NSToolbarItem.Identifier(Tab.general.rawValue)
-        window.toolbar = toolbar
-        if #available(macOS 11.0, *) {
-            window.toolbarStyle = .preference
+        // Live-refresh the Accessibility row on the same distributed trust
+        // notification the engine uses (fires only on real AX state changes).
+        trustObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .anyDragAXTrustChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.scheduleTrustRefresh()
         }
 
-        recomputeFixedWidth()
-        select(.general, animated: false)
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(languageChanged(_:)),
-            name: .anyDragLanguageChanged,
-            object: nil
-        )
+        // A language switch (from our own popup or elsewhere) rebuilds labels.
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: .anyDragLanguageChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let saved = UserDefaults.standard.string(forKey: Preferences.Key.languageOverride) ?? ""
+            self.languageCode = saved.isEmpty ? nil : saved
+            self.languageRevision &+= 1
+        }
     }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        if let trustObserver { DistributedNotificationCenter.default().removeObserver(trustObserver) }
+        if let languageObserver { NotificationCenter.default.removeObserver(languageObserver) }
+        trustRefreshTasks.forEach { $0.cancel() }
     }
 
-    @objc private func languageChanged(_ note: Notification) {
-        // Defer one runloop tick — the popup that fired this is mid-action.
-        DispatchQueue.main.async { [weak self] in
-            self?.rebuildAfterLanguageChange()
+    /// Re-sync the values that can change while the window is open from outside
+    /// the SwiftUI bindings (permission grant, login-item state).
+    func refreshExternalState() {
+        accessibilityGranted = AXIsProcessTrusted()
+        launchAtLogin = (SMAppService.mainApp.status == .enabled)
+    }
+
+    // MARK: Primary modifier
+
+    /// Apply a proposed primary-modifier combination. Always accepted (returns
+    /// true to match the picker's accept/reject contract). Mirrors
+    /// `AdvancedPaneViewController.modifierChipRow.onChange`: persist, re-validate
+    /// the left-resize augment against the new base, and track the change.
+    @discardableResult
+    func setModifiers(_ proposed: ModifierCombination) -> Bool {
+        let previous = engine.modifiers
+        engine.modifiers = proposed
+        modifiers = proposed
+        UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.modifierFlags)
+
+        // Keep the secondary a single eligible key disjoint from the new base so
+        // the left-resize trigger can never collide with the move trigger.
+        let sanitized = engine.leftResizeModifier.sanitizedAugment(base: proposed)
+        if sanitized != engine.leftResizeModifier {
+            engine.leftResizeModifier = sanitized
+            leftResizeModifier = sanitized
+            UserDefaults.standard.set(sanitized.rawValue, forKey: Preferences.Key.leftResizeModifier)
+        }
+
+        if previous != proposed {
+            Analytics.trackPreferenceChanged(key: "modifier", value: proposed.analyticsKey)
+        }
+        return true
+    }
+
+    // MARK: Left-resize augment (secondary modifier)
+
+    /// The keys forbidden in the augment picker — those already taken by the
+    /// base modifier (picking one would make the resize trigger identical to
+    /// the move trigger).
+    var augmentDisabledElements: ModifierCombination {
+        let mask = ModifierCombination.augmentCandidates.reduce(into: ModifierCombination()) { $0.formUnion($1) }
+        return mask.intersection(modifiers)
+    }
+
+    /// Apply a proposed augment. Accepted only when it is a single eligible key
+    /// disjoint from the base — matching the old picker's validation.
+    @discardableResult
+    func setAugment(_ proposed: ModifierCombination) -> Bool {
+        guard proposed.isValidAugment, proposed.isDisjoint(with: modifiers) else { return false }
+        let previous = engine.leftResizeModifier
+        engine.leftResizeModifier = proposed
+        leftResizeModifier = proposed
+        UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.leftResizeModifier)
+        if previous != proposed {
+            Analytics.trackPreferenceChanged(key: "left_resize_modifier", value: proposed.analyticsKey)
+        }
+        return true
+    }
+
+    // MARK: Resize trigger
+
+    func setResizeTrigger(_ trigger: ResizeTrigger) {
+        let previous = engine.resizeTrigger
+        engine.resizeTrigger = trigger
+        resizeTrigger = trigger
+        UserDefaults.standard.set(trigger.rawValue, forKey: Preferences.Key.resizeTrigger)
+        if previous != trigger {
+            Analytics.trackPreferenceChanged(key: "resize_trigger", value: trigger.rawValue)
         }
     }
 
-    private func rebuildAfterLanguageChange() {
-        generalVC = GeneralPaneViewController(dragEngine: dragEngine)
-        advancedVC = AdvancedPaneViewController(dragEngine: dragEngine)
-        aboutVC = AboutPaneViewController(updateController: updateController)
+    // MARK: Middle-click action
 
-        if let toolbar = window?.toolbar {
-            for item in toolbar.items {
-                guard let tab = Tab(rawValue: item.itemIdentifier.rawValue) else { continue }
-                item.label = tab.label
-                item.paletteLabel = tab.label
+    func setMiddleAction(_ action: MiddleAction) {
+        let previous = engine.middleAction
+        engine.middleAction = action
+        middleAction = action
+        UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
+        if previous != action {
+            Analytics.trackPreferenceChanged(key: "middle_action", value: action.rawValue)
+        }
+    }
+
+    // MARK: Boolean feature toggles
+
+    func setDragEnabled(_ on: Bool)     { setBool(on, key: Preferences.Key.dragEnabled, analytics: "drag_enabled", current: \.dragEnabled, write: { self.engine.dragEnabled = $0 }, mirror: { self.dragEnabled = $0 }) }
+    func setMaximizeEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.maximizeEnabled, analytics: "maximize_enabled", current: \.maximizeEnabled, write: { self.engine.maximizeEnabled = $0 }, mirror: { self.maximizeEnabled = $0 }) }
+    func setTilingEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.tilingEnabled, analytics: "tiling_enabled", current: \.tilingEnabled, write: { self.engine.tilingEnabled = $0 }, mirror: { self.tilingEnabled = $0 }) }
+    func setCornerBracketEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.cornerBracketEnabled, analytics: "corner_bracket_enabled", current: \.cornerBracketEnabled, write: { self.engine.cornerBracketEnabled = $0 }, mirror: { self.cornerBracketEnabled = $0 }) }
+    func setMultiDisplayBentoEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.multiDisplayBentoEnabled, analytics: "multi_display_bento_enabled", current: \.multiDisplayBentoEnabled, write: { self.engine.multiDisplayBentoEnabled = $0 }, mirror: { self.multiDisplayBentoEnabled = $0 }) }
+    func setTileDragOnly(_ on: Bool)    { setBool(on, key: Preferences.Key.tileDragOnly, analytics: "tile_drag_only", current: \.tileByDirectionDragOnly, write: { self.engine.tileByDirectionDragOnly = $0 }, mirror: { self.tileByDirectionDragOnly = $0 }) }
+
+    private func setBool(_ on: Bool, key: String, analytics: String,
+                         current: KeyPath<DragEngine, Bool>,
+                         write: (Bool) -> Void, mirror: (Bool) -> Void) {
+        let previous = engine[keyPath: current]
+        write(on)
+        mirror(on)
+        UserDefaults.standard.set(on, forKey: key)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: analytics, value: String(on))
+        }
+    }
+
+    // MARK: Diagnostics
+
+    func setShowDebugDot(_ on: Bool) {
+        engine.showDebugDot = on
+        showDebugDot = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.showDebugDot)
+    }
+
+    func setTitleBarYOffset(_ value: CGFloat) {
+        let clamped = value.rounded().clamped(to: Preferences.titleBarYOffsetRange)
+        engine.titleBarYOffset = clamped
+        titleBarYOffset = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: Preferences.Key.titleBarYOffset)
+    }
+
+    func setResizeCornerInset(_ value: CGFloat) {
+        let clamped = value.rounded().clamped(to: Preferences.resizeCornerInsetRange)
+        engine.resizeCornerInset = clamped
+        resizeCornerInset = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: Preferences.Key.resizeCornerInset)
+    }
+
+    func resetTitleBarYOffset()   { setTitleBarYOffset(Preferences.defaultTitleBarYOffset) }
+    func resetResizeCornerInset() { setResizeCornerInset(Preferences.defaultResizeCornerInset) }
+
+    // MARK: Language
+
+    func setLanguage(_ code: String?) {
+        // Preferences.setLanguageOverride persists, applies, posts
+        // .anyDragLanguageChanged (which our observer turns into a rebuild),
+        // and tracks the change. We optimistically mirror so the popup updates
+        // even before the notification round-trips.
+        languageCode = code
+        Preferences.setLanguageOverride(code)
+    }
+
+    // MARK: Launch at Login
+
+    func setLaunchAtLogin(_ on: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if on { try service.register() } else { try service.unregister() }
+        } catch {
+            Self.log.error("Failed to toggle launch at login: \(error)")
+        }
+        // Reflect the real post-call state (a failed toggle reverts).
+        launchAtLogin = (SMAppService.mainApp.status == .enabled)
+    }
+
+    // MARK: Analytics opt-out
+
+    func setAnalyticsEnabled(_ on: Bool) {
+        let d = UserDefaults.standard
+        let previous = (d.object(forKey: Preferences.Key.analyticsEnabled) == nil)
+            ? true : d.bool(forKey: Preferences.Key.analyticsEnabled)
+        // Fire the meta-event BEFORE persisting — trackPreferenceChanged bypasses
+        // the opt-out gate for `analytics_enabled` so BOTH transitions reach the
+        // server.
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "analytics_enabled", value: String(on))
+        }
+        d.set(on, forKey: Preferences.Key.analyticsEnabled)
+        analyticsEnabled = on
+        if !on { Analytics.flush() }   // flush the OFF event before the gate closes
+    }
+
+    // MARK: Accessibility
+
+    func openAccessibilitySettings() {
+        PermissionManager.openAccessibilitySettings()
+    }
+
+    /// Staircase of re-checks after the AX-trust notification fires —
+    /// `AXIsProcessTrusted()` lags the System Settings toggle by a variable
+    /// amount. Mirrors the old `GeneralPaneViewController.scheduleTrustRefresh`.
+    private func scheduleTrustRefresh() {
+        trustRefreshTasks.forEach { $0.cancel() }
+        trustRefreshTasks.removeAll()
+        accessibilityGranted = AXIsProcessTrusted()
+        for delay in [250, 1000, 2500] {
+            let task = DispatchWorkItem { [weak self] in
+                self?.accessibilityGranted = AXIsProcessTrusted()
             }
+            trustRefreshTasks.append(task)
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: task)
         }
-        window?.title = NSLocalizedString("AnyDrag Settings", comment: "")
-        recomputeFixedWidth()
-        select(currentTab, animated: false)
     }
 
-    /// Bring the window to front, creating it if necessary.
-    func show() {
-        guard let window = window else { return }
-        if !window.isVisible {
-            window.center()
+    // MARK: Excluded apps (blacklist)
+
+    /// Apps eligible to add: running, Dock-visible, not already excluded, not us.
+    func addableRunningApps() -> [BlacklistedApp] {
+        let existing = Set(blacklist.map { $0.bundleID })
+        var seen = Set<String>()
+        return NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular }
+            .compactMap { app -> BlacklistedApp? in
+                guard let bundleID = app.bundleIdentifier,
+                      bundleID != Bundle.main.bundleIdentifier,
+                      !existing.contains(bundleID),
+                      seen.insert(bundleID).inserted else { return nil }
+                return BlacklistedApp(bundleID: bundleID, name: app.localizedName ?? bundleID)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func addBlacklistedApp(_ app: BlacklistedApp) {
+        guard !blacklist.contains(where: { $0.bundleID == app.bundleID }) else { return }
+        blacklist.append(app)
+        commitBlacklist()
+    }
+
+    func addBlacklistedApps(_ apps: [BlacklistedApp]) {
+        var changed = false
+        for app in apps where !blacklist.contains(where: { $0.bundleID == app.bundleID }) {
+            blacklist.append(app)
+            changed = true
         }
+        if changed { commitBlacklist() }
+    }
+
+    func removeBlacklistedApps(bundleIDs: Set<String>) {
+        guard !bundleIDs.isEmpty else { return }
+        blacklist.removeAll { bundleIDs.contains($0.bundleID) }
+        commitBlacklist()
+    }
+
+    private func commitBlacklist() {
+        Preferences.setBlacklistedApps(blacklist)
+        engine.setBlacklistedBundleIDs(Set(blacklist.map { $0.bundleID }))
+    }
+
+    /// Best-effort icon for a bundle id: running instance, then on-disk bundle,
+    /// then a generic placeholder.
+    func icon(forBundleID bundleID: String) -> NSImage {
+        if let icon = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.icon {
+            return icon
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            return NSWorkspace.shared.icon(forFile: url.path)
+        }
+        return NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil) ?? NSImage()
+    }
+}
+
+private extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+// MARK: - PreferencesWindowController
+//
+// Hosts the SwiftUI Settings UI (`SettingsRootView`) in a single window with a
+// native sidebar, matching HyperCapslock's `MainWindowController`. The public
+// API (`init(dragEngine:updateController:)` + `show()`) is unchanged so
+// `MenuBarController` keeps working without edits. Closing hides the window
+// rather than terminating — AnyDrag is a menu-bar accessory app.
+final class PreferencesWindowController: NSObject, NSWindowDelegate {
+
+    private let window: NSWindow
+    private let store: SettingsStore
+
+    init(dragEngine: DragEngine, updateController: UpdateController) {
+        self.store = SettingsStore(engine: dragEngine, updateController: updateController)
+
+        let root = SettingsRootView().environmentObject(store)
+        let hosting = NSHostingController(rootView: root)
+
+        window = NSWindow(contentViewController: hosting)
+        window.title = NSLocalizedString("AnyDrag Settings", comment: "")
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isReleasedWhenClosed = false
+        window.toolbarStyle = .unified
+        window.setContentSize(NSSize(width: 860, height: 600))
+        window.setFrameAutosaveName("AnyDragSettings")
+        window.center()
+        super.init()
+        window.delegate = self
+    }
+
+    /// Bring the window to front, re-syncing any state that can change while
+    /// it's closed (permission grant, login-item toggle made elsewhere).
+    func show() {
+        store.refreshExternalState()
+        if !window.isVisible { window.center() }
         NSApp.activate(ignoringOtherApps: true)
-        showWindow(nil)
         window.makeKeyAndOrderFront(nil)
     }
 
-    // MARK: - Sizing
-
-    /// Touch every pane's view so its constraints resolve, then pick the
-    /// width that fits the widest of them. Called at init and after a language
-    /// switch (where new strings can shift natural widths). Height is per-tab
-    /// — see `select(_:)`.
-    private func recomputeFixedWidth() {
-        let panes: [NSView] = [generalVC.view, advancedVC.view, aboutVC.view]
-        let widths = panes.map { $0.fittingSize.width }
-        fixedContentWidth = widths.max() ?? 480
-    }
-
-    /// Switch to the named pane. Width is locked across tabs to keep the
-    /// chrome stable; height follows the pane's natural fitting size.
-    private func select(_ tab: Tab, animated: Bool = true) {
-        currentTab = tab
-        window?.toolbar?.selectedItemIdentifier = NSToolbarItem.Identifier(tab.rawValue)
-
-        let newVC: NSViewController
-        switch tab {
-        case .general:  newVC = generalVC
-        case .advanced: newVC = advancedVC
-        case .about:    newVC = aboutVC
-        }
-
-        guard let window = window else { return }
-
-        let paneHeight = newVC.view.fittingSize.height
-        let contentSize = NSSize(width: fixedContentWidth, height: paneHeight)
-        let targetFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
-        let current = window.frame
-        let topAlignedFrame = NSRect(
-            x: current.origin.x,
-            y: current.origin.y + current.height - targetFrame.height,
-            width: targetFrame.width,
-            height: targetFrame.height
-        )
-
-        window.contentViewController = newVC
-        if current.size != topAlignedFrame.size {
-            window.setFrame(topAlignedFrame, display: true, animate: animated)
-        }
-    }
-
-    @objc private func toolbarItemClicked(_ sender: NSToolbarItem) {
-        guard let tab = Tab(rawValue: sender.itemIdentifier.rawValue) else { return }
-        select(tab)
-    }
-
-    // MARK: - NSToolbarDelegate
-
-    private static let allTabs: [Tab] = [.general, .advanced, .about]
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        Self.allTabs.map { NSToolbarItem.Identifier($0.rawValue) }
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    func toolbar(_ toolbar: NSToolbar,
-                 itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard let tab = Tab(rawValue: itemIdentifier.rawValue) else { return nil }
-        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        item.label = tab.label
-        item.paletteLabel = tab.label
-        item.image = tab.image
-        item.target = self
-        item.action = #selector(toolbarItemClicked(_:))
-        return item
-    }
-
-    // MARK: - NSWindowDelegate
-
-    func windowWillClose(_ notification: Notification) {
-        // Closing should not terminate the app — main.swift uses an accessory app.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        window.orderOut(nil)
+        return false
     }
 }

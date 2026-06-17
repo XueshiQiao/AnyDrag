@@ -74,7 +74,7 @@ final class PermissionManager {
     // lagging the System Settings toggle by hundreds of ms and showing an
     // inverted UI — is now absorbed by the 250/1000/2500 ms notification
     // staircase in `DragEngine.handleTrustNotification` /
-    // `GeneralPaneViewController.scheduleTrustRefresh` plus the always-on
+    // `SettingsStore.scheduleTrustRefresh` plus the always-on
     // 5 s backstop. So `AXIsProcessTrusted()` is the single source of
     // truth everywhere; the probe and its helpers are gone.
 }

@@ -30,6 +30,12 @@
 "permission.openSettings" = "Open System Settings";
 "permission.quit" = "Quit";
 
+/* Settings — sidebar chrome */
+"nav.toggleSidebar" = "Toggle Sidebar";
+"status.on" = "AnyDrag is on";
+"status.off" = "AnyDrag is off";
+"status.permission" = "Permission needed";
+
 /* Settings — Language section */
 "Language" = "Language";
 "language.followSystem" = "Follow System";
@@ -57,8 +63,8 @@
 "resizeTrigger.left"  = "Left-drag";
 "resizeTrigger.off.subtitle"   = "Window resize is off.";
 "resizeTrigger.right.subtitle" = "Hold the primary modifier + right-drag to resize from the nearest window corner.";
-/* %@ = the primary modifier symbol (e.g. ⇧) the user has set */
-"resizeTrigger.left.subtitle"  = "Hold the primary modifier (%@) + a secondary modifier and left-drag to resize from the nearest window corner.";
+/* %@ = the secondary modifier symbol (e.g. ⇧) the user has set */
+"resizeTrigger.left.subtitle"  = "Hold the secondary modifier (%@) and left-drag to resize from the nearest window corner.";
 "leftResize.augment"          = "Secondary Modifier";
 "feature.cornerBracket"          = "Corner Bracket";
 "feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";
@@ -103,7 +109,8 @@
 
 /* Settings — Excluded apps (blacklist) */
 "blacklist.title" = "Excluded Apps";
-"blacklist.note" = "AnyDrag ignores windows of these apps — no move, resize, or tiling.";
+"blacklist.note" = "On these apps, AnyDrag does not engage at all.";
+"blacklist.empty" = "No excluded apps yet.";
 "blacklist.add" = "Add app";
 "blacklist.remove" = "Remove app";
 "blacklist.runningApps" = "Running Apps";
