@@ -214,6 +214,13 @@ final class ResizeStrategy {
                     window.makeKeyAndOrderFront(nil)
                 }
             }
+            // Our OWN window still needs an AX handle for the poll loop —
+            // AX reads work on the current process too. Without this the
+            // corner bracket would freeze at the start frame when resizing
+            // AnyDrag's own windows (only the cross-app branch below set it).
+            if cornerBracketEnabled {
+                axWindow = ResizeStrategy.findAXWindow(pid: pid, windowFrame: windowFrame)
+            }
         } else {
             let appElement = AXUIElementCreateApplication(pid)
             AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
@@ -233,9 +240,14 @@ final class ResizeStrategy {
         // drag event has something to render before the AX poll kicks in.
         // `Date()` instead of `.distantPast` so the first poll fires
         // `axPollInterval` into the gesture (gives the resize a moment to
-        // engage natively before we start reading back). Only relevant
-        // when the bracket is on; otherwise we never read these.
-        if cornerBracketEnabled {
+        // engage natively before we start reading back).
+        //
+        // Only seed when we actually got an AX handle to poll. If `findAXWindow`
+        // failed (`axWindow == nil`), leaving `observedFrame` nil lets
+        // `handleMouseDragged` fall back to cursor-delta prediction — otherwise
+        // the seeded start frame would make the bracket freeze (the very bug
+        // this gesture's self-window path hit).
+        if cornerBracketEnabled, axWindow != nil {
             observedFrame = windowFrame
             lastAXPoll = Date()
         }
