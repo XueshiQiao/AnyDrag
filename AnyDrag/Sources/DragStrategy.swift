@@ -57,13 +57,16 @@ final class TitleBarDragStrategy {
     /// Diagnostics aid; off by default.
     var showDebugDot: Bool = false
 
-    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false) -> Unmanaged<CGEvent>? {
+    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
         // Drag point: cursor's X (on an exposed part of the window), Y near the top of
         // the title bar. The default 3px is a narrow strip that's always draggable on
         // stock AppKit windows; the offset is tunable for apps with custom top regions.
-        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + titleBarYOffset)
+        // The engine passes a per-app override when one is set; otherwise we fall back
+        // to the global `self.titleBarYOffset`.
+        let effectiveOffset = titleBarYOffset ?? self.titleBarYOffset
+        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + effectiveOffset)
 
         // Diagnostic: show where we're targeting the synthesized click.
         if showDebugDot {

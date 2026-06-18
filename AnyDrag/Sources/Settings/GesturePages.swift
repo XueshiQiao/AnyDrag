@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // The three core gesture pages, each a grouped Form: Window Drag (primary
 // modifier + drag/maximize/tiling toggles), Window Resize (trigger + secondary
@@ -9,6 +10,7 @@ import SwiftUI
 
 struct WindowDragPage: View {
     @EnvironmentObject var store: SettingsStore
+    @State private var showAddOffsetApp = false
 
     private var previewText: String {
         let combo = store.modifiers
@@ -51,9 +53,97 @@ struct WindowDragPage: View {
                 }
             }
             .disabled(store.modifiers.isEmpty)
+
+            // ─── Advanced: per-app title-bar Y offset ───────────────
+            Section {
+                Text(L("perAppOffset.note"))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(store.perAppOffsets, id: \.bundleID) { item in
+                    perAppOffsetRow(item)
+                }
+
+                Button {
+                    showAddOffsetApp = true
+                } label: {
+                    Label(L("perAppOffset.add"), systemImage: "plus.circle")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .popover(isPresented: $showAddOffsetApp, arrowEdge: .bottom) {
+                    AppPickerPopover(
+                        runningApps: store.addableRunningAppsForOffset(),
+                        icon: { store.icon(forBundleID: $0) },
+                        onPick: { app in
+                            store.addPerAppOffset(app)
+                            showAddOffsetApp = false
+                        },
+                        onBrowse: {
+                            showAddOffsetApp = false
+                            DispatchQueue.main.async { store.addPerAppOffsets(pickAppBundles()) }
+                        }
+                    )
+                }
+            } header: {
+                Text(L("section.advanced"))
+            }
         }
         .formStyle(.grouped)
         .navigationTitle(L("section.windowDrag"))
+    }
+
+    /// Fixed width of the "N pt" value label. Trailing-aligned within it so the
+    /// digits stay flush-right against the constant gap to the stepper whether the
+    /// value is 1 or 2 digits.
+    private static let perAppValueWidth: CGFloat = 42
+
+    /// Uniform gap between the right-cluster controls (value ↔ stepper ↔ remove)
+    /// and between the icon and name. Only the name↔cluster gap is flexible.
+    private static let perAppRowSpacing: CGFloat = 8
+
+    /// One per-app override row — strictly a single line: app icon + name
+    /// (left-aligned; hover the name to reveal its bundle id), a flexible spacer,
+    /// then a right-aligned cluster of the live value, a stepper, and
+    /// a remove button. Removing the row reverts that app to the global offset.
+    @ViewBuilder
+    private func perAppOffsetRow(_ item: AppTitleBarOffset) -> some View {
+        HStack(spacing: Self.perAppRowSpacing) {
+            Image(nsImage: store.icon(forBundleID: item.bundleID))
+                .resizable().frame(width: 22, height: 22)
+            Text(item.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(item.bundleID)
+            Spacer(minLength: Self.perAppRowSpacing)
+            Text("\(Int(item.offset.rounded())) pt")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: Self.perAppValueWidth, alignment: .trailing)
+            Stepper(
+                value: Binding(
+                    get: { Double(item.offset) },
+                    set: { store.setPerAppOffset(bundleID: item.bundleID, value: CGFloat($0)) }
+                ),
+                in: Double(Preferences.perAppTitleBarYOffsetRange.lowerBound)...Double(Preferences.perAppTitleBarYOffsetRange.upperBound),
+                step: 1
+            ) {
+                EmptyView()
+            }
+            .labelsHidden()
+            Button {
+                store.removePerAppOffset(bundleID: item.bundleID)
+            } label: {
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(L("perAppOffset.remove"))
+        }
+        .padding(.vertical, 2)
     }
 }
 

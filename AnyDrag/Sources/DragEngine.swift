@@ -406,6 +406,17 @@ final class DragEngine {
     /// through untouched. The pid lock is never nested with `cbState`.
     private var blacklistedAppBundleIDs: Set<String> = []
     private let blacklistedPids = OSAllocatedUnfairLock<Set<pid_t>>(initialState: [])
+
+    /// Per-app title-bar Y offset overrides. Same two-tier design as the
+    /// blacklist above: the authoritative `bundleID → offset` map is held on the
+    /// main thread; the tap thread reads a derived `pid → offset` map (a pure
+    /// dictionary lookup, no Launch Services). A pid that isn't present falls
+    /// back to the global `strategy.titleBarYOffset`. Recomputed on main
+    /// whenever the list changes or any app launches/terminates — sharing the
+    /// same NSWorkspace observers as the blacklist.
+    private var perAppTitleBarYOffsetsByBundleID: [String: CGFloat] = [:]
+    private let perAppTitleBarYOffsetPids = OSAllocatedUnfairLock<[pid_t: CGFloat]>(initialState: [:])
+
     /// Tokens for the NSWorkspace launch/terminate observers that keep the pid
     /// set in sync with app lifecycle. Removed in deinit.
     private var runningAppsObservers: [NSObjectProtocol] = []
@@ -562,7 +573,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -656,6 +667,7 @@ final class DragEngine {
         runningAppsObservers = names.map { name in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.recomputeBlacklistedPids()
+                self?.recomputePerAppTitleBarYOffsetPids()
             }
         }
     }
@@ -995,7 +1007,8 @@ final class DragEngine {
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
             windowFrame: windowInfo.frame,
-            event: event
+            event: event,
+            titleBarYOffset: effectiveTitleBarYOffset(forPid: windowInfo.pid)
         )
     }
 
@@ -1282,7 +1295,8 @@ final class DragEngine {
                 windowID: windowInfo.windowID,
                 windowFrame: windowInfo.frame,
                 event: event,
-                rewriteToLeftButton: true
+                rewriteToLeftButton: true,
+                titleBarYOffset: effectiveTitleBarYOffset(forPid: windowInfo.pid)
             )
 
         case .tileByDirection:
@@ -1971,6 +1985,47 @@ final class DragEngine {
     /// (stable across renames / localization), resolved when the pid set is built.
     private func isBlacklisted(pid: pid_t) -> Bool {
         blacklistedPids.withLock { $0.contains(pid) }
+    }
+
+    // MARK: - Per-app title-bar Y offset
+
+    /// Replace the `bundleID → offset` override map, then refresh the derived
+    /// pid map. Called on main from `Preferences.apply(to:)` at launch and
+    /// whenever the user edits the list. Mirrors `setBlacklistedBundleIDs`.
+    func setPerAppTitleBarYOffsets(_ map: [String: CGFloat]) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        perAppTitleBarYOffsetsByBundleID = map
+        recomputePerAppTitleBarYOffsetPids()
+    }
+
+    /// Recompute which running pids have a custom offset. Main thread only —
+    /// reads NSWorkspace and writes the lock. Costs nothing when the map is
+    /// empty, keeping the feature free for users who never set it.
+    private func recomputePerAppTitleBarYOffsetPids() {
+        guard !perAppTitleBarYOffsetsByBundleID.isEmpty else {
+            perAppTitleBarYOffsetPids.withLock { $0 = [:] }
+            return
+        }
+        var map = [pid_t: CGFloat]()
+        for app in NSWorkspace.shared.runningApplications {
+            if let bundleID = app.bundleIdentifier,
+               let offset = perAppTitleBarYOffsetsByBundleID[bundleID] {
+                map[app.processIdentifier] = offset
+            }
+        }
+        perAppTitleBarYOffsetPids.withLock { $0 = map }
+    }
+
+    /// The effective title-bar Y offset for a window owned by `pid`: the app's
+    /// custom override if one is set, otherwise the global default. Resolved on
+    /// the tap thread via the same kind of lock-guarded lookup the blacklist
+    /// uses; reading `strategy.titleBarYOffset` matches the pre-existing
+    /// tap-thread read inside `handleMouseDown`.
+    private func effectiveTitleBarYOffset(forPid pid: pid_t) -> CGFloat {
+        if let custom = perAppTitleBarYOffsetPids.withLock({ $0[pid] }) {
+            return custom
+        }
+        return strategy.titleBarYOffset
     }
 
     // MARK: - Window Detection

@@ -102,10 +102,16 @@
 "diagnostics.showDot" = "显示模拟点击位置";
 "diagnostics.showDot.subtitle" = "在拖动(标题栏)和缩放(窗口角)的模拟点击位置显示标记。";
 "diagnostics.titleBarYOffset" = "标题栏 Y 偏移";
-"diagnostics.titleBarYOffset.hint" = "模拟点击距离窗口顶边的距离,默认 3 px。";
+"diagnostics.titleBarYOffset.hint" = "模拟点击距离窗口顶边的距离,默认 3 pt。";
 "diagnostics.resizeCornerInset" = "Resize 角内缩量";
-"diagnostics.resizeCornerInset.hint" = "Resize 模拟点击距离窗口角的内缩距离。圆角较大的 app(Safari、Finder)需要更大的值。默认 5 px。";
+"diagnostics.resizeCornerInset.hint" = "Resize 模拟点击距离窗口角的内缩距离。圆角较大的 app(Safari、Finder)需要更大的值。默认 5 pt。";
 "diagnostics.reset" = "重置";
+
+/* Settings — Window Drag → Advanced (per-app title-bar Y offset) */
+"section.advanced" = "高级";
+"perAppOffset.note" = "为指定应用单独覆盖标题栏 Y 偏移。未列出的应用使用全局值(通用 → 诊断)。";
+"perAppOffset.add" = "添加应用…";
+"perAppOffset.remove" = "改用全局偏移";
 
 /* Settings — Excluded apps (blacklist) */
 "blacklist.title" = "排除的应用";

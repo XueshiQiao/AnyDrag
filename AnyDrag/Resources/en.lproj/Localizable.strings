@@ -102,10 +102,16 @@
 "diagnostics.showDot" = "Show synthesized-click dot";
 "diagnostics.showDot.subtitle" = "Show a marker at the synthesized click point during drag (title bar) and resize (window corner).";
 "diagnostics.titleBarYOffset" = "Title-bar Y offset";
-"diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default 3 px.";
+"diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default 3 pt.";
 "diagnostics.resizeCornerInset" = "Resize corner inset";
-"diagnostics.resizeCornerInset.hint" = "How far inside the window's corner the resize click lands. Larger values for apps with rounded outer corners (Safari, Finder). Default 5 px.";
+"diagnostics.resizeCornerInset.hint" = "How far inside the window's corner the resize click lands. Larger values for apps with rounded outer corners (Safari, Finder). Default 5 pt.";
 "diagnostics.reset" = "Reset";
+
+/* Settings — Window Drag → Advanced (per-app title-bar Y offset) */
+"section.advanced" = "Advanced";
+"perAppOffset.note" = "Override the title-bar Y offset for specific apps. Apps not listed here use the global value (General → Diagnostics).";
+"perAppOffset.add" = "Add app…";
+"perAppOffset.remove" = "Use global offset";
 
 /* Settings — Excluded apps (blacklist) */
 "blacklist.title" = "Excluded Apps";

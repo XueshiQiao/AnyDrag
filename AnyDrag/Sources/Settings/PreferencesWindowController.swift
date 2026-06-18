@@ -59,6 +59,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var languageCode: String?   // nil = follow system
     @Published private(set) var analyticsEnabled: Bool
     @Published private(set) var blacklist: [BlacklistedApp]
+    @Published private(set) var perAppOffsets: [AppTitleBarOffset]
 
     private var trustObserver: NSObjectProtocol?
     private var languageObserver: NSObjectProtocol?
@@ -90,6 +91,7 @@ final class SettingsStore: ObservableObject {
         analyticsEnabled = (d.object(forKey: Preferences.Key.analyticsEnabled) == nil)
             ? true : d.bool(forKey: Preferences.Key.analyticsEnabled)
         blacklist = Preferences.blacklistedApps()
+        perAppOffsets = Preferences.perAppTitleBarOffsets()
 
         // Live-refresh the Accessibility row on the same distributed trust
         // notification the engine uses (fires only on real AX state changes).
@@ -313,14 +315,26 @@ final class SettingsStore: ObservableObject {
 
     /// Apps eligible to add: running, Dock-visible, not already excluded, not us.
     func addableRunningApps() -> [BlacklistedApp] {
-        let existing = Set(blacklist.map { $0.bundleID })
+        runningRegularApps(excluding: Set(blacklist.map { $0.bundleID }))
+    }
+
+    /// Apps eligible to add to the per-app offset list: running, Dock-visible,
+    /// not already in the list, not us.
+    func addableRunningAppsForOffset() -> [BlacklistedApp] {
+        runningRegularApps(excluding: Set(perAppOffsets.map { $0.bundleID }))
+    }
+
+    /// Running, regular (Dock-visible) apps minus AnyDrag itself and any bundle
+    /// id in `excluded`, de-duplicated and sorted by display name. Shared by the
+    /// Excluded Apps and per-app offset "add" pickers.
+    private func runningRegularApps(excluding excluded: Set<String>) -> [BlacklistedApp] {
         var seen = Set<String>()
         return NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
             .compactMap { app -> BlacklistedApp? in
                 guard let bundleID = app.bundleIdentifier,
                       bundleID != Bundle.main.bundleIdentifier,
-                      !existing.contains(bundleID),
+                      !excluded.contains(bundleID),
                       seen.insert(bundleID).inserted else { return nil }
                 return BlacklistedApp(bundleID: bundleID, name: app.localizedName ?? bundleID)
             }
@@ -351,6 +365,55 @@ final class SettingsStore: ObservableObject {
     private func commitBlacklist() {
         Preferences.setBlacklistedApps(blacklist)
         engine.setBlacklistedBundleIDs(Set(blacklist.map { $0.bundleID }))
+    }
+
+    // MARK: Per-app title-bar Y offset
+
+    /// Offset a freshly-added app starts at: the current global default, but
+    /// clamped into the per-app offset range so the seeded value is always one
+    /// the stepper can represent (the global range is wider).
+    private var seededPerAppOffset: CGFloat {
+        titleBarYOffset.clamped(to: Preferences.perAppTitleBarYOffsetRange)
+    }
+
+    /// Add an app to the per-app offset list, seeding its offset with the
+    /// current global default so the stepper starts at a sensible value.
+    func addPerAppOffset(_ app: BlacklistedApp) {
+        guard !perAppOffsets.contains(where: { $0.bundleID == app.bundleID }) else { return }
+        perAppOffsets.append(AppTitleBarOffset(bundleID: app.bundleID, name: app.name, offset: seededPerAppOffset))
+        commitPerAppOffsets()
+    }
+
+    func addPerAppOffsets(_ apps: [BlacklistedApp]) {
+        var changed = false
+        for app in apps where !perAppOffsets.contains(where: { $0.bundleID == app.bundleID }) {
+            perAppOffsets.append(AppTitleBarOffset(bundleID: app.bundleID, name: app.name, offset: seededPerAppOffset))
+            changed = true
+        }
+        if changed { commitPerAppOffsets() }
+    }
+
+    func setPerAppOffset(bundleID: String, value: CGFloat) {
+        guard let idx = perAppOffsets.firstIndex(where: { $0.bundleID == bundleID }) else { return }
+        let clamped = value.rounded().clamped(to: Preferences.titleBarYOffsetRange)
+        guard perAppOffsets[idx].offset != clamped else { return }
+        perAppOffsets[idx].offset = clamped
+        commitPerAppOffsets()
+    }
+
+    func removePerAppOffset(bundleID: String) {
+        guard perAppOffsets.contains(where: { $0.bundleID == bundleID }) else { return }
+        perAppOffsets.removeAll { $0.bundleID == bundleID }
+        commitPerAppOffsets()
+    }
+
+    private func commitPerAppOffsets() {
+        Preferences.setPerAppTitleBarOffsets(perAppOffsets)
+        let map = Dictionary(
+            perAppOffsets.map { ($0.bundleID, $0.offset) },
+            uniquingKeysWith: { _, last in last }
+        )
+        engine.setPerAppTitleBarYOffsets(map)
     }
 
     /// Best-effort icon for a bundle id: running instance, then on-disk bundle,

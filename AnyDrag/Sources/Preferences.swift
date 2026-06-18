@@ -9,6 +9,16 @@ struct BlacklistedApp: Equatable {
     let name: String
 }
 
+/// One app with a custom title-bar Y offset that overrides the global default
+/// (`titleBarYOffset`). `bundleID` is the match key (stable across renames);
+/// `name` is kept for display; `offset` is in points, clamped to
+/// `titleBarYOffsetRange`.
+struct AppTitleBarOffset: Equatable {
+    let bundleID: String
+    let name: String
+    var offset: CGFloat
+}
+
 /// Centralizes UserDefaults keys, defaults, and migration so the menu, the
 /// Settings window, and the engine read/write through one place.
 enum Preferences {
@@ -52,6 +62,11 @@ enum Preferences {
         // ["bundleID": ..., "name": ...] dictionaries; absent = empty list.
         static let blacklistedApps    = "AnyDragBlacklistedApps"
 
+        // Per-app title-bar Y offset overrides. Stored as an array of
+        // ["bundleID": ..., "name": ..., "offset": <Double>] dictionaries;
+        // absent = empty list (every app uses the global `titleBarYOffset`).
+        static let perAppTitleBarYOffsets = "AnyDragPerAppTitleBarYOffsets"
+
         // In-app language override. Empty/absent means "follow system".
         static let languageOverride = "AnyDragLanguageOverride"
 
@@ -75,13 +90,19 @@ enum Preferences {
     }
 
     /// The default title-bar Y offset, in points. The reset button in the
-    /// Diagnostics section snaps the slider back to this value.
+    /// Diagnostics section snaps the value back to this default.
     static let defaultTitleBarYOffset: CGFloat = 3
 
-    /// Range mirrored from the Diagnostics slider (0…40). Persisted values are
+    /// Range mirrored from the Diagnostics control (0…40). Persisted values are
     /// clamped on launch so a manually edited UserDefaults entry can't push the
     /// engine outside what the UI can represent.
     static let titleBarYOffsetRange: ClosedRange<CGFloat> = 0...40
+
+    /// Range for a per-app title-bar Y offset override (points). Narrower than
+    /// the global 0…40 by design: a per-app override only ever nudges a few
+    /// points around the global default. Stored values are still clamped to the
+    /// wider `titleBarYOffsetRange`.
+    static let perAppTitleBarYOffsetRange: ClosedRange<CGFloat> = 0...15
 
     /// Default resize-corner inset. The synthesized resize click lands this
     /// many points INSIDE the window's corner so it falls inside the rounded
@@ -90,7 +111,7 @@ enum Preferences {
     /// as Chromium — verified by hand against both families.
     static let defaultResizeCornerInset: CGFloat = 5
 
-    /// Slider range for the resize-corner inset (0…30 px). Persisted values
+    /// Range for the resize-corner inset (0…30 pt). Persisted values
     /// are clamped to this range on launch.
     static let resizeCornerInsetRange: ClosedRange<CGFloat> = 0...30
 
@@ -143,6 +164,35 @@ enum Preferences {
     static func setBlacklistedApps(_ apps: [BlacklistedApp]) {
         let serialized = apps.map { ["bundleID": $0.bundleID, "name": $0.name] }
         UserDefaults.standard.set(serialized, forKey: Key.blacklistedApps)
+    }
+
+    /// The user's per-app title-bar Y offset overrides, in display order. Parsed
+    /// defensively (like the blacklist): a malformed or empty-bundleID entry is
+    /// dropped without discarding the rest, a missing `name` falls back to the
+    /// bundle id, and each offset is clamped to `titleBarYOffsetRange` so a
+    /// hand-edited value can't push a drag outside what the UI can represent.
+    static func perAppTitleBarOffsets() -> [AppTitleBarOffset] {
+        guard let raw = UserDefaults.standard.array(forKey: Key.perAppTitleBarYOffsets) else {
+            return []
+        }
+        return raw.compactMap { element in
+            guard let entry = element as? [String: Any],
+                  let bundleID = entry["bundleID"] as? String, !bundleID.isEmpty else { return nil }
+            let name = (entry["name"] as? String) ?? bundleID
+            let rawOffset = (entry["offset"] as? Double) ?? Double(defaultTitleBarYOffset)
+            let clamped = min(max(CGFloat(rawOffset), titleBarYOffsetRange.lowerBound), titleBarYOffsetRange.upperBound)
+            return AppTitleBarOffset(bundleID: bundleID, name: name, offset: clamped)
+        }
+    }
+
+    /// Persist the per-app offset list. The engine is updated separately via
+    /// `DragEngine.setPerAppTitleBarYOffsets` so the running tap sees the change
+    /// immediately, not just on next launch.
+    static func setPerAppTitleBarOffsets(_ items: [AppTitleBarOffset]) {
+        let serialized = items.map {
+            ["bundleID": $0.bundleID, "name": $0.name, "offset": Double($0.offset)] as [String: Any]
+        }
+        UserDefaults.standard.set(serialized, forKey: Key.perAppTitleBarYOffsets)
     }
 
     /// One-shot migration of pre-1.3 preferences. Idempotent — safe to call every launch.
@@ -240,5 +290,11 @@ enum Preferences {
         engine.showDebugDot = d.object(forKey: Key.showDebugDot) as? Bool ?? false
 
         engine.setBlacklistedBundleIDs(Set(blacklistedApps().map { $0.bundleID }))
+
+        let offsetMap = Dictionary(
+            perAppTitleBarOffsets().map { ($0.bundleID, $0.offset) },
+            uniquingKeysWith: { _, last in last }
+        )
+        engine.setPerAppTitleBarYOffsets(offsetMap)
     }
 }

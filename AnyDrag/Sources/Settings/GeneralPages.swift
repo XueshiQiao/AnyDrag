@@ -59,7 +59,7 @@ struct GeneralPage: View {
                                  L("diagnostics.showDot"), L("diagnostics.showDot.subtitle"))
                 }
 
-                sliderRow(
+                stepperRow(
                     symbol: "arrow.up.and.down", color: .orange,
                     title: L("diagnostics.titleBarYOffset"), hint: L("diagnostics.titleBarYOffset.hint"),
                     value: store.titleBarYOffset,
@@ -68,7 +68,7 @@ struct GeneralPage: View {
                     set: { store.setTitleBarYOffset($0) }, reset: { store.resetTitleBarYOffset() }
                 )
 
-                sliderRow(
+                stepperRow(
                     symbol: "arrow.down.right.and.arrow.up.left", color: .teal,
                     title: L("diagnostics.resizeCornerInset"), hint: L("diagnostics.resizeCornerInset.hint"),
                     value: store.resizeCornerInset,
@@ -86,9 +86,9 @@ struct GeneralPage: View {
 
     private static let systemTag = "__system__"
 
-    /// A diagnostics slider block: icon + title, live value, Reset, the slider,
-    /// and a wrapping hint below.
-    private func sliderRow(
+    /// A diagnostics row: icon + title, live value, a stepper, and Reset — all on
+    /// one line — with a wrapping hint below.
+    private func stepperRow(
         symbol: String, color: Color, title: String, hint: String,
         value: CGFloat, range: ClosedRange<CGFloat>, isDefault: Bool,
         set: @escaping (CGFloat) -> Void, reset: @escaping () -> Void
@@ -97,16 +97,19 @@ struct GeneralPage: View {
             HStack {
                 iconLabel(symbol, color, title)
                 Spacer()
-                Text("\(Int(value.rounded())) px")
+                Text("\(Int(value.rounded())) pt")
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).monospacedDigit()
+                Stepper(
+                    value: Binding(get: { Double(value) }, set: { set(CGFloat($0)) }),
+                    in: Double(range.lowerBound)...Double(range.upperBound), step: 1
+                ) {
+                    EmptyView()
+                }
+                .labelsHidden()
                 Button(L("diagnostics.reset")) { reset() }
                     .controlSize(.small)
                     .disabled(isDefault)
             }
-            Slider(
-                value: Binding(get: { Double(value) }, set: { set(CGFloat($0)) }),
-                in: Double(range.lowerBound)...Double(range.upperBound), step: 1
-            )
             Text(hint)
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -187,9 +190,57 @@ struct ExcludedAppsPage: View {
     /// The "add app" popover: running, Dock-visible apps to add in one click,
     /// plus Browse… for apps that aren't running.
     private var addPopover: some View {
-        let running = store.addableRunningApps()
-        return VStack(alignment: .leading, spacing: 0) {
-            if running.isEmpty {
+        AppPickerPopover(
+            runningApps: store.addableRunningApps(),
+            icon: { store.icon(forBundleID: $0) },
+            onPick: { app in
+                store.addBlacklistedApp(app)
+                showAdd = false
+            },
+            onBrowse: {
+                showAdd = false
+                // Defer so the popover finishes dismissing before the modal panel.
+                DispatchQueue.main.async { store.addBlacklistedApps(pickAppBundles()) }
+            }
+        )
+    }
+}
+
+/// Run an NSOpenPanel to pick `.app` bundles from /Applications, returning their
+/// (bundleID, name) pairs. Shared by the Excluded Apps and per-app offset lists
+/// so both pick apps that aren't currently running the same way.
+func pickAppBundles() -> [BlacklistedApp] {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = true
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowedContentTypes = [UTType.application]
+    panel.directoryURL = URL(fileURLWithPath: "/Applications")
+    panel.prompt = L("blacklist.choose")
+    guard panel.runModal() == .OK else { return [] }
+    return panel.urls.compactMap { url in
+        guard let bundle = Bundle(url: url), let bundleID = bundle.bundleIdentifier else { return nil }
+        let name = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? url.deletingPathExtension().lastPathComponent
+        return BlacklistedApp(bundleID: bundleID, name: name)
+    }
+}
+
+/// Shared "add an app" popover: one-click rows for the running, Dock-visible
+/// apps passed in, plus a Browse… row for apps that aren't running. Used by both
+/// the Excluded Apps list and the per-app Y-offset list so the two stay
+/// pixel-identical. The caller supplies the addable list, an icon provider, and
+/// the pick / browse actions (including dismissing its own popover).
+struct AppPickerPopover: View {
+    let runningApps: [BlacklistedApp]
+    let icon: (String) -> NSImage
+    let onPick: (BlacklistedApp) -> Void
+    let onBrowse: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if runningApps.isEmpty {
                 Text(L("blacklist.noRunningApps"))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -199,51 +250,23 @@ struct ExcludedAppsPage: View {
                     .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 2)
                 ScrollView {
                     VStack(spacing: 0) {
-                        ForEach(running, id: \.bundleID) { app in
-                            AddAppRow(name: app.name, icon: store.icon(forBundleID: app.bundleID)) {
-                                store.addBlacklistedApp(app)
-                                showAdd = false
-                            }
+                        ForEach(runningApps, id: \.bundleID) { app in
+                            AddAppRow(name: app.name, icon: icon(app.bundleID)) { onPick(app) }
                         }
                     }
                 }
                 .frame(maxHeight: 260)
             }
             Divider()
-            AddAppRow(name: L("blacklist.browse"), icon: nil) {
-                showAdd = false
-                // Defer so the popover finishes dismissing before the modal panel.
-                DispatchQueue.main.async { browse() }
-            }
+            AddAppRow(name: L("blacklist.browse"), icon: nil, action: onBrowse)
         }
         .frame(width: 260)
         .padding(.vertical, 4)
     }
-
-    /// Pick app bundles that aren't currently running (NSOpenPanel into /Applications).
-    private func browse() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [UTType.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.prompt = L("blacklist.choose")
-        guard panel.runModal() == .OK else { return }
-        var apps: [BlacklistedApp] = []
-        for url in panel.urls {
-            guard let bundle = Bundle(url: url), let bundleID = bundle.bundleIdentifier else { continue }
-            let name = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
-                ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
-                ?? url.deletingPathExtension().lastPathComponent
-            apps.append(BlacklistedApp(bundleID: bundleID, name: name))
-        }
-        store.addBlacklistedApps(apps)
-    }
 }
 
 /// One tappable row in the "add app" popover, with a menu-like hover highlight.
-private struct AddAppRow: View {
+struct AddAppRow: View {
     let name: String
     let icon: NSImage?
     let action: () -> Void
