@@ -43,9 +43,9 @@ If macOS "Hold Option key while dragging windows to tile" is enabled and AnyDrag
 
 ## Screenshots
 
-![AnyDrag](screenshots/AnyDrag-drag-en.jpg)
+<img src="screenshots/AnyDrag-drag-en.jpg" width="700" alt="AnyDrag" />
 
-![Middle-click → Tile by direction](screenshots/AnyDrag-middle-mouse-en.jpg)
+<img src="screenshots/AnyDrag-middle-mouse-en.jpg" width="700" alt="Middle-click → Tile by direction" />
 
 
 

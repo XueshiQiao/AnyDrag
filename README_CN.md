@@ -44,8 +44,9 @@ brew install --cask XueshiQiao/tap/anydrag
 如果你在 macOS 中开启了“按住 ⌥ 键拖移窗口以平铺”，并且 AnyDrag 的修饰键不是 `Option`，那么也可以额外按住 `Option` 使用系统平铺。例如把 AnyDrag 设为 `fn` 后，可以直接用 `fn + option + 拖动` 从窗口任意区域触发原生拖动和平铺。
 
 ## 截图
-![AnyDrag](screenshots/AnyDrag-drag-zh.jpg)
-![鼠标中键 → 按方向平铺](screenshots/AnyDrag-middle-mouse-zh.jpg)
+<img src="screenshots/AnyDrag-drag-zh.jpg" width="700" alt="AnyDrag" />
+
+<img src="screenshots/AnyDrag-middle-mouse-zh.jpg" width="700" alt="鼠标中键 → 按方向平铺" />
 
 
 ### 支持的修饰键
