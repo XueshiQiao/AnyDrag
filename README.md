@@ -6,7 +6,7 @@
 
 Move any window by holding a modifier key and dragging anywhere on the window — no need to grab the title bar.
 
-<!-- ![AnyDrag Demo](demo.png) -->
+![AnyDrag](screenshots/AnyDrag-drag-en.jpg)
 
 ## Why AnyDrag?
 
@@ -36,9 +36,10 @@ On first launch, macOS will ask for **Accessibility permission** — this is req
 2. Hold **Option** (default) and drag any window
 3. Hold the modifier key and **double-click** a window to maximize it; double-click again to restore its original size
 4. Hold the modifier key and **right-click** a window to open the **tiling panel** — quickly snap windows to halves, corners, or arrange multiple windows side by side
+5. Or set **Middle-click action** to *Tile by direction*, then hold the middle button and drag toward an edge or corner — on a multi-monitor setup the panel lays out every display so you can pick any display × any zone in one gesture
+6. Click the menu bar icon to change the modifier key or toggle on/off
 
-   ![Tiling Panel](tiling_panel.png)
-5. Click the menu bar icon to change the modifier key or toggle on/off
+![Middle-click → Tile by direction](screenshots/AnyDrag-middle-mouse-en.jpg)
 
 If macOS "Hold Option key while dragging windows to tile" is enabled and AnyDrag's modifier is not `Option`, you can also hold `Option` as an extra key to use native tiling. For example, with AnyDrag set to `fn`, `fn + option + drag` starts a native drag from anywhere in the window and still triggers system tiling.
 
