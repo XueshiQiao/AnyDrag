@@ -9,10 +9,12 @@ import AppKit
 // frame plus a halo padding so the soft glow can render outside the visible
 // boundary without being clipped.
 //
-// Renders the bracket as a single stroked `CAShapeLayer` (the outer rounded
-// corner is part of the path itself, not a lineJoin trick). The layer-based
-// shadow gives the colored halo. No `draw(_:)` — keeps the backing store
-// negligible regardless of window size.
+// Renders the bracket as a stack of stroked `CAShapeLayer`s sharing one path
+// (the outer rounded corner is part of the path itself, not a lineJoin trick):
+// two wide accent-tinted shadow passes for the soft bloom, plus a bright "lit
+// filament" core on top. Stacking discrete layer shadows is how we fake the
+// multi-pass glow a single CALayer shadow can't produce. No `draw(_:)` — keeps
+// the backing store negligible regardless of window size.
 
 final class EdgeGlowFeedback: ResizeFeedback {
 
@@ -47,10 +49,10 @@ private final class EdgeGlowPanel: NSPanel {
     /// radius; this is "close enough", not an exact match per window.
     static let cornerRadius: CGFloat = 22
 
-    /// Halo padding around the bracket so the soft shadow has room to
-    /// render outside the panel's edge. Must be at least `shadowRadius`
-    /// (set on the shape layer) so the glow isn't clipped.
-    static let haloPadding: CGFloat = 16
+    /// Halo padding around the bracket so the soft glow has room to render
+    /// outside the panel's edge without being clipped. Must be ≥ the widest
+    /// bloom layer's `shadowRadius` (22, see `BracketView`), plus a margin.
+    static let haloPadding: CGFloat = 30
 
     private let bracketView: BracketView
 
@@ -116,7 +118,13 @@ private final class EdgeGlowPanel: NSPanel {
 
 private final class BracketView: NSView {
 
-    private let shape = CAShapeLayer()
+    // Glow stack, back-to-front, all sharing one bracket path. The two halo
+    // layers contribute the wide soft bloom; the core is a bright lit filament
+    // with a tight glow on top.
+    private let glowWide = CAShapeLayer()   // widest, faintest halo
+    private let glowMid  = CAShapeLayer()   // mid halo
+    private let core     = CAShapeLayer()   // bright filament + tight glow
+    private var allLayers: [CAShapeLayer] { [glowWide, glowMid, core] }
 
     var corner: ResizeCorner = .topLeft {
         didSet { needsLayout = true }
@@ -127,29 +135,50 @@ private final class BracketView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.addSublayer(shape)
-        shape.fillColor = nil
-        shape.lineWidth = EdgeGlowPanel.edgeThickness
-        shape.lineCap = .round
-        shape.lineJoin = .round
-        shape.shadowOpacity = 0.85
-        // Radius chosen well inside `haloPadding` (16pt) so the soft halo
-        // never gets clipped at the panel's edge.
-        shape.shadowRadius = 8
-        shape.shadowOffset = .zero
-        shape.masksToBounds = false
+        for l in allLayers {
+            layer?.addSublayer(l)
+            l.fillColor = nil
+            l.lineWidth = EdgeGlowPanel.edgeThickness
+            l.lineCap = .round
+            l.lineJoin = .round
+            l.shadowOffset = .zero
+            l.masksToBounds = false
+        }
+        // Radii kept inside `haloPadding` (30pt) so no halo is clipped.
+        glowWide.shadowRadius = 22; glowWide.shadowOpacity = 0.42
+        glowMid.shadowRadius  = 12; glowMid.shadowOpacity  = 0.65
+        core.shadowRadius     = 3;  core.shadowOpacity     = 1.0
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func layout() {
         super.layout()
-        shape.frame = bounds
         let halo = EdgeGlowPanel.haloPadding
         let L    = EdgeGlowPanel.armLength
         let r    = EdgeGlowPanel.cornerRadius
         let win  = bounds.insetBy(dx: halo, dy: halo)
-        shape.path = Self.bracketPath(corner: corner, in: win, armLength: L, cornerRadius: r)
+        let path = Self.bracketPath(corner: corner, in: win, armLength: L, cornerRadius: r)
+        // The glow is cast by the stroked line itself; handing CA the stroked
+        // outline as `shadowPath` skips the per-frame offscreen rasterize+blur
+        // it would otherwise do for each of the three layers during a live
+        // resize gesture.
+        let shadowPath = path.copy(
+            strokingWithWidth: EdgeGlowPanel.edgeThickness,
+            lineCap: .round, lineJoin: .round, miterLimit: 10
+        )
+        // Disable implicit animations: manually-added sublayers (unlike a
+        // view's backing layer) animate `frame`/`path` changes by default, so
+        // without this the bracket eases toward each new size and trails the
+        // window during a resize.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for l in allLayers {
+            l.frame = bounds
+            l.path = path
+            l.shadowPath = shadowPath
+        }
+        CATransaction.commit()
     }
 
     /// Re-resolve the current dynamic accent color and push it to the layer.
@@ -157,12 +186,25 @@ private final class BracketView: NSView {
     /// reflected immediately (CALayer caches CGColor; doesn't auto-follow
     /// the dynamic NSColor catalog entry).
     func refreshAccent() {
-        let accent: NSColor = effectiveAppearance.performAsCurrentDrawingAppearance {
-            return NSColor.controlAccentColor
-        }
-        let cg = accent.cgColor
-        shape.strokeColor = cg
-        shape.shadowColor = cg
+        // Resolve the dynamic accent AND every CGColor derived from it inside
+        // the appearance block: a catalog color only commits to concrete
+        // components when `.cgColor` / `.usingColorSpace` / `.blended` are
+        // evaluated, so those must run against the view's effectiveAppearance
+        // here — not after the closure returns.
+        let (accentCG, coreCG): (CGColor, CGColor) =
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                let accent = NSColor.controlAccentColor
+                let base = accent.usingColorSpace(.sRGB) ?? accent
+                // Bright filament: accent pushed toward white so the line itself
+                // reads as "lit" while keeping the accent hue.
+                let coreNS = base.blended(withFraction: 0.55, of: .white) ?? base
+                return (accent.cgColor, coreNS.cgColor)
+            }
+        // Halo layers: accent stroke + accent-tinted bloom.
+        glowWide.strokeColor = accentCG; glowWide.shadowColor = accentCG
+        glowMid.strokeColor  = accentCG; glowMid.shadowColor  = accentCG
+        // Core: lit stroke, accent glow.
+        core.strokeColor = coreCG;       core.shadowColor = accentCG
     }
 
     /// Build the L-bracket path for the given corner: two arms meeting at
