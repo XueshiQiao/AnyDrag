@@ -6,7 +6,7 @@
 
 Move any window by holding a modifier key and dragging anywhere on the window — no need to grab the title bar.
 
-![AnyDrag](screenshots/AnyDrag-drag-en.jpg)
+https://github.com/user-attachments/assets/82b18801-0f96-4e9d-b05a-ac7cdd18d490
 
 ## Why AnyDrag?
 
@@ -39,9 +39,15 @@ On first launch, macOS will ask for **Accessibility permission** — this is req
 5. Or set **Middle-click action** to *Tile by direction*, then hold the middle button and drag toward an edge or corner — on a multi-monitor setup the panel lays out every display so you can pick any display × any zone in one gesture
 6. Click the menu bar icon to change the modifier key or toggle on/off
 
+If macOS "Hold Option key while dragging windows to tile" is enabled and AnyDrag's modifier is not `Option`, you can also hold `Option` as an extra key to use native tiling. For example, with AnyDrag set to `fn`, `fn + option + drag` starts a native drag from anywhere in the window and still triggers system tiling.
+
+## Screenshots
+
+![AnyDrag](screenshots/AnyDrag-drag-en.jpg)
+
 ![Middle-click → Tile by direction](screenshots/AnyDrag-middle-mouse-en.jpg)
 
-If macOS "Hold Option key while dragging windows to tile" is enabled and AnyDrag's modifier is not `Option`, you can also hold `Option` as an extra key to use native tiling. For example, with AnyDrag set to `fn`, `fn + option + drag` starts a native drag from anywhere in the window and still triggers system tiling.
+
 
 ### Supported Modifiers
 
@@ -50,6 +56,7 @@ If macOS "Hold Option key while dragging windows to tile" is enabled and AnyDrag
 - Control
 - fn
 - Option + Command
+- ...
 
 ## Requirements
 
