@@ -6,7 +6,8 @@
 
 按住修饰键，拖动窗口任意位置即可移动窗口，无需拖拽标题栏。
 
-![AnyDrag](screenshots/AnyDrag-drag-zh.jpg)
+https://github.com/user-attachments/assets/82b18801-0f96-4e9d-b05a-ac7cdd18d490
+
 
 ## 为什么选择 AnyDrag？
 
@@ -39,9 +40,13 @@ brew install --cask XueshiQiao/tap/anydrag
 5. 或把**鼠标中键动作**设为「按方向平铺」，然后按住中键往某个边/角拖动——多显示器时面板会按真实排列铺开所有屏，一个手势即可选「任意屏 × 任意区域」
 6. 点击菜单栏图标可以切换修饰键或开关
 
-![鼠标中键 → 按方向平铺](screenshots/AnyDrag-middle-mouse-zh.jpg)
 
 如果你在 macOS 中开启了“按住 ⌥ 键拖移窗口以平铺”，并且 AnyDrag 的修饰键不是 `Option`，那么也可以额外按住 `Option` 使用系统平铺。例如把 AnyDrag 设为 `fn` 后，可以直接用 `fn + option + 拖动` 从窗口任意区域触发原生拖动和平铺。
+
+## 截图
+![AnyDrag](screenshots/AnyDrag-drag-zh.jpg)
+![鼠标中键 → 按方向平铺](screenshots/AnyDrag-middle-mouse-zh.jpg)
+
 
 ### 支持的修饰键
 
