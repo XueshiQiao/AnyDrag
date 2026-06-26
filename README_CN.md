@@ -1,3 +1,7 @@
+<p align="center">
+  <b><a href="https://xueshi.dev">✨ 我做的更多应用 → xueshi.dev</a></b>
+</p>
+
 <h1 align="center">
   <img src="./docs/assets/icon.png" alt="AnyDrag" width="96" /><br/>
   AnyDrag
