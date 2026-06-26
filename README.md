@@ -8,16 +8,23 @@
 </p>
 
 <p align="center">
-  <b>🇺🇸 English</b> •
-  <a href="README_CN.md">🇨🇳 中文</a>
+  <a href="README.md"><img src="https://img.shields.io/badge/English-current-2ea44f?style=for-the-badge" alt="English" /></a>
+  <a href="README_CN.md"><img src="https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-switch-blue?style=for-the-badge" alt="简体中文" /></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/XueshiQiao/AnyDrag/actions/workflows/build.yml"><img src="https://github.com/XueshiQiao/AnyDrag/actions/workflows/build.yml/badge.svg" alt="Build" /></a>
-  <a href="https://github.com/XueshiQiao/AnyDrag/releases/latest"><img src="https://img.shields.io/github/v/release/XueshiQiao/AnyDrag" alt="Release" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL%20v3.0-blue" alt="License" /></a>
-  <img src="https://img.shields.io/badge/macOS-13%2B-black?logo=apple&logoColor=white" alt="macOS 13+" />
-  <a href="https://github.com/XueshiQiao/AnyDrag/stargazers"><img src="https://img.shields.io/github/stars/XueshiQiao/AnyDrag?style=social" alt="GitHub stars" /></a>
+  <a href="https://github.com/XueshiQiao/AnyDrag/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/XueshiQiao/AnyDrag/build.yml?branch=main&style=for-the-badge&label=build" alt="Build" /></a>
+  <a href="https://github.com/XueshiQiao/AnyDrag/releases/latest"><img src="https://img.shields.io/github/v/release/XueshiQiao/AnyDrag?style=for-the-badge" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL%20v3.0-blue?style=for-the-badge" alt="License" /></a>
+  <a href="https://github.com/XueshiQiao/AnyDrag/stargazers"><img src="https://img.shields.io/github/stars/XueshiQiao/AnyDrag?style=for-the-badge&logo=github" alt="GitHub stars" /></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-13%2B-black?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+" />
+  <img src="https://img.shields.io/badge/Swift-5.9-orange?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 5.9" />
+  <a href="https://github.com/XueshiQiao/homebrew-tap"><img src="https://img.shields.io/badge/Homebrew-installable-fbb040?style=for-the-badge&logo=homebrew&logoColor=black" alt="Homebrew installable" /></a>
+  <img src="https://img.shields.io/badge/Localized-EN%20%7C%20%E4%B8%AD%E6%96%87-2ea44f?style=for-the-badge" alt="Localized: English and Chinese" />
+  <img src="https://img.shields.io/badge/Auto--update-Sparkle-blue?style=for-the-badge" alt="Auto-update with Sparkle" />
 </p>
 
 <p align="center">
