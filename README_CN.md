@@ -24,12 +24,9 @@
   <img src="https://img.shields.io/badge/Swift-5.9-orange?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 5.9" />
   <a href="https://github.com/XueshiQiao/homebrew-tap"><img src="https://img.shields.io/badge/Homebrew-installable-fbb040?style=for-the-badge&logo=homebrew&logoColor=black" alt="Homebrew installable" /></a>
   <img src="https://img.shields.io/badge/%E5%A4%9A%E8%AF%AD%E8%A8%80-EN%20%7C%20%E4%B8%AD%E6%96%87-2ea44f?style=for-the-badge" alt="多语言：英文和中文" />
-  <img src="https://img.shields.io/badge/%E8%87%AA%E5%8A%A8%E6%9B%B4%E6%96%B0-Sparkle-blue?style=for-the-badge" alt="Sparkle 自动更新" />
 </p>
 
 <p align="center">
-  ⭐ <b>如果 AnyDrag 让你的窗口拖动更顺手，欢迎给个 <a href="https://github.com/XueshiQiao/AnyDrag">Star</a></b> —— 能帮更多人发现它。
-  <br/>
   ✨ <a href="https://xueshi.dev">我做的更多应用 → xueshi.dev</a>
 </p>
 

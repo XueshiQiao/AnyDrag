@@ -24,12 +24,9 @@
   <img src="https://img.shields.io/badge/Swift-5.9-orange?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 5.9" />
   <a href="https://github.com/XueshiQiao/homebrew-tap"><img src="https://img.shields.io/badge/Homebrew-installable-fbb040?style=for-the-badge&logo=homebrew&logoColor=black" alt="Homebrew installable" /></a>
   <img src="https://img.shields.io/badge/Localized-EN%20%7C%20%E4%B8%AD%E6%96%87-2ea44f?style=for-the-badge" alt="Localized: English and Chinese" />
-  <img src="https://img.shields.io/badge/Auto--update-Sparkle-blue?style=for-the-badge" alt="Auto-update with Sparkle" />
 </p>
 
 <p align="center">
-  ⭐ <b>If AnyDrag makes your windows feel better, please <a href="https://github.com/XueshiQiao/AnyDrag">star the repo</a></b> — it helps others find it.
-  <br/>
   ✨ <a href="https://xueshi.dev">More apps I made → xueshi.dev</a>
 </p>
 
