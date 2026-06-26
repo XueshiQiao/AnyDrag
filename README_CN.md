@@ -1,7 +1,3 @@
-<p align="center">
-  <b><a href="https://xueshi.dev">✨ 我做的更多应用 → xueshi.dev</a></b>
-</p>
-
 <h1 align="center">
   <img src="./docs/assets/icon.png" alt="AnyDrag" width="96" /><br/>
   AnyDrag
@@ -26,6 +22,8 @@
 
 <p align="center">
   ⭐ <b>如果 AnyDrag 让你的窗口拖动更顺手，欢迎给个 <a href="https://github.com/XueshiQiao/AnyDrag">Star</a></b> —— 能帮更多人发现它。
+  <br/>
+  ✨ <a href="https://xueshi.dev">我做的更多应用 → xueshi.dev</a>
 </p>
 
 按住修饰键，拖动窗口**任意位置**即可移动窗口，无需对准标题栏。

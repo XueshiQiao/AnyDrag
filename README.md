@@ -1,7 +1,3 @@
-<p align="center">
-  <b><a href="https://xueshi.dev">✨ More apps I made → xueshi.dev</a></b>
-</p>
-
 <h1 align="center">
   <img src="./docs/assets/icon.png" alt="AnyDrag" width="96" /><br/>
   AnyDrag
@@ -26,6 +22,8 @@
 
 <p align="center">
   ⭐ <b>If AnyDrag makes your windows feel better, please <a href="https://github.com/XueshiQiao/AnyDrag">star the repo</a></b> — it helps others find it.
+  <br/>
+  ✨ <a href="https://xueshi.dev">More apps I made → xueshi.dev</a>
 </p>
 
 Move any window by holding a modifier key and dragging **anywhere** on it — no need to aim for the title bar.
