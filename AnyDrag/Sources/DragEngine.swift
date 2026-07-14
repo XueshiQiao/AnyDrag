@@ -431,6 +431,11 @@ final class DragEngine {
     /// freezing system-wide clicks.
     private var trustRestoreDebounceTasks: [DispatchWorkItem] = []
     private var backstopTimer: Timer?
+    /// `AXIsProcessTrusted()` can stay pinned to true for the lifetime of a
+    /// process after a live revoke. Once WindowServer disables our tap by user
+    /// input, never recreate it in this process; relaunch is the only reliable
+    /// way to obtain a fresh TCC decision.
+    private var trustRevokedUntilRelaunch = false
 
     /// Wall-clock anchor for the backstop's events-per-second log. Only
     /// touched on main, so no lock needed.
@@ -715,6 +720,10 @@ final class DragEngine {
     /// Safe to call repeatedly — no-op when the cached state already matches.
     private func applyTrustChange(_ trusted: Bool, source: String) {
         dispatchPrecondition(condition: .onQueue(.main))
+        if trusted && trustRevokedUntilRelaunch {
+            Self.log.warn("Ignoring stale AX trusted=true after live revoke [\(source)]; relaunch required")
+            return
+        }
         let previous = cbState.withLock { state -> Bool in
             let p = state.trusted
             state.trusted = trusted
@@ -837,36 +846,34 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        // Tap disabled by the system (callback ran too long, or AX was
-        // revoked). Decide on main where we can probe and access the
-        // tap reference race-free.
+        // User-input disable is the revoke signal. Fail open immediately and
+        // latch the engine off until relaunch: TCC can keep reporting a stale
+        // `true` for this process, and re-enabling that unauthorized default
+        // tap freezes system-wide clicks. Timeout disables are recoverable and
+        // may still use the trust query before re-enabling.
         if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
-            Self.log.info("tap-disabled event \(type) — dispatching trust check to main")
+            Self.log.info("tap-disabled event \(type) — dispatching recovery to main")
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                // We're here because the OS just killed our tap. The tap
-                // can only exist if we were previously trusted, so this
-                // is unambiguously a revoke-direction check — consult
-                // `AXIsProcessTrusted()` directly. The listen-only mouse
-                // probe used here previously *lied on revoke* (succeeded
-                // because WindowServer pins per-process trust at launch),
-                // which made us re-enable an unauthorized `.defaultTap`
-                // at the head of the event chain and freeze all clicks
-                // system-wide. TCC has had plenty of time to settle by
-                // the time we receive a tap-disabled event, so the bare
-                // `AXIsProcessTrusted()` read is the right oracle here.
+                if type == .tapDisabledByUserInput {
+                    self.trustRevokedUntilRelaunch = true
+                    Self.log.warn("tap disabled by user input — stopping until relaunch")
+                    self.applyTrustChange(false, source: "tap-disabled-by-user-input")
+                    return
+                }
+
                 let trusted = AXIsProcessTrusted()
-                Self.log.info("tap-disabled trust check: AXIsProcessTrusted=\(trusted)")
+                Self.log.info("tap-timeout trust check: AXIsProcessTrusted=\(trusted)")
                 if trusted {
                     self.cbState.withLock { state in
                         if let tap = state.tap {
                             CGEvent.tapEnable(tap: tap, enable: true)
-                            Self.log.info("Re-enabled tap (still authorized)")
+                            Self.log.info("Re-enabled tap after timeout")
                         }
                     }
                 } else {
-                    Self.log.warn("tap-disabled and AX revoked — calling applyTrustChange(false)")
-                    self.applyTrustChange(false, source: "tap-disabled")
+                    Self.log.warn("tap timed out and AX is revoked — stopping")
+                    self.applyTrustChange(false, source: "tap-disabled-by-timeout")
                 }
             }
             // The tap missed events while disabled — any in-flight tile
