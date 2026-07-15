@@ -13,7 +13,7 @@ final class PermissionManager {
             return
         }
 
-        showPermissionAlert()
+        requestAccessibilityAuthorization()
 
         Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
@@ -26,32 +26,45 @@ final class PermissionManager {
 
     // MARK: - Private
 
-    private func showPermissionAlert() {
-        let alert = NSAlert()
-        alert.messageText = NSLocalizedString("permission.title", comment: "")
-        alert.informativeText = NSLocalizedString("permission.message", comment: "")
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: NSLocalizedString("permission.openSettings", comment: ""))
-        alert.addButton(withTitle: NSLocalizedString("permission.quit", comment: ""))
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            openAccessibilitySettings()
-        } else {
-            NSApp.terminate(nil)
-        }
-    }
-
-    private func openAccessibilitySettings() {
-        Self.openAccessibilitySettings()
+    /// Ask TCC to register AnyDrag and present the native Accessibility
+    /// authorization prompt. A fresh process is required after a live revoke
+    /// because the old process may retain a stale positive trust result.
+    private func requestAccessibilityAuthorization() {
+        let options = [
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true,
+        ] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     /// Open System Settings → Privacy & Security → Accessibility. Shared by
-    /// the launch-time permission alert and the in-app permission row.
+    /// the native permission prompt and the in-app permission row.
     static func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Relaunch after a live revoke so TCC evaluates authorization in a fresh
+    /// process. The new instance runs `ensurePermissions`, which presents the
+    /// single native prompt and re-registers an app removed from the list.
+    static func relaunchForAccessibilityAuthorization() {
+#if DEBUG
+        // A relaunched process is detached from Xcode's debugger. During local
+        // development, exit cleanly and let the developer run again instead.
+        NSApp.terminate(nil)
+#else
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
+#endif
     }
 
     // MARK: - Trust oracle

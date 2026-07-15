@@ -738,7 +738,9 @@ final class DragEngine {
         if trusted {
             start()
         } else {
+            trustRevokedUntilRelaunch = true
             stop()
+            PermissionManager.relaunchForAccessibilityAuthorization()
         }
     }
 
@@ -846,35 +848,21 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        // User-input disable is the revoke signal. Fail open immediately and
-        // latch the engine off until relaunch: TCC can keep reporting a stale
-        // `true` for this process, and re-enabling that unauthorized default
-        // tap freezes system-wide clicks. Timeout disables are recoverable and
-        // may still use the trust query before re-enabling.
+        // macOS reports a live AX revoke as `tapDisabledByTimeout` (-2), not
+        // consistently as `tapDisabledByUserInput` (-1). TCC can then keep
+        // reporting stale `true` for this process, so neither event is safe to
+        // re-enable. Fail open synchronously, then tear down on main and require
+        // a relaunch for a fresh trust decision.
         if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
-            Self.log.info("tap-disabled event \(type) — dispatching recovery to main")
+            Self.log.warn("tap-disabled event \(type) — disabling immediately until relaunch")
+            cbState.withLock { state in
+                if let tap = state.tap {
+                    CGEvent.tapEnable(tap: tap, enable: false)
+                }
+            }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                if type == .tapDisabledByUserInput {
-                    self.trustRevokedUntilRelaunch = true
-                    Self.log.warn("tap disabled by user input — stopping until relaunch")
-                    self.applyTrustChange(false, source: "tap-disabled-by-user-input")
-                    return
-                }
-
-                let trusted = AXIsProcessTrusted()
-                Self.log.info("tap-timeout trust check: AXIsProcessTrusted=\(trusted)")
-                if trusted {
-                    self.cbState.withLock { state in
-                        if let tap = state.tap {
-                            CGEvent.tapEnable(tap: tap, enable: true)
-                            Self.log.info("Re-enabled tap after timeout")
-                        }
-                    }
-                } else {
-                    Self.log.warn("tap timed out and AX is revoked — stopping")
-                    self.applyTrustChange(false, source: "tap-disabled-by-timeout")
-                }
+                self.applyTrustChange(false, source: "tap-disabled")
             }
             // The tap missed events while disabled — any in-flight tile
             // gesture is now stranded. Drop it so we don't apply a stale
