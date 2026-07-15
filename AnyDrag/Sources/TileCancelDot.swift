@@ -89,7 +89,8 @@ final class TileCancelDot: NSPanel {
 
     // MARK: - Subviews
 
-    private let vibrancyView = NSVisualEffectView()
+    private let contentContainer = NSView()
+    private let vibrancyView = BentoPopoverEffectView()
     private let fillView = TileCancelDotView()
 
     /// Plan B "floating chip": the target app's icon + name, hovering just
@@ -121,26 +122,25 @@ final class TileCancelDot: NSPanel {
         vibrancyView.material = .popover
         vibrancyView.blendingMode = .behindWindow
         vibrancyView.state = .active
-        vibrancyView.wantsLayer = true
-        if let layer = vibrancyView.layer {
-            layer.cornerRadius = 14
-            layer.cornerCurve = .continuous
-            layer.masksToBounds = true
-            // No layer-based border — drawn in TileCancelDotView.draw(_:)
-            // so it resolves the dynamic color against the current
-            // effective appearance each redraw.
-        }
+        vibrancyView.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.wantsLayer = true
+        contentContainer.layer?.backgroundColor = NSColor.clear.cgColor
+        contentContainer.addSubview(vibrancyView)
 
         fillView.translatesAutoresizingMaskIntoConstraints = false
         vibrancyView.addSubview(fillView)
         NSLayoutConstraint.activate([
+            vibrancyView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            vibrancyView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            vibrancyView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            vibrancyView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
             fillView.leadingAnchor.constraint(equalTo: vibrancyView.leadingAnchor),
             fillView.trailingAnchor.constraint(equalTo: vibrancyView.trailingAnchor),
             fillView.topAnchor.constraint(equalTo: vibrancyView.topAnchor),
             fillView.bottomAnchor.constraint(equalTo: vibrancyView.bottomAnchor),
         ])
 
-        contentView = vibrancyView
+        contentView = contentContainer
     }
 
     // MARK: - Target chip (Plan B)
@@ -463,6 +463,22 @@ final class TileCancelDot: NSPanel {
         fillView.activeScreen = newScreen
         fillView.activeZone = newZone
         fillView.needsDisplay = true
+    }
+}
+
+/// `NSVisualEffectView` does not reliably clip its WindowServer backdrop when
+/// it is the window's root content view. Hosted inside a transparent root, an
+/// explicit alpha mask keeps all four corners genuinely transparent.
+private final class BentoPopoverEffectView: NSVisualEffectView {
+    override func layout() {
+        super.layout()
+        let size = bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        maskImage = NSImage(size: size, flipped: false) { rect in
+            NSColor.white.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14).fill()
+            return true
+        }
     }
 }
 
