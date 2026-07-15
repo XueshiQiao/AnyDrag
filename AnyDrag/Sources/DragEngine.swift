@@ -451,6 +451,7 @@ final class DragEngine {
     private var tilingPanel: TilingPanel?
     private lazy var tileOverlay = TileOverlay()
     private lazy var tileCancelDot = TileCancelDot()
+    private lazy var linkedResizeController = LinkedWindowResizeController()
 
     // Middle-button tile state and click origin live in `cbState` (see
     // `CallbackState` above) so they're race-free under the lock.
@@ -884,6 +885,14 @@ final class DragEngine {
                 }
             }
             return Unmanaged.passUnretained(event)
+        }
+
+        // Shared dividers use the event tap directly rather than relying on a
+        // transparent NSPanel to win cross-process hit testing. Plain left
+        // down/drag/up events inside the current divider are consumed here.
+        if event.getIntegerValueField(.eventSourceUserData) != Self.synthesizedEventMarker,
+           linkedResizeController.handleMouseEvent(type: type, location: event.location) {
+            return nil
         }
 
         switch type {
@@ -1542,6 +1551,24 @@ final class DragEngine {
             setWindowFrame(axWindow, frame: cgRect)
             tileOverlay.hide()
         }
+
+        // Register the placement so a complementary half-screen pair on this
+        // screen exposes a draggable shared divider (linked resize).
+        let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
+        switch zone {
+        case .left:
+            linkedResizeController.recordTiledWindow(
+                windowID: target.windowID, pid: target.pid,
+                frame: cgRect, screenFrame: screenFrame, slot: .left
+            )
+        case .right:
+            linkedResizeController.recordTiledWindow(
+                windowID: target.windowID, pid: target.pid,
+                frame: cgRect, screenFrame: screenFrame, slot: .right
+            )
+        default:
+            linkedResizeController.removeWindow(target.windowID)
+        }
     }
 
     /// macOS 27 updates a moved AX window's display assignment asynchronously.
@@ -1749,78 +1776,106 @@ final class DragEngine {
         let currentFrame = getWindowFrame(axWindow) ?? windowInfo.frame
         savedFrames[windowInfo.windowID] = currentFrame
 
+        func placeCurrent(_ frame: CGRect, slot: LinkedTileSlot? = nil) {
+            setWindowFrame(axWindow, frame: frame)
+            if let slot {
+                linkedResizeController.recordTiledWindow(
+                    windowID: windowInfo.windowID,
+                    pid: windowInfo.pid,
+                    frame: frame,
+                    screenFrame: screen,
+                    slot: slot
+                )
+            } else {
+                linkedResizeController.removeWindow(windowInfo.windowID)
+            }
+        }
+
         switch action {
         // MARK: Move & Resize
         case .leftHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height), slot: .left)
 
         case .rightHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.midX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height), slot: .right)
 
         case .topHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.minY,
-                width: screen.width, height: screen.height / 2))
+                width: screen.width, height: screen.height / 2), slot: .top)
 
         case .bottomHalf:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.midY,
-                width: screen.width, height: screen.height / 2))
+                width: screen.width, height: screen.height / 2), slot: .bottom)
 
         case .topLeft:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.minY,
                 width: screen.width / 2, height: screen.height / 2))
 
         case .topRight:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.midX, y: screen.minY,
                 width: screen.width / 2, height: screen.height / 2))
 
         case .bottomLeft:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.minX, y: screen.midY,
                 width: screen.width / 2, height: screen.height / 2))
 
         case .bottomRight:
-            setWindowFrame(axWindow, frame: CGRect(
+            placeCurrent(CGRect(
                 x: screen.midX, y: screen.midY,
                 width: screen.width / 2, height: screen.height / 2))
 
         // MARK: Fill & Arrange
         case .fill:
             // Maximize to screen's visible area (keeps title bar)
-            setWindowFrame(axWindow, frame: screen)
+            placeCurrent(screen)
 
         case .leftAndRight:
             // Current window → left half, next Z-order window → right half
-            setWindowFrame(axWindow, frame: CGRect(
+            let leftFrame = CGRect(
                 x: screen.minX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height)
+            placeCurrent(leftFrame, slot: .left)
             if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
                 savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
-                setWindowFrame(next.axWindow, frame: CGRect(
+                let rightFrame = CGRect(
                     x: screen.midX, y: screen.minY,
-                    width: screen.width / 2, height: screen.height))
+                    width: screen.width / 2, height: screen.height)
+                setWindowFrame(next.axWindow, frame: rightFrame)
+                linkedResizeController.recordTiledWindow(
+                    windowID: next.windowID, pid: next.pid,
+                    frame: rightFrame, screenFrame: screen, slot: .right
+                )
             }
 
         case .fillRight:
             // Current window → right half, next Z-order window → left half
-            setWindowFrame(axWindow, frame: CGRect(
+            let rightFrame = CGRect(
                 x: screen.midX, y: screen.minY,
-                width: screen.width / 2, height: screen.height))
+                width: screen.width / 2, height: screen.height)
+            placeCurrent(rightFrame, slot: .right)
             if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
                 savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
-                setWindowFrame(next.axWindow, frame: CGRect(
+                let leftFrame = CGRect(
                     x: screen.minX, y: screen.minY,
-                    width: screen.width / 2, height: screen.height))
+                    width: screen.width / 2, height: screen.height)
+                setWindowFrame(next.axWindow, frame: leftFrame)
+                linkedResizeController.recordTiledWindow(
+                    windowID: next.windowID, pid: next.pid,
+                    frame: leftFrame, screenFrame: screen, slot: .left
+                )
             }
 
         case .quarters:
+            linkedResizeController.removeWindow(windowInfo.windowID)
             // Top 4 windows by Z-order → quadrants
             let quadrants = [
                 CGRect(x: screen.minX, y: screen.minY,
