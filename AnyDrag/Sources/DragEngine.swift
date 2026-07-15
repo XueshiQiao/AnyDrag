@@ -245,6 +245,10 @@ final class DragEngine {
     // reveals the tile cancel dot. 5 pt is enough to tell an intentional drag
     // from the jitter of a plain middle-click. Stored squared to skip the sqrt.
     private static let tileDragRevealThresholdSquared: CGFloat = 25
+    private static let crossScreenTileSettleDelay: TimeInterval = 0.1
+    private static var needsDeferredCrossScreenTileSizing: Bool {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+    }
 
     private static let log = FileLog("DragEngine")
 
@@ -1442,15 +1446,16 @@ final class DragEngine {
         if let finish = tileFinish {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.tileOverlay.hide()
                 self.tileCancelDot.hide()
                 if let zone = finish.zone, let screen = finish.targetScreen {
                     self.applyTile(zone: zone, target: finish.target, screen: screen)
                 } else if finish.sawDirection {
+                    self.tileOverlay.hide()
                     // User actively chose a direction and then moved back into
                     // the cancel cell — clean cancel, don't replay the click.
                     Self.log.info("tile gesture cancelled by user (returned to deadzone)")
                 } else {
+                    self.tileOverlay.hide()
                     // Cursor never left the center cell — treat as a plain
                     // middle-click so apps still see it (browser tab close, etc.).
                     self.replayMiddleClick(at: finish.origin)
@@ -1499,10 +1504,14 @@ final class DragEngine {
     private func applyTile(zone: TileZone,
                            target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
                            screen: NSScreen) {
-        guard axGuardOrAbort("applyTile") else { return }
+        guard axGuardOrAbort("applyTile") else {
+            tileOverlay.hide()
+            return
+        }
         Analytics.trackTile(tile: zone.analyticsKey, trigger: .middleDirection)
         guard let axWindow = findAXWindow(pid: target.pid, windowFrame: target.frame) else {
             Self.log.warn("applyTile: findAXWindow returned nil for pid=\(target.pid) wid=\(target.windowID)")
+            tileOverlay.hide()
             return
         }
         Self.log.info("tile commit: app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)")
@@ -1514,7 +1523,77 @@ final class DragEngine {
         let currentFrame = getWindowFrame(axWindow) ?? target.frame
         savedFrames[target.windowID] = currentFrame
 
-        setWindowFrame(axWindow, frame: cgRect)
+        let sourceCenter = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
+        let destinationCenter = CGPoint(x: cgRect.midX, y: cgRect.midY)
+        let sourceScreen = self.screen(containingCGPoint: sourceCenter)
+        let destinationScreen = self.screen(containingCGPoint: destinationCenter)
+        if let sourceScreen,
+           let destinationScreen,
+           sourceScreen.frame != destinationScreen.frame,
+           Self.needsDeferredCrossScreenTileSizing {
+            setCrossScreenTileFrame(
+                axWindow,
+                frame: cgRect,
+                destinationScreenFrame: destinationScreen.frame,
+                target: target,
+                zone: zone
+            )
+        } else {
+            setWindowFrame(axWindow, frame: cgRect)
+            tileOverlay.hide()
+        }
+    }
+
+    /// macOS 27 updates a moved AX window's display assignment asynchronously.
+    /// Keep the preview visible while moving at the current size, then apply
+    /// the final size after WindowServer recognizes the destination display.
+    private func setCrossScreenTileFrame(
+        _ axWindow: AXUIElement,
+        frame targetFrame: CGRect,
+        destinationScreenFrame: NSRect,
+        target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
+        zone: TileZone
+    ) {
+        var targetPosition = targetFrame.origin
+        withEnhancedUIDisabled(for: axWindow) {
+            if let value = AXValueCreate(.cgPoint, &targetPosition) {
+                AXUIElementSetAttributeValue(axWindow, kAXPositionAttribute as CFString, value)
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.crossScreenTileSettleDelay
+        ) { [weak self] in
+            guard let self else { return }
+            defer { self.tileOverlay.hide() }
+
+            guard let actualFrame = self.getWindowFrame(axWindow) else { return }
+            let actualCenter = CGPoint(x: actualFrame.midX, y: actualFrame.midY)
+            guard let actualScreen = self.screen(containingCGPoint: actualCenter),
+                  actualScreen.frame == destinationScreenFrame
+            else {
+                Self.log.warn(
+                    "cross-screen tile did not reach destination before resize: "
+                        + "app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)"
+                )
+                return
+            }
+
+            var targetSize = targetFrame.size
+            var finalPosition = targetFrame.origin
+            self.withEnhancedUIDisabled(for: axWindow) {
+                if let value = AXValueCreate(.cgSize, &targetSize) {
+                    AXUIElementSetAttributeValue(axWindow, kAXSizeAttribute as CFString, value)
+                }
+                if let value = AXValueCreate(.cgPoint, &finalPosition) {
+                    AXUIElementSetAttributeValue(axWindow, kAXPositionAttribute as CFString, value)
+                }
+            }
+            Self.log.info(
+                "cross-screen tile finalized after destination assignment: "
+                    + "app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)"
+            )
+        }
     }
 
     /// Convert an NSScreen-coord rect (bottom-left origin) into a Quartz CG rect (top-left origin).
@@ -1803,8 +1882,30 @@ final class DragEngine {
     }
 
     private func setWindowFrame(_ window: AXUIElement, frame: CGRect) {
-        // Disable AXEnhancedUserInterface if enabled (Electron apps set this,
-        // which causes AX resizing to silently fail). Rectangle does the same.
+        withEnhancedUIDisabled(for: window) {
+            // Size → Position → Size (Rectangle's proven approach).
+            // macOS constrains window size to the current display, so we must:
+            // 1. Shrink first (so the window fits before moving)
+            // 2. Move to the target position
+            // 3. Set size again (in case the display changed and the constraint was wrong)
+            var position = frame.origin
+            var size = frame.size
+            if let sv = AXValueCreate(.cgSize, &size) {
+                AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
+            }
+            if let pv = AXValueCreate(.cgPoint, &position) {
+                AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pv)
+            }
+            if let sv = AXValueCreate(.cgSize, &size) {
+                AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
+            }
+        }
+    }
+
+    /// Electron apps may enable AXEnhancedUserInterface, which can make AX
+    /// position/size writes silently fail. Temporarily disable it around a
+    /// related group of frame mutations, matching Rectangle's behavior.
+    private func withEnhancedUIDisabled(for window: AXUIElement, _ mutation: () -> Void) {
         var pid: pid_t = 0
         AXUIElementGetPid(window, &pid)
         let appElement = AXUIElementCreateApplication(pid)
@@ -1818,22 +1919,7 @@ final class DragEngine {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
         }
 
-        // Size → Position → Size (Rectangle's proven approach).
-        // macOS constrains window size to the current display, so we must:
-        // 1. Shrink first (so the window fits before moving)
-        // 2. Move to the target position
-        // 3. Set size again (in case the display changed and the constraint was wrong)
-        var position = frame.origin
-        var size = frame.size
-        if let sv = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
-        }
-        if let pv = AXValueCreate(.cgPoint, &position) {
-            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pv)
-        }
-        if let sv = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sv)
-        }
+        mutation()
 
         if hadEnhancedUI {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
