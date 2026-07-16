@@ -231,6 +231,14 @@ struct MiddleClickPage: View {
                     Toggle(isOn: Binding(get: { store.tileByDirectionDragOnly }, set: { store.setTileDragOnly($0) })) {
                         featureLabel("cursorarrow.motionlines", .pink, L("feature.tileDragOnly"), L("feature.tileDragOnly.subtitle"))
                     }
+                    Toggle(isOn: Binding(get: { store.overlayEdgeSafeEnabled }, set: { store.setOverlayEdgeSafeEnabled($0) })) {
+                        featureLabel("cursorarrow.rays", .teal, L("feature.overlayEdgeSafe"), L("feature.overlayEdgeSafe.subtitle"))
+                    }
+                    // Linked resize belongs with tiling: it acts on an
+                    // AnyDrag-tiled pair (plain left-drag on the shared seam).
+                    Toggle(isOn: Binding(get: { store.linkedResizeEnabled }, set: { store.setLinkedResizeEnabled($0) })) {
+                        featureLabel("rectangle.split.2x1", .orange, L("feature.linkedResize"), L("feature.linkedResize.subtitle"))
+                    }
                 }
             }
         }

@@ -45,6 +45,14 @@ enum Preferences {
         // Absent = false (panel shows immediately on middle-press, the original
         // behavior).
         static let tileDragOnly    = "AnyDragTileDragOnly"
+        // Linked resize: drag the shared seam between two AnyDrag-tiled
+        // complementary windows to resize both. Absent = default (on).
+        static let linkedResizeEnabled = "AnyDragLinkedResizeEnabled"
+        // Tiling-overlay edge-safe placement + cursor warp. When on (default),
+        // the bento overlay is kept fully on-screen near an edge and the cursor
+        // glides to its center; when off, the overlay centers on the cursor
+        // with no edge clamping and no cursor warp. Absent = default (on).
+        static let overlayEdgeSafeEnabled = "AnyDragOverlayEdgeSafeEnabled"
         // Note: the "Hyper" (CapsLock-via-HyperCapslock) modifier needs no key of
         // its own — it's a bit in `modifierFlags`, so it persists with the rest of
         // the modifier combination and drives the CapsLock source via didSet.
@@ -114,6 +122,18 @@ enum Preferences {
     /// Range for the resize-corner inset (0…30 pt). Persisted values
     /// are clamped to this range on launch.
     static let resizeCornerInsetRange: ClosedRange<CGFloat> = 0...30
+
+    // ─── Feature defaults (flip a single value here to change the default) ───
+
+    /// Default for the linked-resize feature (drag the shared seam between two
+    /// AnyDrag-tiled windows to resize both at once). TRUE preserves the
+    /// always-on behavior shipped before the toggle existed.
+    static let defaultLinkedResizeEnabled = true
+
+    /// Default for edge-safe tiling-overlay placement + cursor warp. TRUE keeps
+    /// the overlay on-screen near an edge and glides the cursor to its center;
+    /// FALSE centers it on the cursor with no clamping and no cursor warp.
+    static let defaultOverlayEdgeSafeEnabled = true
 
     /// Read the persisted language override and install it. Call before any
     /// localized string is read in the launch path so the very first reads see
@@ -233,6 +253,8 @@ enum Preferences {
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
         engine.multiDisplayBentoEnabled = d.object(forKey: Key.multiDisplayBentoEnabled) as? Bool ?? true
         engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
+        engine.linkedResizeEnabled = d.object(forKey: Key.linkedResizeEnabled) as? Bool ?? defaultLinkedResizeEnabled
+        engine.overlayEdgeSafeEnabled = d.object(forKey: Key.overlayEdgeSafeEnabled) as? Bool ?? defaultOverlayEdgeSafeEnabled
 
         // Empty is a valid persisted state (means "AnyDrag off"), so only the
         // first-launch path falls back to .option.

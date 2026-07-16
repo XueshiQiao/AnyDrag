@@ -88,6 +88,14 @@ final class TileCancelDot: NSPanel {
     /// path — pixel-identical to the pre-multi-display behaviour.
     var multiDisplayEnabled: Bool = false
 
+    /// Set by DragEngine from Preferences before each show. When true (default),
+    /// the overlay is kept fully on-screen near a screen edge and the real
+    /// cursor glides to its center; when false, it centers on the cursor with
+    /// no edge clamping and no cursor warp — the original pre-edge-safe
+    /// behavior. Single-display direction is then measured from the actual
+    /// (un-warped) cursor/panel center, which keeps it geometrically correct.
+    var edgeSafeEnabled: Bool = true
+
     /// Origin used by the current layout's hit testing. It differs from the
     /// window origin only when an oversized multi-display layout is clipped.
     fileprivate var layoutOriginNS: NSPoint?
@@ -210,22 +218,42 @@ final class TileCancelDot: NSPanel {
             width: Self.panelWidth,
             height: Self.panelHeight
         )
-        let placement = Self.placePanel(idealFrame: idealFrame, visibleFrame: currentScreen.visibleFrame)
-        let cancelCenter = NSPoint(x: placement.windowFrame.midX, y: placement.windowFrame.midY)
+
+        // Edge-safe (default): clamp on-screen + warp the cursor to the center.
+        // Off: center on the cursor, no clamping, no warp (the original path).
+        let windowFrame: NSRect
+        let layoutOrigin: NSPoint
+        let displayOffset: NSPoint
+        if edgeSafeEnabled {
+            let placement = Self.placePanel(idealFrame: idealFrame, visibleFrame: currentScreen.visibleFrame)
+            windowFrame = placement.windowFrame
+            layoutOrigin = placement.layoutOrigin
+            displayOffset = placement.displayOffset
+        } else {
+            windowFrame = idealFrame
+            layoutOrigin = idealFrame.origin
+            displayOffset = .zero
+        }
+        // Direction is measured from the panel's actual center. Un-clamped, that
+        // equals the click point (where the un-warped cursor sits), so the OFF
+        // path stays geometrically correct.
+        let cancelCenter = NSPoint(x: windowFrame.midX, y: windowFrame.midY)
         gestureOriginNS = cancelCenter
-        layoutOriginNS = placement.layoutOrigin
-        setFrame(placement.windowFrame, display: true)
+        layoutOriginNS = layoutOrigin
+        setFrame(windowFrame, display: true)
         fillView.displayLayout = nil
         fillView.currentScreen = nil
         fillView.activeScreen = nil
         fillView.activeZone = nil
-        fillView.displayOffset = placement.displayOffset
+        fillView.displayOffset = displayOffset
         fillView.needsDisplay = true
         if !isVisible {
             orderFrontRegardless()
         }
-        cursorTransition.move(from: clickNS, to: cancelCenter)
-        positionTargetChip(panelFrame: placement.windowFrame)
+        if edgeSafeEnabled {
+            cursorTransition.move(from: clickNS, to: cancelCenter)
+        }
+        positionTargetChip(panelFrame: windowFrame)
     }
 
     private func showMultiDisplay(atCGPoint cgScreenPoint: CGPoint) {
@@ -255,25 +283,48 @@ final class TileCancelDot: NSPanel {
             height: result.panelSize.height
         )
 
-        let placement = Self.placePanel(idealFrame: idealFrame, visibleFrame: currentScreen.visibleFrame)
+        // Edge-safe (default): clamp the whole panel on-screen + warp the
+        // cursor to the current card's center. Off: the original path — clip
+        // the window to the current display so it never straddles two displays
+        // (cards keep their ideal positions; the view bounds clip the
+        // off-display ones), with no clamping and no cursor warp.
+        let windowFrame: NSRect
+        let layoutOrigin: NSPoint
+        let displayOffset: NSPoint
+        if edgeSafeEnabled {
+            let placement = Self.placePanel(idealFrame: idealFrame, visibleFrame: currentScreen.visibleFrame)
+            windowFrame = placement.windowFrame
+            layoutOrigin = placement.layoutOrigin
+            displayOffset = placement.displayOffset
+        } else {
+            let clipped = idealFrame.intersection(currentScreen.visibleFrame)
+            windowFrame = clipped.isEmpty ? idealFrame : clipped
+            layoutOrigin = idealFrame.origin
+            displayOffset = NSPoint(
+                x: windowFrame.minX - idealFrame.minX,
+                y: windowFrame.minY - idealFrame.minY
+            )
+        }
         let cancelCenter = NSPoint(
-            x: placement.layoutOrigin.x + anchorCenter.x,
-            y: placement.layoutOrigin.y + anchorCenter.y
+            x: layoutOrigin.x + anchorCenter.x,
+            y: layoutOrigin.y + anchorCenter.y
         )
         gestureOriginNS = cancelCenter
-        layoutOriginNS = placement.layoutOrigin
-        setFrame(placement.windowFrame, display: true)
+        layoutOriginNS = layoutOrigin
+        setFrame(windowFrame, display: true)
         fillView.displayLayout = result.cards
         fillView.currentScreen = currentScreen
         fillView.activeScreen = nil
         fillView.activeZone = nil
-        fillView.displayOffset = placement.displayOffset
+        fillView.displayOffset = displayOffset
         fillView.needsDisplay = true
         if !isVisible {
             orderFrontRegardless()
         }
-        cursorTransition.move(from: clickNS, to: cancelCenter)
-        positionTargetChip(panelFrame: placement.windowFrame)
+        if edgeSafeEnabled {
+            cursorTransition.move(from: clickNS, to: cancelCenter)
+        }
+        positionTargetChip(panelFrame: windowFrame)
     }
 
     func hide() {

@@ -48,6 +48,8 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var cornerBracketEnabled: Bool
     @Published private(set) var multiDisplayBentoEnabled: Bool
     @Published private(set) var tileByDirectionDragOnly: Bool
+    @Published private(set) var linkedResizeEnabled: Bool
+    @Published private(set) var overlayEdgeSafeEnabled: Bool
     @Published private(set) var middleAction: MiddleAction
     @Published private(set) var titleBarYOffset: CGFloat
     @Published private(set) var resizeCornerInset: CGFloat
@@ -78,6 +80,8 @@ final class SettingsStore: ObservableObject {
         cornerBracketEnabled = engine.cornerBracketEnabled
         multiDisplayBentoEnabled = engine.multiDisplayBentoEnabled
         tileByDirectionDragOnly = engine.tileByDirectionDragOnly
+        linkedResizeEnabled = engine.linkedResizeEnabled
+        overlayEdgeSafeEnabled = engine.overlayEdgeSafeEnabled
         middleAction = engine.middleAction
         titleBarYOffset = engine.titleBarYOffset
         resizeCornerInset = engine.resizeCornerInset
@@ -210,6 +214,8 @@ final class SettingsStore: ObservableObject {
     func setCornerBracketEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.cornerBracketEnabled, analytics: "corner_bracket_enabled", current: \.cornerBracketEnabled, write: { self.engine.cornerBracketEnabled = $0 }, mirror: { self.cornerBracketEnabled = $0 }) }
     func setMultiDisplayBentoEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.multiDisplayBentoEnabled, analytics: "multi_display_bento_enabled", current: \.multiDisplayBentoEnabled, write: { self.engine.multiDisplayBentoEnabled = $0 }, mirror: { self.multiDisplayBentoEnabled = $0 }) }
     func setTileDragOnly(_ on: Bool)    { setBool(on, key: Preferences.Key.tileDragOnly, analytics: "tile_drag_only", current: \.tileByDirectionDragOnly, write: { self.engine.tileByDirectionDragOnly = $0 }, mirror: { self.tileByDirectionDragOnly = $0 }) }
+    func setLinkedResizeEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.linkedResizeEnabled, analytics: "linked_resize_enabled", current: \.linkedResizeEnabled, write: { self.engine.linkedResizeEnabled = $0 }, mirror: { self.linkedResizeEnabled = $0 }) }
+    func setOverlayEdgeSafeEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.overlayEdgeSafeEnabled, analytics: "overlay_edge_safe_enabled", current: \.overlayEdgeSafeEnabled, write: { self.engine.overlayEdgeSafeEnabled = $0 }, mirror: { self.overlayEdgeSafeEnabled = $0 }) }
 
     private func setBool(_ on: Bool, key: String, analytics: String,
                          current: KeyPath<DragEngine, Bool>,

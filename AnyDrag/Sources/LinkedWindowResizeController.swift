@@ -203,6 +203,16 @@ final class LinkedWindowResizeController {
         }
     }
 
+    /// Turn the feature off at runtime: dissolve any active divider group and
+    /// forget every tracked placement, so the divider panel, cursor overlay,
+    /// and tracking vanish at once. Called from `DragEngine.linkedResizeEnabled`'s
+    /// setter on an on→off transition. Main-thread only, like record/remove.
+    func disableAndReset() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        dissolveGroup()
+        placements.removeAll()
+    }
+
     private func createGroup(from first: Placement, and second: Placement) {
         let leadingPlacement: Placement
         let trailingPlacement: Placement

@@ -295,6 +295,24 @@ final class DragEngine {
     /// middle-click never flashes the panel and replays as a normal click. When
     /// false (default) the panel appears immediately on press, as before.
     var tileByDirectionDragOnly: Bool = false
+    /// When true (default), dragging the shared seam between two AnyDrag-tiled
+    /// complementary windows resizes both at once. Turning it off at runtime
+    /// immediately dissolves any active divider group and forgets all tracked
+    /// tilings, so the divider and its cursor disappear at once.
+    var linkedResizeEnabled: Bool = true {
+        didSet {
+            // Only a real on→off transition tears down. Always set on the main
+            // thread (the Settings toggle and config apply both run there),
+            // matching `disableAndReset`'s main-thread precondition.
+            guard oldValue, !linkedResizeEnabled else { return }
+            linkedResizeController.disableAndReset()
+        }
+    }
+    /// When true (default), the tile-by-direction "bento" overlay is kept fully
+    /// on-screen near a screen edge and the real cursor glides to its center;
+    /// when false, the overlay centers on the cursor with no edge clamping and
+    /// no cursor warp. Threaded to `tileCancelDot` before each show.
+    var overlayEdgeSafeEnabled: Bool = true
     var middleAction: MiddleAction = .off {
         didSet {
             // If the user changes the middle-button action mid-gesture, abort
@@ -600,7 +618,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) yOffset=\(self.strategy.titleBarYOffset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) linkedResize=\(self.linkedResizeEnabled) overlayEdgeSafe=\(self.overlayEdgeSafeEnabled) yOffset=\(self.strategy.titleBarYOffset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -960,7 +978,8 @@ final class DragEngine {
         // Shared dividers use the event tap directly rather than relying on a
         // transparent NSPanel to win cross-process hit testing. Plain left
         // down/drag/up events inside the current divider are consumed here.
-        if event.getIntegerValueField(.eventSourceUserData) != Self.synthesizedEventMarker,
+        if linkedResizeEnabled,
+           event.getIntegerValueField(.eventSourceUserData) != Self.synthesizedEventMarker,
            linkedResizeController.handleMouseEvent(type: type, location: event.location) {
             return nil
         }
@@ -1410,6 +1429,7 @@ final class DragEngine {
         }
         guard let target else { return }
         tileCancelDot.multiDisplayEnabled = multiDisplayBentoEnabled
+        tileCancelDot.edgeSafeEnabled = overlayEdgeSafeEnabled
         tileCancelDot.setTarget(pid: target.pid, appName: target.app)
         tileCancelDot.show(atCGPoint: origin)
     }
@@ -1607,26 +1627,30 @@ final class DragEngine {
         let sourceScreen = self.screen(containingCGPoint: sourceCenter)
         let destinationScreen = self.screen(containingCGPoint: destinationCenter)
         // Register the placement so a complementary half-screen pair on this
-        // screen exposes a draggable shared divider (linked resize). A half
-        // tile must register only AFTER the frame is actually applied: on the
-        // deferred cross-screen path the final size lands ~100ms later, and
-        // registering the target frame up front makes the pair validation
-        // read the still-pre-resize actual frame, find it non-adjacent, and
-        // dissolve the group. A non-half tile just drops the window from
-        // tracking — no frame dependency, so it runs synchronously as before.
-        let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
+        // screen exposes a draggable shared divider (linked resize), unless the
+        // feature is off — then there is nothing to track. A half tile
+        // registers only AFTER the frame is applied (the deferred cross-screen
+        // path lands the final size ~100ms later; registering the target frame
+        // up front would let the pair validation read the still-pre-resize
+        // frame, judge it non-adjacent, and dissolve the group). A non-half
+        // tile just drops the window from tracking — no frame dependency.
         let registerLinkedResize: () -> Void
-        switch zone {
-        case .left, .right:
-            let slot: LinkedTileSlot = zone == .left ? .left : .right
-            registerLinkedResize = { [weak self] in
-                self?.linkedResizeController.recordTiledWindow(
-                    windowID: target.windowID, pid: target.pid,
-                    frame: cgRect, screenFrame: screenFrame, slot: slot
-                )
+        if linkedResizeEnabled {
+            let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
+            switch zone {
+            case .left, .right:
+                let slot: LinkedTileSlot = zone == .left ? .left : .right
+                registerLinkedResize = { [weak self] in
+                    self?.linkedResizeController.recordTiledWindow(
+                        windowID: target.windowID, pid: target.pid,
+                        frame: cgRect, screenFrame: screenFrame, slot: slot
+                    )
+                }
+            default:
+                linkedResizeController.removeWindow(target.windowID)
+                registerLinkedResize = {}
             }
-        default:
-            linkedResizeController.removeWindow(target.windowID)
+        } else {
             registerLinkedResize = {}
         }
 
@@ -1861,6 +1885,8 @@ final class DragEngine {
 
         func placeCurrent(_ frame: CGRect, slot: LinkedTileSlot? = nil) {
             setWindowFrame(axWindow, frame: frame)
+            // No linked-resize tracking while the feature is off.
+            guard linkedResizeEnabled else { return }
             if let slot {
                 linkedResizeController.recordTiledWindow(
                     windowID: windowInfo.windowID,
@@ -1933,10 +1959,12 @@ final class DragEngine {
                     x: screen.midX, y: screen.minY,
                     width: screen.width / 2, height: screen.height)
                 setWindowFrame(next.axWindow, frame: rightFrame)
-                linkedResizeController.recordTiledWindow(
-                    windowID: next.windowID, pid: next.pid,
-                    frame: rightFrame, screenFrame: screen, slot: .right
-                )
+                if linkedResizeEnabled {
+                    linkedResizeController.recordTiledWindow(
+                        windowID: next.windowID, pid: next.pid,
+                        frame: rightFrame, screenFrame: screen, slot: .right
+                    )
+                }
             }
 
         case .fillRight:
@@ -1951,14 +1979,18 @@ final class DragEngine {
                     x: screen.minX, y: screen.minY,
                     width: screen.width / 2, height: screen.height)
                 setWindowFrame(next.axWindow, frame: leftFrame)
-                linkedResizeController.recordTiledWindow(
-                    windowID: next.windowID, pid: next.pid,
-                    frame: leftFrame, screenFrame: screen, slot: .left
-                )
+                if linkedResizeEnabled {
+                    linkedResizeController.recordTiledWindow(
+                        windowID: next.windowID, pid: next.pid,
+                        frame: leftFrame, screenFrame: screen, slot: .left
+                    )
+                }
             }
 
         case .quarters:
-            linkedResizeController.removeWindow(windowInfo.windowID)
+            if linkedResizeEnabled {
+                linkedResizeController.removeWindow(windowInfo.windowID)
+            }
             // Top 4 windows by Z-order → quadrants
             let quadrants = [
                 CGRect(x: screen.minX, y: screen.minY,
