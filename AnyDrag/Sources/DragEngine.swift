@@ -441,6 +441,21 @@ final class DragEngine {
     /// way to obtain a fresh TCC decision.
     private var trustRevokedUntilRelaunch = false
 
+    /// Frequency discriminator for `tapDisabledBy*` events. `AXIsProcessTrusted()`
+    /// can stay stale-true after a live revoke, so it can't tell a benign
+    /// `.tapDisabledByTimeout` (our `.defaultTap` callback overran the system
+    /// tap timeout under load — Mission Control, display sleep/wake, heavy
+    /// WindowServer contention) from a real revoke. Frequency can: after a
+    /// re-enable, a genuine revoke re-disables the tap immediately, while a
+    /// one-off timeout doesn't. Count disable events inside a short window —
+    /// below the threshold, re-enable and carry on; at the threshold, treat it
+    /// as a revoke and tear down. Main-thread only (the callback dispatches
+    /// the whole decision to main), so no lock needed.
+    private var tapDisableWindowStart: Date?
+    private var tapDisableCount = 0
+    private static let tapDisableRevokeThreshold = 3
+    private static let tapDisableWindow: TimeInterval = 2.0
+
     /// Wall-clock anchor for the backstop's events-per-second log. Only
     /// touched on main, so no lock needed.
     private var eventCounterStart: Date = Date()
@@ -580,6 +595,8 @@ final class DragEngine {
 
         cbState.withLock { $0.eventCounter = 0 }
         eventCounterStart = Date()
+        tapDisableWindowStart = nil
+        tapDisableCount = 0
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
@@ -749,6 +766,54 @@ final class DragEngine {
         }
     }
 
+    /// Decide on main whether a `tapDisabledBy*` event was a benign timeout
+    /// (re-enable the tap and carry on) or a real AX revoke (tear down and
+    /// relaunch). The callback already disabled the tap synchronously; this
+    /// only ever re-enables when we're still below the revoke threshold —
+    /// see `tapDisableWindowStart` for the frequency rationale.
+    private func handleTapDisabledOnMain() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        // A live revoke was already latched (distributed notification,
+        // backstop, or an earlier threshold trip) — never re-enable; the
+        // teardown/relaunch is underway.
+        guard !trustRevokedUntilRelaunch else {
+            Self.log.warn("tap-disabled after revoke latch — leaving tap disabled")
+            return
+        }
+
+        let now = Date()
+        if let start = tapDisableWindowStart,
+           now.timeIntervalSince(start) <= Self.tapDisableWindow {
+            tapDisableCount += 1
+        } else {
+            // Window elapsed (or first event) — start a fresh one.
+            tapDisableWindowStart = now
+            tapDisableCount = 1
+        }
+
+        if tapDisableCount >= Self.tapDisableRevokeThreshold {
+            Self.log.warn("tap disabled \(self.tapDisableCount)x within \(Self.tapDisableWindow)s — treating as AX revoke")
+            tapDisableWindowStart = nil
+            tapDisableCount = 0
+            applyTrustChange(false, source: "tap-disabled")
+            return
+        }
+
+        // Benign: an isolated timeout under load. Re-enable and continue —
+        // if this was actually a revoke, WindowServer re-disables the tap
+        // immediately and the threshold above trips within the window.
+        let reEnabled = cbState.withLock { state -> Bool in
+            guard let tap = state.tap else { return false }
+            CGEvent.tapEnable(tap: tap, enable: true)
+            return true
+        }
+        if reEnabled {
+            Self.log.info("Re-enabled tap after benign disable (\(self.tapDisableCount)/\(Self.tapDisableRevokeThreshold) within \(Self.tapDisableWindow)s)")
+        } else {
+            Self.log.warn("tap-disabled decision found no tap to re-enable (engine stopped?)")
+        }
+    }
+
     // MARK: - Backstop poll
 
     /// Periodic trust poll, (re)created on every successful `start()` and
@@ -853,21 +918,26 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
-        // macOS reports a live AX revoke as `tapDisabledByTimeout` (-2), not
-        // consistently as `tapDisabledByUserInput` (-1). TCC can then keep
-        // reporting stale `true` for this process, so neither event is safe to
-        // re-enable. Fail open synchronously, then tear down on main and require
-        // a relaunch for a fresh trust decision.
+        // `tapDisabledByTimeout` (-2) fires for two very different reasons:
+        // (a) benign — our `.defaultTap` callback overran the system tap
+        // timeout under load (Mission Control, display sleep/wake, heavy
+        // WindowServer contention); (b) a live AX revoke, which macOS reports
+        // as timeout rather than consistently as `tapDisabledByUserInput`
+        // (-1) — and TCC can keep reporting stale `true` for this process, so
+        // `AXIsProcessTrusted()` can't tell the two apart. Fail open
+        // synchronously (never leave a possibly-unauthorized tap enabled
+        // between here and main), then let main discriminate by frequency:
+        // a genuine revoke keeps re-disabling the tap after every re-enable,
+        // a one-off timeout doesn't.
         if type == .tapDisabledByUserInput || type == .tapDisabledByTimeout {
-            Self.log.warn("tap-disabled event \(type) — disabling immediately until relaunch")
+            Self.log.warn("tap-disabled event \(type) — disabling immediately, deciding on main")
             cbState.withLock { state in
                 if let tap = state.tap {
                     CGEvent.tapEnable(tap: tap, enable: false)
                 }
             }
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.applyTrustChange(false, source: "tap-disabled")
+                self?.handleTapDisabledOnMain()
             }
             // The tap missed events while disabled — any in-flight tile
             // gesture is now stranded. Drop it so we don't apply a stale
@@ -1536,6 +1606,30 @@ final class DragEngine {
         let destinationCenter = CGPoint(x: cgRect.midX, y: cgRect.midY)
         let sourceScreen = self.screen(containingCGPoint: sourceCenter)
         let destinationScreen = self.screen(containingCGPoint: destinationCenter)
+        // Register the placement so a complementary half-screen pair on this
+        // screen exposes a draggable shared divider (linked resize). A half
+        // tile must register only AFTER the frame is actually applied: on the
+        // deferred cross-screen path the final size lands ~100ms later, and
+        // registering the target frame up front makes the pair validation
+        // read the still-pre-resize actual frame, find it non-adjacent, and
+        // dissolve the group. A non-half tile just drops the window from
+        // tracking — no frame dependency, so it runs synchronously as before.
+        let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
+        let registerLinkedResize: () -> Void
+        switch zone {
+        case .left, .right:
+            let slot: LinkedTileSlot = zone == .left ? .left : .right
+            registerLinkedResize = { [weak self] in
+                self?.linkedResizeController.recordTiledWindow(
+                    windowID: target.windowID, pid: target.pid,
+                    frame: cgRect, screenFrame: screenFrame, slot: slot
+                )
+            }
+        default:
+            linkedResizeController.removeWindow(target.windowID)
+            registerLinkedResize = {}
+        }
+
         if let sourceScreen,
            let destinationScreen,
            sourceScreen.frame != destinationScreen.frame,
@@ -1545,41 +1639,29 @@ final class DragEngine {
                 frame: cgRect,
                 destinationScreenFrame: destinationScreen.frame,
                 target: target,
-                zone: zone
+                zone: zone,
+                onFrameApplied: registerLinkedResize
             )
         } else {
             setWindowFrame(axWindow, frame: cgRect)
+            registerLinkedResize()
             tileOverlay.hide()
-        }
-
-        // Register the placement so a complementary half-screen pair on this
-        // screen exposes a draggable shared divider (linked resize).
-        let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
-        switch zone {
-        case .left:
-            linkedResizeController.recordTiledWindow(
-                windowID: target.windowID, pid: target.pid,
-                frame: cgRect, screenFrame: screenFrame, slot: .left
-            )
-        case .right:
-            linkedResizeController.recordTiledWindow(
-                windowID: target.windowID, pid: target.pid,
-                frame: cgRect, screenFrame: screenFrame, slot: .right
-            )
-        default:
-            linkedResizeController.removeWindow(target.windowID)
         }
     }
 
     /// macOS 27 updates a moved AX window's display assignment asynchronously.
     /// Keep the preview visible while moving at the current size, then apply
     /// the final size after WindowServer recognizes the destination display.
+    /// `onFrameApplied` runs on main only after the final size+position write
+    /// succeeds — callers hang frame-dependent work (linked-resize
+    /// registration) on it; the failure/early-return paths never fire it.
     private func setCrossScreenTileFrame(
         _ axWindow: AXUIElement,
         frame targetFrame: CGRect,
         destinationScreenFrame: NSRect,
         target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
-        zone: TileZone
+        zone: TileZone,
+        onFrameApplied: @escaping () -> Void
     ) {
         var targetPosition = targetFrame.origin
         withEnhancedUIDisabled(for: axWindow) {
@@ -1620,6 +1702,7 @@ final class DragEngine {
                 "cross-screen tile finalized after destination assignment: "
                     + "app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)"
             )
+            onFrameApplied()
         }
     }
 
