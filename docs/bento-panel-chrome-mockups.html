@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-bg="doc" data-zoom="1" data-active="on" data-spec="on">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AnyDrag · Bento 覆盖层外观重做 — 4 个方案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   页面外壳（编辑风格，故意和 macOS 覆盖层区分开）
+   ============================================================ */
+:root{
+  --page-bg:#0b0c10;
+  --ink:#f4f1ea;
+  --ink-dim:#a7a39a;
+  --ink-faint:#6f6c64;
+  --line:rgba(255,255,255,.09);
+  --card:#131419;
+  --card-2:#0f1015;
+  --hot:#ff7a3d;
+  --hot-2:#ffd0a8;
+  --good:#7fd6a3;
+  --watch:#e8b765;
+  --display:"Bricolage Grotesque","Helvetica Neue",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",system-ui,sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  background:
+    radial-gradient(120% 80% at 85% -10%, rgba(255,122,61,.10), transparent 55%),
+    radial-gradient(90% 70% at -10% 0%, rgba(90,120,255,.08), transparent 50%),
+    var(--page-bg);
+  color:var(--ink);
+  font-family:var(--body);
+  -webkit-font-smoothing:antialiased;
+  line-height:1.55;
+  min-height:100vh;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:64px 36px 140px;}
+.eyebrow{
+  font-family:var(--mono);font-size:12px;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--hot);display:flex;align-items:center;gap:14px;margin:0 0 24px;
+}
+.eyebrow::after{content:"";height:1px;flex:1;background:linear-gradient(90deg,var(--hot),transparent);}
+h1{font-family:var(--display);font-weight:700;letter-spacing:-.02em;line-height:1.04;
+   font-size:clamp(34px,5.2vw,58px);margin:0 0 20px;}
+h1 em{font-style:italic;color:var(--hot-2);}
+.lede{font-size:17px;color:var(--ink-dim);max-width:74ch;margin:0 0 12px;}
+.lede b{color:var(--ink);font-weight:600;}
+code{font-family:var(--mono);font-size:.88em;background:rgba(255,255,255,.06);
+     padding:2px 6px;border-radius:5px;color:var(--hot-2);}
+
+/* ---- 问题清单 ---- */
+.probs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:34px 0 10px;}
+@media(max-width:860px){.probs{grid-template-columns:1fr;}}
+.prob{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:var(--card-2);}
+.prob .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--hot);}
+.prob p{margin:8px 0 0;font-size:14.5px;color:var(--ink-dim);}
+
+/* ---- 顶部工具条（吸顶） ---- */
+.toolbar{
+  position:sticky;top:0;z-index:40;margin:38px 0 0;padding:14px 18px;
+  display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+  border:1px solid var(--line);border-radius:16px;
+  background:rgba(15,16,21,.86);backdrop-filter:blur(18px) saturate(160%);
+}
+.tb-label{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);}
+.seg{display:inline-flex;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:11px;padding:3px;gap:2px;}
+.seg button{font-family:var(--mono);font-size:12px;color:var(--ink-dim);background:transparent;border:0;
+            padding:7px 14px;border-radius:8px;cursor:pointer;transition:.16s;}
+.seg button:hover{color:var(--ink);}
+.seg button.on{background:var(--hot);color:#1a0f08;font-weight:600;}
+.jump{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;}
+.jump a{font-family:var(--mono);font-size:12px;color:var(--ink-dim);text-decoration:none;
+        border:1px solid var(--line);border-radius:9px;padding:7px 12px;transition:.16s;}
+.jump a:hover{color:var(--ink);border-color:var(--hot);}
+
+/* ---- 每个方案的区块 ---- */
+section.opt{margin-top:64px;scroll-margin-top:92px;}
+.opt-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;margin-bottom:6px;}
+.tag{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+     color:#1a0f08;background:var(--hot);border-radius:7px;padding:5px 10px;font-weight:600;}
+.tag.now{background:rgba(255,255,255,.12);color:var(--ink-dim);}
+.tag.rec{background:var(--good);color:#06231a;}
+h2{font-family:var(--display);font-weight:700;font-size:29px;letter-spacing:-.01em;margin:0;}
+.opt-sub{font-size:15.5px;color:var(--ink-dim);max-width:80ch;margin:8px 0 22px;}
+.opt-sub b{color:var(--ink);font-weight:600;}
+
+/* ---- 舞台（模拟桌面 / 窗口背景） ---- */
+.stage{
+  position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+  padding:96px 30px 74px;min-height:430px;
+}
+.bd{position:absolute;inset:0;z-index:0;}
+:root[data-bg="wall"] .bd{
+  background:
+    radial-gradient(90% 70% at 15% 10%, #ff9a6b 0%, transparent 55%),
+    radial-gradient(80% 80% at 85% 20%, #6a7bff 0%, transparent 60%),
+    radial-gradient(120% 90% at 50% 110%, #14203f 0%, transparent 60%),
+    linear-gradient(160deg,#2b1a3d,#101a33 60%,#07101f);
+}
+:root[data-bg="doc"] .bd{
+  background:#f2f2f5;
+  background-image:
+    linear-gradient(#e9e9ee 1px, transparent 1px),
+    linear-gradient(90deg,#fff 0 42%, #f6f6f9 42%);
+  background-size:100% 46px, 100% 100%;
+}
+:root[data-bg="dark"] .bd{
+  background:#17181c;
+  background-image:linear-gradient(#1d1e23 1px, transparent 1px);
+  background-size:100% 46px;
+}
+.zoomer{position:relative;z-index:1;transform-origin:center;transition:transform .18s;}
+:root[data-zoom="2"] .zoomer{transform:scale(1.85);}
+
+/* ============================================================
+   覆盖层本体 —— 基线 = 今天 TileCancelDot.swift 的真实数值
+   面板 pad 12 · 卡片 290×185 · 卡片间隙 8 · 格子间隙 5 · 格子 r5
+   标签区：上 12 / 高 13 / 下 7 · 面板 r14 描边 r13.5
+   ============================================================ */
+:root[data-theme="dark"]{
+  --accent:#0a84ff;
+  --pop-bg:rgba(44,44,46,.62);
+  --pop-border:rgba(255,255,255,.18);
+  --tile-bg:rgba(255,255,255,.10);
+  --tile-border:rgba(255,255,255,.14);
+  --prev:rgba(255,255,255,.70);
+  --ring:rgba(255,255,255,.42);
+  --cardlabel:rgba(255,255,255,.55);
+  --txt:rgba(255,255,255,.94);
+  --txt2:rgba(235,235,245,.6);
+  --spec:rgba(255,255,255,.12);
+  --unit-bg:rgba(255,255,255,.055);
+  --unit-bg-2:rgba(255,255,255,.085);
+  --unit-line:rgba(255,255,255,.07);
+  --hair:rgba(255,255,255,.10);
+  --shadow:0 26px 74px rgba(0,0,0,.62), 0 5px 16px rgba(0,0,0,.44);
+  --shadow-sm:0 12px 30px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.36);
+}
+:root[data-theme="light"]{
+  --accent:#007aff;
+  --pop-bg:rgba(246,246,248,.72);
+  --pop-border:rgba(0,0,0,.16);
+  --tile-bg:rgba(0,0,0,.06);
+  --tile-border:rgba(0,0,0,.10);
+  --prev:rgba(0,0,0,.62);
+  --ring:rgba(0,0,0,.42);
+  --cardlabel:rgba(0,0,0,.55);
+  --txt:rgba(0,0,0,.86);
+  --txt2:rgba(60,60,67,.6);
+  --spec:rgba(255,255,255,.6);
+  --unit-bg:rgba(0,0,0,.045);
+  --unit-bg-2:rgba(0,0,0,.07);
+  --unit-line:rgba(0,0,0,.06);
+  --hair:rgba(0,0,0,.08);
+  --shadow:0 22px 60px rgba(0,0,0,.26), 0 4px 14px rgba(0,0,0,.16);
+  --shadow-sm:0 10px 26px rgba(0,0,0,.20), 0 2px 7px rgba(0,0,0,.12);
+}
+/* 顶部内高光开关（严格说它也是一根线，所以给个开关自己判断）
+   必须写在两个主题块之后，特异度相同、后者生效 */
+:root[data-spec="off"]{--spec:transparent;}
+
+.ov{position:relative;}
+.panel{
+  position:relative;padding:12px;border-radius:14px;color:var(--txt);
+  background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:0 0 0 1px var(--pop-border), var(--shadow);
+}
+.slots{display:flex;gap:8px;}
+.unit{display:flex;flex-direction:column;width:290px;}
+.grid{
+  height:185px;padding:12px;border-radius:10px;
+  display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:5px;
+}
+.unit.current .grid{box-shadow:inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 85%, transparent);}
+.ulabel{
+  height:13px;margin-top:12px;margin-bottom:7px;text-align:center;
+  font:500 10px/13px var(--mono);letter-spacing:.8px;text-transform:uppercase;color:var(--cardlabel);
+}
+.unit.current .ulabel{color:var(--accent);}
+
+.tile{position:relative;border-radius:5px;background:var(--tile-bg);box-shadow:inset 0 0 0 1px var(--tile-border);}
+:root[data-active="on"] .tile.active{
+  background:color-mix(in srgb, var(--accent) 42%, transparent);
+  box-shadow:inset 0 0 0 1.2px color-mix(in srgb, var(--accent) 95%, transparent);
+}
+.mini{position:absolute;inset:5px;}
+.win{position:absolute;background:var(--prev);border-radius:1.5px;}
+:root[data-active="on"] .tile.active .win{background:#fff;}
+.win-full{inset:0;}
+.win-centered{inset:7.5%;}
+.win-left{left:0;top:0;bottom:0;width:calc(50% - 1.5px);}
+.win-right{right:0;top:0;bottom:0;width:calc(50% - 1.5px);}
+.win-topLeft{left:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.win-topRight{right:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.win-bottomLeft{left:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.win-bottomRight{right:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.tile.cancel{background:transparent;box-shadow:none;display:flex;align-items:center;justify-content:center;}
+.tile.cancel .ring{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 1.4px var(--ring);}
+
+/* 应用名药丸（今天：1px 黑 .16 layer border） */
+.chip{
+  position:absolute;left:50%;bottom:100%;transform:translate(-50%,-12px);
+  display:flex;align-items:center;gap:9px;white-space:nowrap;
+  padding:8px 14px 8px 9px;border-radius:13px;color:var(--txt);
+  background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:0 0 0 1px var(--pop-border), var(--shadow-sm);
+}
+.chip .nm{font:600 14px/1 var(--body);}
+.appicon{
+  width:18px;height:18px;border-radius:5px;flex:none;position:relative;overflow:hidden;
+  background:linear-gradient(170deg,#ffb765,#f08a2c);
+  box-shadow:0 1px 2px rgba(0,0,0,.28), inset 0 .5px 0 rgba(255,255,255,.55);
+}
+.appicon::before{content:"";position:absolute;left:3px;top:4px;width:4.5px;height:10px;border-radius:1.5px;background:#fff;opacity:.95;}
+.appicon::after{content:"";position:absolute;left:9.5px;top:4px;width:5.5px;height:10px;border-radius:1.5px;background:#fff;opacity:.7;}
+
+/* ============================================================
+   方案 A —— Frameless Glass：全部发丝线拿掉，用底色分组
+   ============================================================ */
+.stage[data-v="A"] .panel{
+  padding:14px;border-radius:17px;
+  box-shadow:inset 0 1px 0 var(--spec), var(--shadow);
+}
+.stage[data-v="A"] .slots{gap:10px;}
+.stage[data-v="A"] .unit{background:var(--unit-bg);border-radius:13px;}
+.stage[data-v="A"] .grid{border-radius:13px;}
+.stage[data-v="A"] .unit.current{background:color-mix(in srgb, var(--accent) 11%, transparent);}
+.stage[data-v="A"] .unit.current .grid{box-shadow:none;}
+.stage[data-v="A"] .ulabel{margin-top:0;margin-bottom:10px;}
+.stage[data-v="A"] .tile{box-shadow:none;}
+.stage[data-v="A"] .chip{box-shadow:inset 0 1px 0 var(--spec), var(--shadow-sm);}
+
+/* ============================================================
+   方案 B —— Grouped Cards：System Settings 风格分组盒
+   ============================================================ */
+.stage[data-v="B"] .panel{
+  padding:14px;border-radius:17px;
+  box-shadow:0 0 0 1px var(--hair), inset 0 1px 0 var(--spec), var(--shadow);
+}
+.stage[data-v="B"] .slots{gap:10px;}
+.stage[data-v="B"] .unit{
+  background:var(--unit-bg);border-radius:13px;overflow:hidden;
+  box-shadow:0 0 0 1px var(--unit-line);
+}
+.stage[data-v="B"] .grid{border-radius:0;}
+.stage[data-v="B"] .ulabel{
+  height:auto;margin:0;padding:7px 0 8px;border-top:1px solid var(--unit-line);
+  background:rgba(0,0,0,.02);
+}
+:root[data-theme="dark"] .stage[data-v="B"] .ulabel{background:rgba(255,255,255,.03);}
+.stage[data-v="B"] .unit.current{box-shadow:0 0 0 1.5px color-mix(in srgb, var(--accent) 80%, transparent);}
+.stage[data-v="B"] .unit.current .grid{box-shadow:none;}
+.stage[data-v="B"] .unit.current .ulabel{
+  background:color-mix(in srgb, var(--accent) 12%, transparent);
+  border-top-color:color-mix(in srgb, var(--accent) 26%, transparent);
+  font-weight:600;
+}
+.stage[data-v="B"] .chip{box-shadow:0 0 0 1px var(--hair), inset 0 1px 0 var(--spec), var(--shadow-sm);}
+
+/* ============================================================
+   方案 C —— Detached Cards：外框取消，每个显示器一块独立玻璃
+   ============================================================ */
+.stage[data-v="C"] .panel{
+  padding:0;background:none;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;
+}
+.stage[data-v="C"] .slots{gap:12px;}
+.stage[data-v="C"] .unit{
+  flex-direction:column-reverse;border-radius:15px;padding:0 0 2px;
+  background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:inset 0 1px 0 var(--spec), var(--shadow-sm);
+}
+.stage[data-v="C"] .grid{padding:10px 12px 12px;border-radius:0;}
+.stage[data-v="C"] .ulabel{
+  height:auto;margin:0;padding:10px 14px 2px;text-align:left;
+  display:flex;align-items:center;gap:7px;
+}
+.stage[data-v="C"] .ulabel::before{
+  content:"";width:6px;height:6px;border-radius:50%;background:var(--cardlabel);opacity:.5;flex:none;
+}
+.stage[data-v="C"] .unit.current{
+  background:color-mix(in srgb, var(--accent) 10%, var(--pop-bg));
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+             inset 0 1px 0 var(--spec), var(--shadow-sm);
+}
+.stage[data-v="C"] .unit.current .grid{box-shadow:none;}
+.stage[data-v="C"] .unit.current .ulabel::before{background:var(--accent);opacity:1;}
+.stage[data-v="C"] .chip{transform:translate(-50%,-14px);box-shadow:inset 0 1px 0 var(--spec), var(--shadow-sm);}
+
+/* ============================================================
+   方案 D —— Titled Cards：名字变成卡片自己的标题栏
+   ============================================================ */
+.stage[data-v="D"] .panel{
+  padding:14px;border-radius:17px;
+  box-shadow:inset 0 1px 0 var(--spec), var(--shadow);
+}
+.stage[data-v="D"] .slots{gap:10px;}
+.stage[data-v="D"] .unit{
+  flex-direction:column-reverse;background:var(--unit-bg);border-radius:13px;overflow:hidden;
+}
+.stage[data-v="D"] .grid{border-radius:0;padding:10px 12px 12px;}
+.stage[data-v="D"] .ulabel{
+  height:auto;margin:0;padding:7px 12px 6px;text-align:center;background:var(--unit-bg-2);
+}
+.stage[data-v="D"] .unit.current .grid{box-shadow:none;}
+.stage[data-v="D"] .unit.current .ulabel{
+  background:color-mix(in srgb, var(--accent) 92%, transparent);color:#fff;font-weight:600;
+}
+.stage[data-v="D"] .tile{box-shadow:none;}
+.stage[data-v="D"] .chip{box-shadow:inset 0 1px 0 var(--spec), var(--shadow-sm);}
+
+/* ============================================================
+   方案 E —— A × C 融合：独立玻璃岛 + 零发丝线 + 左上角标题
+   外框没了、卡片没有边、格子没有边；当前显示器靠「染色 + 抬高阴影 + 蓝点」
+   ============================================================ */
+.stage[data-v="E"] .panel{
+  padding:0;background:none;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;
+}
+.stage[data-v="E"] .slots{gap:12px;}
+.stage[data-v="E"] .unit{
+  flex-direction:column-reverse;border-radius:15px;padding:0 0 2px;
+  background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:inset 0 1px 0 var(--spec), var(--shadow-sm);
+}
+.stage[data-v="E"] .grid{padding:10px 12px 12px;border-radius:0;}
+.stage[data-v="E"] .tile{box-shadow:none;}
+.stage[data-v="E"] .ulabel{
+  height:auto;margin:0;padding:10px 14px 2px;text-align:left;
+  display:flex;align-items:center;gap:7px;
+}
+.stage[data-v="E"] .ulabel::before{
+  content:"";width:6px;height:6px;border-radius:50%;background:var(--cardlabel);opacity:.5;flex:none;
+}
+.stage[data-v="E"] .unit.current .grid{box-shadow:none;}
+.stage[data-v="E"] .unit.current .ulabel::before{background:var(--accent);opacity:1;}
+/* 当前显示器：抬高一层阴影（两种标记强度都有） */
+.stage[data-v="E"] .unit.current{box-shadow:inset 0 1px 0 var(--spec), var(--shadow);}
+/* E1：整块玻璃染蓝 12% */
+.stage[data-v="E"][data-mark="tint"] .unit.current{
+  background:color-mix(in srgb, var(--accent) 12%, var(--pop-bg));
+}
+/* E2：完全不染色，只有蓝点 + 蓝字 + 抬高；其他显示器整体压暗一点 */
+.stage[data-v="E"][data-mark="dot"] .unit:not(.current){opacity:.88;}
+.stage[data-v="E"] .chip{transform:translate(-50%,-14px);box-shadow:inset 0 1px 0 var(--spec), var(--shadow-sm);}
+
+/* ---- 优缺点 / 改动说明 ---- */
+.notes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px;}
+@media(max-width:860px){.notes{grid-template-columns:1fr;}}
+.note{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:var(--card-2);}
+.note h4{margin:0 0 10px;font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+         text-transform:uppercase;color:var(--ink-faint);}
+.note ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;}
+.note li{position:relative;padding-left:17px;font-size:14.5px;color:var(--ink-dim);}
+.note li::before{content:"";position:absolute;left:0;top:8px;width:7px;height:7px;border-radius:50%;}
+.note.good li::before{background:var(--good);box-shadow:0 0 10px var(--good);}
+.note.watch li::before{background:var(--watch);box-shadow:0 0 10px var(--watch);}
+.note li b{color:var(--ink);font-weight:600;}
+.delta{margin-top:14px;border:1px dashed var(--line);border-radius:14px;padding:14px 18px;
+       background:rgba(255,255,255,.02);font-size:14px;color:var(--ink-dim);}
+.delta b{color:var(--ink);font-weight:600;}
+.delta ul{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;}
+
+/* ---- 对比表 ---- */
+table{width:100%;border-collapse:collapse;margin-top:24px;font-size:14px;}
+th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);}
+td b{color:var(--ink);}
+td{color:var(--ink-dim);}
+tr:hover td{background:rgba(255,255,255,.02);}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;}
+.p-hi{background:rgba(127,214,163,.16);color:var(--good);}
+.p-mid{background:rgba(232,183,101,.16);color:var(--watch);}
+.p-lo{background:rgba(255,122,61,.14);color:var(--hot);}
+
+.closing{margin-top:80px;border-top:1px solid var(--line);padding-top:40px;}
+.closing h2{margin-bottom:14px;}
+.warn{margin-top:26px;border:1px solid rgba(232,183,101,.35);border-radius:14px;
+      padding:14px 18px;background:rgba(232,183,101,.07);font-size:14px;color:var(--ink-dim);}
+.warn b{color:var(--watch);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="eyebrow">AnyDrag · TileCancelDot + BentoTargetChip</p>
+  <h1>Bento 覆盖层<br><em>外观重做</em> — 5 个方案</h1>
+  <p class="lede" style="border-left:3px solid var(--good);padding-left:14px;">
+    <b>最终结果：<a href="#E" style="color:var(--good);">方案 E2</a> 已实现并上线</b>（<code>TileCancelDot.swift</code> +
+    <code>BentoTargetChip.swift</code>）—— 独立玻璃岛、零描边、名字在卡片左上角，当前显示器只用蓝点 + 蓝字 + 其他显示器内容压暗 0.82。
+    真机验收时还多改了两处这一页没预料到的东西：<b>① 系统窗口阴影必须关掉</b>（它在形状边界最浓，透过圆角遮罩的半透明边缘像素合成出一道 1pt 深色硬线 —— 等于又长回一圈边框），
+    改成每张卡片自己画一层大而淡的柔和阴影；<b>② 顶部高光那条线删掉了</b>（老的一整块面板上它宽 590pt 像"玻璃受光"，切成每卡 290pt、两端还各缩进 16pt，就只剩一条断头白线）。
+  </p>
+  <p class="lede">
+    要解决两件事：<b>① 三处发丝线（外框、当前显示器蓝框、应用名药丸）看着丑</b>；
+    <b>② 显示器名字和它上面的 9 宫格看起来没关系</b> —— 因为今天的蓝框只圈住格子，名字画在框<i>外面</i>，
+    非当前的那台连框都没有，所以名字更像浮在面板底部的一行字。
+  </p>
+  <p class="lede">
+    下面 4 个方案都做同一件事：<b>把「9 宫格 + 显示器名字」变成一张自包含的卡片</b>，
+    再各自用不同手法处理边框和「当前显示器」的标记。所有尺寸都按代码里的真实数值画（卡片 290×185、格子间隙 5、面板留白 12），
+    你可以切浅色/深色、切背景、放大看发丝线。
+  </p>
+
+  <div class="probs">
+    <div class="prob">
+      <div class="k">问题 1 · 外框</div>
+      <p><code>TileCancelDot.swift:630</code> 用 1px 黑 0.18 描 r13.5 的圆角，而玻璃遮罩是 r14 ——
+      半像素错位 + 偏重的黑色，在浅色背景上就是一道硬边。</p>
+    </div>
+    <div class="prob">
+      <div class="k">问题 2 · 蓝框</div>
+      <p><code>TileCancelDot.swift:704</code> 1.5px 蓝框只圈 9 宫格（<code>cardRect</code>），
+      名字在框外下方 12px。框住的东西 ≠ 一个完整单元。</p>
+    </div>
+    <div class="prob">
+      <div class="k">问题 3 · 药丸</div>
+      <p><code>BentoTargetChip.swift:190</code> 1px 黑 0.16 的 layer border，
+      和面板外框是同一种"描黑边"手法，两个元素一起出现时边线感翻倍。</p>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <span class="tb-label">外观</span>
+    <div class="seg" id="seg-theme">
+      <button data-k="light" class="on">浅色</button>
+      <button data-k="dark">深色</button>
+    </div>
+    <span class="tb-label">背景</span>
+    <div class="seg" id="seg-bg">
+      <button data-k="doc" class="on">浅色窗口</button>
+      <button data-k="wall">桌面壁纸</button>
+      <button data-k="dark">深色编辑器</button>
+    </div>
+    <span class="tb-label">缩放</span>
+    <div class="seg" id="seg-zoom">
+      <button data-k="1" class="on">1×（真实）</button>
+      <button data-k="2">1.85×</button>
+    </div>
+    <span class="tb-label">高亮</span>
+    <div class="seg" id="seg-active">
+      <button data-k="on" class="on">悬停中</button>
+      <button data-k="off">静止</button>
+    </div>
+    <span class="tb-label">顶部高光</span>
+    <div class="seg" id="seg-spec">
+      <button data-k="on" class="on">开</button>
+      <button data-k="off">关</button>
+    </div>
+    <div class="jump">
+      <a href="#now">现状</a><a href="#E">E ⭐</a><a href="#A">A</a><a href="#B">B</a><a href="#C">C</a><a href="#D">D</a><a href="#cmp">对比</a>
+    </div>
+  </div>
+
+  <!-- ============ 现状 ============ -->
+  <section class="opt" id="now">
+    <div class="opt-head">
+      <span class="tag now">现状</span>
+      <h2>今天线上的样子</h2>
+    </div>
+    <p class="opt-sub">
+      按代码 1:1 复现，作为基准。注意：<b>非当前显示器（右边那台）完全没有容器</b>，
+      它的名字和格子之间只有 12px 空白在维系关系。
+    </p>
+    <div class="stage" data-v="now"><div class="bd"></div><div class="zoomer" data-stage></div></div>
+  </section>
+
+  <!-- ============ A ============ -->
+  <section class="opt" id="A">
+    <div class="opt-head">
+      <span class="tag">方案 A</span>
+      <h2>Frameless Glass · 一根线都不要</h2>
+    </div>
+    <p class="opt-sub">
+      <b>把所有描边全部删掉</b>：面板不描边，只靠玻璃材质 + 阴影 + 顶部一道内高光立体化；
+      格子也去掉自己的 1px 边（只留填色），整块面板一下子安静下来。
+      分组靠<b>底色</b>：每台显示器是一块比面板略深/略亮的圆角底（含名字），
+      当前那台整块底色染成蓝色 11%，名字用蓝色 —— 不用框也知道是哪台。
+    </p>
+    <div class="stage" data-v="A"><div class="bd"></div><div class="zoomer" data-stage></div></div>
+    <div class="notes">
+      <div class="note good">
+        <h4>好处</h4>
+        <ul>
+          <li><b>彻底根治"丑边框"</b>：整个覆盖层零发丝线，浅色背景上不会再出现硬黑边。</li>
+          <li>格子去掉描边后，视觉噪音明显下降（原来一屏 18 个小边框）。</li>
+          <li>名字进到卡片底色里，和格子共享同一块底 —— 关联性最强的做法之一。</li>
+          <li>改动最小：删描边 + 加两个填色矩形，没有新概念。</li>
+        </ul>
+      </div>
+      <div class="note watch">
+        <h4>要注意</h4>
+        <ul>
+          <li>纯填色分组在<b>花哨壁纸</b>上对比度弱一些（可切"桌面壁纸"背景实际看）。</li>
+          <li>当前显示器靠色块而非框来标记，识别度略低于一道蓝框（可以把 11% 调到 14~16%）。</li>
+          <li>去掉格子描边后，格子和卡片底的层次全靠亮度差，深色模式要单独调值。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="delta">
+      <b>代码改动</b>
+      <ul>
+        <li><code>TileCancelDotView.draw</code>：删掉 <code>borderPath.stroke()</code>（外框）。</li>
+        <li><code>drawBentoCard</code>：卡片改成先填一层 <code>unitBg</code> 圆角矩形（当前显示器填 accent 11%），删掉 <code>isCurrent</code> 的蓝框分支。</li>
+        <li><code>drawTile</code>：去掉 <code>tileBorderColor</code> 描边。</li>
+        <li><code>BentoTargetChip</code>：<code>layer.borderWidth = 0</code>，靠阴影+材质。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ B ============ -->
+  <section class="opt" id="B">
+    <div class="opt-head">
+      <span class="tag">方案 B</span>
+      <h2>Grouped Cards · 系统设置那种分组盒</h2>
+    </div>
+    <p class="opt-sub">
+      不否认边框，而是<b>把边框做对</b>：黑 0.18 → 黑 0.08 的极淡发丝线，圆角对齐 r17，再补一道顶部内高光。
+      每台显示器是一张<b>真卡片</b>：底色 + 淡边 + 底部一条"说明栏"放名字（用分隔线和格子区分开，像 Finder 图标下的文件名栏）。
+      当前显示器的<b>蓝框圈住整张卡片（含名字）</b>，说明栏染蓝 —— 名字第一次真正被框进去了。
+    </p>
+    <div class="stage" data-v="B"><div class="bd"></div><div class="zoomer" data-stage></div></div>
+    <div class="notes">
+      <div class="note good">
+        <h4>好处</h4>
+        <ul>
+          <li>最"macOS 原生"的观感，和 System Settings / Finder 分组盒同一套语言。</li>
+          <li>卡片边界最清晰，<b>任何壁纸下都成立</b>，不依赖背景亮度。</li>
+          <li>当前显示器仍然由蓝框标记（识别度最高），但这次框住的是完整单元。</li>
+        </ul>
+      </div>
+      <div class="note watch">
+        <h4>要注意</h4>
+        <ul>
+          <li>线还是存在的（只是变淡）—— 如果你讨厌的是"有线"本身，A / D 更彻底。</li>
+          <li>三层嵌套（面板 → 卡片 → 格子）都有边，放大后线条数量最多。</li>
+          <li>说明栏让面板高度增加约 10pt/行。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="delta">
+      <b>代码改动</b>
+      <ul>
+        <li>新增"卡片视觉 rect"= 格子区 + 说明栏；<b>命中判定要继续用格子区</b>（见文末注意事项）。</li>
+        <li><code>panelBorderColor</code> 改淡；圆角统一（遮罩 r17 / 描边 r16.5）。</li>
+        <li><code>drawCardLabel</code> 移到卡片内部，上面画一条 1px 分隔线 + 淡底。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ C ============ -->
+  <section class="opt" id="C">
+    <div class="opt-head">
+      <span class="tag">方案 C</span>
+      <h2>Detached Cards · 干掉外框，每台显示器一块独立玻璃</h2>
+    </div>
+    <p class="opt-sub">
+      从根上消灭"框里套框"：<b>外面那个大框整个不要了</b>。每台显示器自己就是一块独立的玻璃面板
+      （自己的材质 + 阴影），按显示器真实相对位置摆开，中间留 12px 空隙。
+      名字变成卡片<b>左上角的标题行</b>，前面一个小圆点：灰点=其他显示器，蓝点=当前显示器，
+      当前那块玻璃再加一层淡蓝染色 + 1px 蓝边。
+    </p>
+    <div class="stage" data-v="C"><div class="bd"></div><div class="zoomer" data-stage></div></div>
+    <div class="notes">
+      <div class="note good">
+        <h4>好处</h4>
+        <ul>
+          <li><b>"框里套框"的问题不存在了</b> —— 只有一层容器，这是最彻底的结构性解法。</li>
+          <li>"每个显示器是一个独立小工具"的感觉最强，你提的那点直接被满足。</li>
+          <li>三台、四台显示器时扩展性最好，不会越套越深。</li>
+          <li>左上角标题行 + 圆点，比居中小字更像一块屏幕的"名牌"。</li>
+        </ul>
+      </div>
+      <div class="note watch">
+        <h4>要注意</h4>
+        <ul>
+          <li><b>实现代价最高</b>：现在整块玻璃是一个 <code>NSVisualEffectView</code> 铺满窗口；
+              要每张卡片各自是玻璃，得给每张卡片加一个带圆角遮罩的 vibrancy 子视图。</li>
+          <li>N 块阴影叠在一起，屏幕上的"零件感"变多，可能显得碎。</li>
+          <li>单显示器模式（只有一张卡片）会和多显示器模式看起来不一致 —— 需要一并想清楚。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="delta">
+      <b>代码改动</b>
+      <ul>
+        <li>窗口根视图不再铺满玻璃；每张卡片一个圆角遮罩的 <code>NSVisualEffectView</code> 子视图（<code>BentoPopoverEffectView</code> 已经有遮罩代码可复用）。</li>
+        <li>布局：<code>computeMultiDisplayLayout</code> 里去掉 <code>chromePadding</code>，卡片间隙 8 → 12，标签区改到卡片内部顶部。</li>
+        <li>药丸继续锚定"整个集群"的上边缘（<code>positionTargetChip</code> 传的是窗口 frame，逻辑不变）。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ D ============ -->
+  <section class="opt" id="D">
+    <div class="opt-head">
+      <span class="tag rec">方案 D · 我推荐</span>
+      <h2>Titled Cards · 名字就是卡片的标题栏</h2>
+    </div>
+    <p class="opt-sub">
+      A 的"零发丝线" + 卡片化的最强绑定：面板和格子都不描边，每台显示器是一张<b>带标题栏的卡片</b> ——
+      名字挪到卡片<b>顶部</b>，占满整条宽度，像一块屏幕的铭牌。
+      当前显示器不用框，而是<b>把标题栏整条填成蓝色、文字反白</b>：
+      既是"哪台屏幕"的答案，也是标签和格子属于同一张卡片的证据。
+    </p>
+    <div class="stage" data-v="D"><div class="bd"></div><div class="zoomer" data-stage></div></div>
+    <div class="notes">
+      <div class="note good">
+        <h4>好处</h4>
+        <ul>
+          <li><b>零发丝线</b>（和 A 一样彻底），但当前显示器的识别度<b>比蓝框还高</b> —— 一条实色蓝比一圈 1.5px 更抓眼。</li>
+          <li>标题栏是卡片的一部分，"名字属于这 9 个格子"没有任何歧义。</li>
+          <li>名字在上：眼睛从上往下扫 → 先知道是哪块屏，再选区域，顺序更自然。</li>
+          <li>实现代价和 A 差不多，仍然是一个 vibrancy + 纯绘制。</li>
+        </ul>
+      </div>
+      <div class="note watch">
+        <h4>要注意</h4>
+        <ul>
+          <li>实色蓝标题栏比较"重"，如果同时有格子被高亮成蓝色，屏幕上会有两块蓝
+              （可以把标题栏降到 accent 92% → 70%，或改成蓝底浅蓝字）。</li>
+          <li>名字从下面挪到上面，是有记忆习惯变化的（老用户会有一瞬间的不适应）。</li>
+          <li>标题栏让卡片变高 ~13pt，面板整体略大。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="delta">
+      <b>代码改动</b>
+      <ul>
+        <li>同 A：删外框描边、删格子描边、删蓝框分支。</li>
+        <li><code>cardLabelAreaHeight</code> 从"卡片下方"改成"卡片上方"，<code>drawCardLabel</code> 画成整条填色行。</li>
+        <li>当前显示器：标题栏填 accent，文字 <code>.white</code>。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ E ============ -->
+  <section class="opt" id="E">
+    <div class="opt-head">
+      <span class="tag rec">方案 E · 你要的融合版</span>
+      <h2>Frameless Islands · 独立玻璃岛，一根线都没有</h2>
+    </div>
+    <p class="opt-sub">
+      按你说的把 A 和 C 合起来：<b>结构取 C</b> —— 外面那个大框整个不要了，每台显示器自己就是一块独立玻璃，
+      按显示器真实相对位置摆开，中间 12px 空隙；<b>线全部取 A</b> —— 卡片没有边、格子没有边、药丸没有边；
+      <b>标题取 C</b> —— 名字在卡片左上角，前面一个小圆点。
+      当前显示器不能再用蓝框了，所以换成三个不靠线的信号：<b>整块玻璃染蓝、阴影抬高一层（离桌面更近）、圆点和名字变蓝</b>。
+    </p>
+    <div class="stage" data-v="E" data-mark="tint"><div class="bd"></div><div class="zoomer" data-stage></div></div>
+
+    <p class="opt-sub" style="margin-top:26px;">
+      <b>E 还有第二种当前显示器的标记方式</b>，因为"染蓝"其实是可以省掉的：
+      下面这版<b>完全不染色</b>，只靠<b>蓝点 + 蓝字 + 抬高的阴影</b>，另外把其他显示器整体压暗到 88% ——
+      更安静，但"哪台是当前"的识别度也更弱。两版对着看，你告诉我要哪种力度。
+    </p>
+    <div class="stage" data-v="E" data-mark="dot" style="min-height:390px;"><div class="bd"></div><div class="zoomer" data-stage></div></div>
+
+    <div class="notes">
+      <div class="note good">
+        <h4>好处</h4>
+        <ul>
+          <li><b>三处丑边框全部消失</b>：外框没了（连容器都没了）、蓝框没了、药丸的黑边也没了，整个覆盖层零发丝线。</li>
+          <li><b>"框里套框"从结构上不存在了</b> —— 只有一层容器，不是把线画淡，而是根本没有第二层要描边的东西。</li>
+          <li>名字在卡片左上角、和格子共享同一块玻璃，"这个名字属于这 9 个格子"没有歧义。</li>
+          <li>少了外框的 12px 留白 + 卡片间隙从 8 加到 12，整体<b>比现在更小更轻</b>，不会那么挡住底下的窗口。</li>
+          <li>三台、四台显示器时不会越套越深，扩展性最好。</li>
+        </ul>
+      </div>
+      <div class="note watch">
+        <h4>要注意</h4>
+        <ul>
+          <li><b>实现代价是这五个方案里最高的</b>：现在整块玻璃是一个铺满窗口的 <code>NSVisualEffectView</code>，
+              要每张卡片各自是玻璃，得给每张卡片加一个带圆角遮罩的 vibrancy 子视图（<code>BentoPopoverEffectView</code> 的遮罩代码可以直接复用）。</li>
+          <li>两块玻璃 + 两份阴影分开摆，屏幕上的"零件感"比一整块面板多一些；空隙从 8 调到 12 就是为了让它读起来是"两块屏"而不是"裂开的一块"。</li>
+          <li><b>单显示器模式要一并想清楚</b>：只有一张卡片时，它和今天的单显示器面板几乎一样（都是一块玻璃），
+              区别只是多了左上角的显示器名字 —— 我倾向单显示器时不显示名字，保持现状。</li>
+          <li>没有线、没有外框时，卡片全靠阴影和背景分离，<b>纯白背景</b>下最吃力（可切"浅色窗口"背景实际看，必要时把阴影再加重一档）。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="delta">
+      <b>代码改动</b>
+      <ul>
+        <li>窗口根视图不再铺满玻璃：每张卡片一个圆角遮罩的 <code>NSVisualEffectView</code> 子视图，<code>TileCancelDotView</code> 只负责画格子和标题。</li>
+        <li><code>TileCancelDotView.draw</code>：删掉外框 <code>borderPath.stroke()</code>、删掉 <code>drawSpecularHighlight</code>（或保留为卡片顶部高光，看你要不要）、<code>drawTile</code> 去掉 <code>tileBorderColor</code> 描边、删掉 <code>isCurrent</code> 的蓝框分支。</li>
+        <li><code>computeMultiDisplayLayout</code>：去掉 <code>chromePadding</code>，<code>multiCardGap</code> 8 → 12，标签区从卡片下方改到卡片内部顶部（左对齐 + 圆点）。</li>
+        <li>当前显示器：卡片玻璃染 accent 12%（或按 E2 只改圆点/文字 + 阴影加重）。</li>
+        <li><b>命中判定必须拆开</b>：新增 <code>gridRect</code>（只含 9 宫格）给 <code>resolveMultiDisplay</code> 用，<code>cardRect</code> 只管画（详见文末）。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ 对比 ============ -->
+  <section class="opt" id="cmp">
+    <div class="opt-head">
+      <span class="tag now">对比</span>
+      <h2>四个方案横向比</h2>
+    </div>
+    <table>
+      <thead>
+        <tr><th>维度</th><th style="color:var(--good);">E 融合版 ⭐</th><th>A 无边框玻璃</th><th>B 分组盒</th><th>C 独立玻璃</th><th>D 标题栏卡片</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>还有几种发丝线</b></td>
+          <td><span class="pill p-hi">0 条</span></td>
+          <td><span class="pill p-hi">0 条</span></td>
+          <td><span class="pill p-lo">3 层都有（很淡）</span></td>
+          <td><span class="pill p-mid">1 条（卡片自己）</span></td>
+          <td><span class="pill p-hi">0 条</span></td>
+        </tr>
+        <tr>
+          <td><b>还有几层容器</b></td>
+          <td><span class="pill p-hi">1 层</span> 没有外框</td>
+          <td><span class="pill p-mid">2 层</span></td>
+          <td><span class="pill p-mid">2 层</span></td>
+          <td><span class="pill p-hi">1 层</span></td>
+          <td><span class="pill p-mid">2 层</span></td>
+        </tr>
+        <tr>
+          <td><b>名字 ↔ 格子的绑定</b></td>
+          <td>同一块玻璃 + 左上角标题行（强）</td>
+          <td>共享底色（强）</td>
+          <td>同一张卡 + 分隔栏（强）</td>
+          <td>卡片标题行（强）</td>
+          <td>卡片标题栏（最强）</td>
+        </tr>
+        <tr>
+          <td><b>"当前显示器"识别度</b></td>
+          <td><span class="pill p-mid">中高</span> 染蓝+抬高+蓝点</td>
+          <td><span class="pill p-mid">中</span> 淡蓝底</td>
+          <td><span class="pill p-hi">高</span> 蓝框整卡</td>
+          <td><span class="pill p-hi">高</span> 蓝点+蓝边</td>
+          <td><span class="pill p-hi">最高</span> 实色蓝标题栏</td>
+        </tr>
+        <tr>
+          <td><b>花哨壁纸下的稳健度</b></td>
+          <td><span class="pill p-mid">中高</span> 靠阴影分离</td>
+          <td><span class="pill p-mid">中</span></td>
+          <td><span class="pill p-hi">高</span></td>
+          <td><span class="pill p-hi">高</span></td>
+          <td><span class="pill p-mid">中高</span></td>
+        </tr>
+        <tr>
+          <td><b>实现代价</b></td>
+          <td><span class="pill p-lo">大</span> 每卡一个 vibrancy 子视图</td>
+          <td><span class="pill p-hi">小</span> 纯绘制</td>
+          <td><span class="pill p-hi">小</span> 纯绘制</td>
+          <td><span class="pill p-lo">大</span> 每卡一个 vibrancy 子视图</td>
+          <td><span class="pill p-hi">小</span> 纯绘制</td>
+        </tr>
+        <tr>
+          <td><b>单显示器模式一致性</b></td>
+          <td><span class="pill p-mid">需要单独定</span> 建议不显示名字</td>
+          <td>一致（不画卡片底即可）</td>
+          <td>一致</td>
+          <td><span class="pill p-mid">需要单独想</span></td>
+          <td>一致（可选是否显示标题栏）</td>
+        </tr>
+        <tr>
+          <td><b>面板尺寸变化</b></td>
+          <td>−24pt（少了外框留白）</td>
+          <td>基本不变</td>
+          <td>+10pt/行</td>
+          <td>−24pt（少了外框留白）</td>
+          <td>+13pt/行</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="closing">
+    <h2>我的建议</h2>
+    <p class="lede">
+      <b>E（融合版）就是你想要的那个方向</b>，我也认为它是这五个里最好看的：外框整个消失、一根发丝线都没有、
+      每台显示器是自己的一块玻璃、名字在卡片左上角。代价是<b>要给每张卡片单独做玻璃子视图</b>，
+      比 A/B/D 的"纯绘制"多一步工程量，但不涉及任何私有 API 或性能风险 —— 覆盖层只在手势期间显示，不走每帧 IPC。
+    </p>
+    <p class="lede">
+      还需要你定一件事：<b>当前显示器要 E1（染蓝 12%）还是 E2（只有蓝点蓝字 + 其他显示器压暗）</b>。
+      我倾向 <b>E1</b> —— 手势中你的眼睛在快速找"哪块屏"，一块淡蓝色块比一个 6px 圆点快得多；
+      E2 更安静，但在花哨壁纸下"当前"会看不太出来。
+    </p>
+    <p class="lede">
+      其余三个留着做参照：<b>A</b> 是保留外框的最安静版（实现最省）、<b>B</b> 是系统设置那种明确卡片边界、
+      <b>D</b> 是当前显示器识别度最高的（实色蓝标题栏）。
+    </p>
+
+    <div class="warn">
+      <b>实现时的一个坑（先记下来）：</b>
+      现在 <code>DisplayCard.cardRect</code> 同时充当<b>视觉矩形</b>和<b>命中矩形</b> ——
+      <code>resolveMultiDisplay</code> 直接把 <code>cardRect</code> 三等分算行列。
+      B / C / D 都把名字挪进了卡片内部，卡片变高；如果不拆开，
+      鼠标停在名字那一条上会被算成"最下面一行的格子"。
+      所以必须拆成两个矩形：<code>cardRect</code>（画卡片）和 <code>gridRect</code>（命中判定，只含 9 宫格）。
+    </div>
+
+    <div class="warn" style="border-color:rgba(127,214,163,.35);background:rgba(127,214,163,.06);">
+      <b style="color:var(--good);">诚实说明：</b>
+      这一页是<b>浏览器里的 HTML mockup，不是真机截图</b>。玻璃材质用 <code>backdrop-filter</code> 模拟
+      <code>NSVisualEffectView(.popover)</code>，颜色/尺寸都按 Swift 代码里的真实数值抄的，
+      但真机上的模糊质感和边缘渲染会有细微差别 —— 上面提到的那两处返工（系统阴影、顶部高光）就是这一页看不出来、
+      只有真机才暴露的。已实现的版本是 E2；A / B / C / D 保留在这里作为设计过程的记录。
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- 渲染覆盖层（几何数值抄 TileCancelDot.swift） ---- */
+const ZONES = [
+  ['topLeft','full','topRight'],
+  ['left',null,'right'],
+  ['bottomLeft','centered','bottomRight'],
+];
+function tileHTML(zone, isActive){
+  if (zone === null) return `<div class="tile cancel"><div class="ring"></div></div>`;
+  return `<div class="tile${isActive ? ' active' : ''}">`
+       + `<div class="mini"><div class="win win-${zone}"></div></div></div>`;
+}
+function unitHTML({label, current, activeZone}){
+  let cells = '';
+  for (const row of ZONES) for (const z of row) cells += tileHTML(z, z !== null && z === activeZone);
+  return `<div class="unit${current ? ' current' : ''}">`
+       + `<div class="grid">${cells}</div>`
+       + `<div class="ulabel">${label}</div>`
+       + `</div>`;
+}
+function overlayHTML(){
+  const cards = [
+    unitHTML({label:'P275MV Plus', current:true,  activeZone:'topRight'}),
+    unitHTML({label:'LG UltraGear', current:false, activeZone:null}),
+  ].join('');
+  return `<div class="ov">`
+       + `<div class="chip"><span class="appicon"></span><span class="nm">AnyDrag</span></div>`
+       + `<div class="panel"><div class="slots">${cards}</div></div>`
+       + `</div>`;
+}
+document.querySelectorAll('[data-stage]').forEach(el => { el.innerHTML = overlayHTML(); });
+
+/* ---- 工具条 ---- */
+function wire(segId, attr){
+  const seg = document.getElementById(segId);
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    document.documentElement.setAttribute(attr, b.dataset.k);
+  });
+}
+wire('seg-theme','data-theme');
+wire('seg-bg','data-bg');
+wire('seg-zoom','data-zoom');
+wire('seg-active','data-active');
+wire('seg-spec','data-spec');
+
+/* 切外观时顺手把背景切成搭配的那个（只在用户没手动动过背景时） */
+let bgTouched = false;
+document.getElementById('seg-bg').addEventListener('click', () => { bgTouched = true; });
+document.getElementById('seg-theme').addEventListener('click', e => {
+  if (bgTouched || !e.target.closest('button')) return;
+  const k = e.target.closest('button').dataset.k === 'dark' ? 'dark' : 'doc';
+  const seg = document.getElementById('seg-bg');
+  seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.k === k));
+  document.documentElement.setAttribute('data-bg', k);
+});
+</script>
+</body>
+</html>

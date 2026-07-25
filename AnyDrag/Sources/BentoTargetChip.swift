@@ -13,8 +13,11 @@ import AppKit
 // display card or N. It floats above the panel, flipping below when there's
 // no headroom near the screen's top edge.
 //
-// Same material + accent + border language as TileCancelDot: `.popover`
-// vibrancy, a 1px appearance-resolved hairline, and a system shadow.
+// Same material language as the bento cards ("Frameless Islands", see
+// docs/bento-panel-chrome-mockups.html): `.popover` vibrancy, NO hairline
+// border, and a system shadow. The border is deliberately absent — the whole
+// overlay is border-free, and a dark 1px outline on a light background was
+// the ugliest part of the old look.
 
 final class BentoTargetChip: NSPanel {
 
@@ -37,12 +40,19 @@ final class BentoTargetChip: NSPanel {
     private static let maxNameWidth: CGFloat = 240
     /// Vertical gap between the bento panel edge and the chip.
     private static let panelGap: CGFloat = 12
+    /// Transparent margin around the pill inside the window, giving our own
+    /// soft shadow room to fall off. Same reasoning as the bento cards: the
+    /// window-server shadow is darkest exactly at the pill's edge and shows
+    /// through the rounded corner's antialiased pixels as a hard dark line.
+    private static let shadowMargin: CGFloat = 20
 
     private static let nameFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
 
     // MARK: - Subviews
 
-    private let vibrancyView = ChipEffectView()
+    private let container = NSView()
+    private let shadowView = NSView()
+    private let vibrancyView = NSVisualEffectView()
     private let iconView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
 
@@ -55,7 +65,8 @@ final class BentoTargetChip: NSPanel {
         )
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        // We draw the shadow ourselves (see `shadowMargin`).
+        hasShadow = false
         ignoresMouseEvents = true
         level = .statusBar
         animationBehavior = .none
@@ -74,12 +85,7 @@ final class BentoTargetChip: NSPanel {
             layer.cornerRadius = Self.cornerRadius
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            // The border is drawn by the LAYER (not a separate stroked
-            // subview) so it follows the exact same rounded mask + continuous
-            // curve — one shape, so the top edge can't render as two hairlines.
-            layer.borderWidth = 1
         }
-        vibrancyView.updateBorderColor()
 
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
@@ -93,9 +99,21 @@ final class BentoTargetChip: NSPanel {
         nameField.isEditable = false
         nameField.isSelectable = false
 
+        // No content of its own: with `shadowPath` set the layer casts the
+        // shadow from that path alone, so nothing is painted under the pill.
+        shadowView.wantsLayer = true
+        if let layer = shadowView.layer {
+            layer.shadowColor = NSColor.black.cgColor
+            layer.shadowOpacity = 0.16
+            layer.shadowRadius = 12
+            layer.shadowOffset = .zero
+        }
+
         vibrancyView.addSubview(iconView)
         vibrancyView.addSubview(nameField)
-        contentView = vibrancyView
+        container.addSubview(shadowView)
+        container.addSubview(vibrancyView, positioned: .above, relativeTo: shadowView)
+        contentView = container
     }
 
     override var canBecomeKey: Bool { false }
@@ -156,7 +174,23 @@ final class BentoTargetChip: NSPanel {
         x = max(visible.minX + 4, min(x, visible.maxX - panelW - 4))
         y = max(visible.minY + 4, min(y, visible.maxY - panelH - 4))
 
-        setFrame(NSRect(x: x, y: y, width: panelW, height: panelH), display: true)
+        // `x`/`y` are the PILL's position; the window is bigger by
+        // `shadowMargin` on every side, and the pill sits inset by it.
+        let margin = Self.shadowMargin
+        setFrame(
+            NSRect(x: x - margin, y: y - margin,
+                   width: panelW + margin * 2, height: panelH + margin * 2),
+            display: true
+        )
+        let pillFrame = NSRect(x: margin, y: margin, width: panelW, height: panelH)
+        vibrancyView.frame = pillFrame
+        shadowView.frame = pillFrame
+        shadowView.layer?.shadowPath = CGPath(
+            roundedRect: NSRect(origin: .zero, size: pillFrame.size),
+            cornerWidth: Self.cornerRadius,
+            cornerHeight: Self.cornerRadius,
+            transform: nil
+        )
         if !isVisible {
             orderFrontRegardless()
         }
@@ -166,29 +200,5 @@ final class BentoTargetChip: NSPanel {
         if isVisible {
             orderOut(nil)
         }
-    }
-}
-
-// MARK: - ChipEffectView
-
-/// `.popover`-material glass for the chip. The hairline border is drawn by
-/// this view's own layer (`borderWidth`/`borderColor`), so it follows the
-/// layer's exact rounded mask and `.continuous` corner curve — a single
-/// shape, which is why the top edge can't split into two hairlines the way a
-/// separate `NSBezierPath` stroke (circular) over a `.continuous` mask could.
-/// `borderColor` is a static CGColor, so we re-resolve it whenever the
-/// effective appearance flips between light and dark.
-private final class ChipEffectView: NSVisualEffectView {
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateBorderColor()
-    }
-
-    func updateBorderColor() {
-        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let color = isDark
-            ? NSColor.white.withAlphaComponent(0.18)
-            : NSColor.black.withAlphaComponent(0.16)
-        layer?.borderColor = color.cgColor
     }
 }

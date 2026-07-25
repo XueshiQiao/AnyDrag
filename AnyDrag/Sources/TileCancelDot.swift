@@ -5,16 +5,25 @@ import AppKit
 // Bento-style overlay shown at the middle-button gesture origin while a
 // tile-by-direction gesture is in flight. Two modes:
 //
-//   1. Single-display (the original): a fixed 290×185 panel with one 3×3
-//      grid. Cells extend to infinity outside the panel, so the user can
+//   1. Single-display (the original): one 290×185 glass card with one 3×3
+//      grid. Cells extend to infinity outside the card, so the user can
 //      fling the cursor and still resolve to a zone.
 //
 //   2. Multi-display (`multiDisplayEnabled = true` AND ≥2 connected
-//      displays): the panel contains one "card" per connected display,
-//      laid out at the displays' real relative positions and sizes. Each
-//      card has its own 3×3 grid. The current display gets an accent
-//      border. Cells are bounded by the card's rect — cursor outside any
-//      card resolves to no zone (release cancels).
+//      displays): one card per connected display, laid out at the displays'
+//      real relative positions. Each card has its own 3×3 grid plus the
+//      display's name in its top-left corner. Cells are bounded by the
+//      card's rect — cursor outside any card resolves to no zone (release
+//      cancels).
+//
+// Look: "Frameless Islands" (docs/bento-panel-chrome-mockups.html, plan E2).
+// There is NO outer container and NO hairline border anywhere — not on the
+// panel, not on the cards, not on the tiles. Each display card is its own
+// piece of `.popover` glass with its own rounded mask, and the panel window
+// is transparent between them, so the window server's shadow follows each
+// island's shape. The current display is marked WITHOUT a border: an accent
+// dot + accent name in its title row, while the other cards are dimmed to
+// `Self.dimmedCardAlpha` so the current one reads as the front-most one.
 //
 // (Type is still named `TileCancelDot` for historical/source-stability
 // reasons; the very first version of this overlay was a single accent
@@ -30,22 +39,25 @@ final class TileCancelDot: NSPanel {
 
     // MARK: - Layout constants (single-display)
 
-    /// Panel size in points. ~16:10 ratio so the tile previews read as
+    /// Card size in points. ~16:10 ratio so the tile previews read as
     /// little screens; large enough that each tile is comfortable to hit,
-    /// small enough not to swallow the underlying window.
+    /// small enough not to swallow the underlying window. In multi-display
+    /// this is the size of each card's GRID BOX (the title row sits on top
+    /// of it, see `cardTitleAreaHeight`).
     static let panelWidth: CGFloat = 290
     static let panelHeight: CGFloat = 185
 
     /// Room for the shadow and, when displaced, the popover pointer.
     private static let screenInset: CGFloat = 12
 
-    /// Padding between the panel chrome and the grid of tiles.
+    /// Padding between a card's edge and its grid of tiles.
     static let chromePadding: CGFloat = 12
 
     /// Gap between adjacent tiles.
     static let tileGap: CGFloat = 5
 
-    /// Tile dimensions for the single-display path.
+    /// Tile dimensions. Same values for both paths, so a tile is rendered
+    /// at exactly the same scale whether there's one card or N.
     static var tileWidth: CGFloat {
         (panelWidth - chromePadding * 2 - tileGap * 2) / 3
     }
@@ -54,7 +66,7 @@ final class TileCancelDot: NSPanel {
     }
 
     /// Half-width of the center deadzone (single-display path), measured
-    /// from the panel center. Equals half the center cell plus half a gap
+    /// from the card center. Equals half the center cell plus half a gap
     /// so the boundary sits on the visible gap line — "cursor crossing the
     /// gap" matches "cursor commits to the adjacent tile".
     static var halfDeadzoneWidth: CGFloat {
@@ -64,28 +76,60 @@ final class TileCancelDot: NSPanel {
         tileHeight / 2 + tileGap / 2
     }
 
+    /// Corner radius of a glass island. Single-display keeps the original
+    /// 14; multi-display cards are a touch rounder because they're smaller
+    /// relative to the whole overlay.
+    fileprivate static let singleCardCornerRadius: CGFloat = 14
+    fileprivate static let multiCardCornerRadius: CGFloat = 15
+
+    /// Transparent margin kept around the cards INSIDE the window, so our own
+    /// soft shadow has room to fall off instead of being clipped at the
+    /// window edge.
+    ///
+    /// Why we draw the shadow ourselves instead of using `hasShadow`: the
+    /// window-server shadow is derived from the window's alpha and is at its
+    /// darkest right at the shape boundary. The rounded mask's edge pixels are
+    /// partially transparent, so that darkest band shows through them as a
+    /// hard ~1pt dark line — a border in everything but name, and worse than
+    /// the drawn hairline this redesign removed. A wide, low-opacity shadow of
+    /// our own reads as depth without ever forming a line.
+    fileprivate static let shadowMargin: CGFloat = 26
+
     // MARK: - Layout constants (multi-display)
 
-    /// Visual gap between display cards inside the panel. Cards themselves
-    /// keep the same dimensions as the original single-display bento
-    /// (`panelWidth × panelHeight`) so the per-card chrome, cells, colors,
-    /// and preview rects render at the exact same scale — multi-display
-    /// is just "tile N old bento cards spatially."
-    static let multiCardGap: CGFloat = 8
+    /// Visual gap between display cards. Wider than the old 8 because the
+    /// cards are now separate glass islands with no shared container — the
+    /// extra air is what makes them read as "two screens" instead of one
+    /// cracked panel.
+    static let multiCardGap: CGFloat = 12
 
-    /// Total height reserved BELOW each card for its label (gap above
-    /// label + label line height + gap below label). Single source of
-    /// truth — `drawCardLabel` uses the same margins to position itself.
-    fileprivate static let cardLabelTopMargin: CGFloat = 12
-    fileprivate static let cardLabelHeight: CGFloat    = 13
-    fileprivate static let cardLabelBottomMargin: CGFloat = 7
-    fileprivate static let cardLabelAreaHeight: CGFloat = cardLabelTopMargin + cardLabelHeight + cardLabelBottomMargin
+    /// The title row lives INSIDE the card, above the grid: a dot plus the
+    /// display's name, left-aligned. Single source of truth — the layout
+    /// math and `BentoCardContentView` both derive from these.
+    fileprivate static let cardTitleTopPad: CGFloat = 10
+    fileprivate static let cardTitleHeight: CGFloat = 13
+    fileprivate static let cardTitleBottomGap: CGFloat = 2
+    fileprivate static let cardTitleAreaHeight: CGFloat =
+        cardTitleTopPad + cardTitleHeight + cardTitleBottomGap
+    fileprivate static let cardTitleLeftPad: CGFloat = 14
+    fileprivate static let cardTitleDotSize: CGFloat = 6
+    fileprivate static let cardTitleDotGap: CGFloat = 7
+
+    /// Non-current display cards have their CONTENTS (tiles + title, not the
+    /// glass itself) dimmed to this alpha. With no borders left, this plus
+    /// the accent dot/name is what marks the current card.
+    ///
+    /// It has to be the contents and not the whole card view: dimming an
+    /// `NSVisualEffectView` with `alphaValue` makes its behind-window
+    /// backdrop translucent too, so whatever is on the desktop bleeds
+    /// through the glass and the card reads as dirty rather than receded.
+    fileprivate static let dimmedContentAlpha: CGFloat = 0.82
 
     // MARK: - Mode
 
     /// Set by DragEngine from Preferences before each show. When false
     /// (or when only one display is connected) we use the single-display
-    /// path — pixel-identical to the pre-multi-display behaviour.
+    /// path.
     var multiDisplayEnabled: Bool = false
 
     /// Set by DragEngine from Preferences before each show. When true (default),
@@ -98,17 +142,38 @@ final class TileCancelDot: NSPanel {
 
     /// Origin used by the current layout's hit testing. It differs from the
     /// window origin only when an oversized multi-display layout is clipped.
-    fileprivate var layoutOriginNS: NSPoint?
+    private var layoutOriginNS: NSPoint?
 
     /// The immutable middle-button press point. Single-display direction
     /// selection stays relative to this point even when the panel moves.
     private var gestureOriginNS: NSPoint?
 
+    // MARK: - Layout / highlight state
+
+    /// nil → single-display path (one card filling the window, no title).
+    /// Non-nil → one card per entry.
+    private var displayLayout: [DisplayCard]?
+    /// Multi-display only: how much of the IDEAL layout was clipped off the
+    /// bottom-left when the window frame was intersected with the current
+    /// display's visibleFrame. Card rects are stored in ideal layout-local
+    /// coords; card views are positioned at `cardRect - displayOffset`, so
+    /// cards that fall outside the window are naturally clipped instead of
+    /// pushing the whole overlay onto another display.
+    private var displayOffset: NSPoint = .zero
+    /// Size of the content area inside the window (the window is bigger by
+    /// `shadowMargin` on every side). Cards are laid out inside it.
+    private var contentSizeInWindow: CGSize = .zero
+    private var activeScreen: NSScreen?
+    private var activeZone: TileZone?
+
     // MARK: - Subviews
 
     private let contentContainer = NSView()
-    private let vibrancyView = BentoPopoverEffectView()
-    private let fillView = TileCancelDotView()
+    /// One glass island per card. Reused across shows; the pool grows and
+    /// shrinks with the number of connected displays.
+    private var cardViews: [BentoCardView] = []
+    /// The soft shadow behind each card, index-matched to `cardViews`.
+    private var shadowViews: [BentoCardShadowView] = []
     private let cursorTransition = BentoCursorTransition()
 
     /// Plan B "floating chip": the target app's icon + name, hovering just
@@ -127,37 +192,17 @@ final class TileCancelDot: NSPanel {
         )
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        // Each card draws its own soft shadow (see `shadowMargin`); the
+        // system one would put a hard dark line along every card edge.
+        hasShadow = false
         ignoresMouseEvents = true
         level = .statusBar
         animationBehavior = .none
         hidesOnDeactivate = false
         isMovable = false
 
-        // `.popover` adapts to system appearance — dark in dark mode,
-        // light in light mode — so the panel never feels washed out the
-        // way `.hudWindow` (intentionally dark always) did in light mode.
-        vibrancyView.material = .popover
-        vibrancyView.blendingMode = .behindWindow
-        vibrancyView.state = .active
-        vibrancyView.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.wantsLayer = true
         contentContainer.layer?.backgroundColor = NSColor.clear.cgColor
-        contentContainer.addSubview(vibrancyView)
-
-        fillView.translatesAutoresizingMaskIntoConstraints = false
-        vibrancyView.addSubview(fillView)
-        NSLayoutConstraint.activate([
-            vibrancyView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-            vibrancyView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            vibrancyView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            vibrancyView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-            fillView.leadingAnchor.constraint(equalTo: vibrancyView.leadingAnchor),
-            fillView.trailingAnchor.constraint(equalTo: vibrancyView.trailingAnchor),
-            fillView.topAnchor.constraint(equalTo: vibrancyView.topAnchor),
-            fillView.bottomAnchor.constraint(equalTo: vibrancyView.bottomAnchor),
-        ])
-
         contentView = contentContainer
     }
 
@@ -221,39 +266,39 @@ final class TileCancelDot: NSPanel {
 
         // Edge-safe (default): clamp on-screen + warp the cursor to the center.
         // Off: center on the cursor, no clamping, no warp (the original path).
-        let windowFrame: NSRect
+        // Placement works on the CONTENT rect (the card itself); the window is
+        // then grown by `shadowMargin` on every side for the shadow.
+        let contentFrame: NSRect
         let layoutOrigin: NSPoint
-        let displayOffset: NSPoint
         if edgeSafeEnabled {
             let placement = Self.placePanel(idealFrame: idealFrame, visibleFrame: currentScreen.visibleFrame)
-            windowFrame = placement.windowFrame
+            contentFrame = placement.windowFrame
             layoutOrigin = placement.layoutOrigin
-            displayOffset = placement.displayOffset
         } else {
-            windowFrame = idealFrame
+            contentFrame = idealFrame
             layoutOrigin = idealFrame.origin
-            displayOffset = .zero
         }
-        // Direction is measured from the panel's actual center. Un-clamped, that
+        // Direction is measured from the card's actual center. Un-clamped, that
         // equals the click point (where the un-warped cursor sits), so the OFF
         // path stays geometrically correct.
-        let cancelCenter = NSPoint(x: windowFrame.midX, y: windowFrame.midY)
+        let cancelCenter = NSPoint(x: contentFrame.midX, y: contentFrame.midY)
         gestureOriginNS = cancelCenter
         layoutOriginNS = layoutOrigin
-        setFrame(windowFrame, display: true)
-        fillView.displayLayout = nil
-        fillView.currentScreen = nil
-        fillView.activeScreen = nil
-        fillView.activeZone = nil
-        fillView.displayOffset = displayOffset
-        fillView.needsDisplay = true
+        displayLayout = nil
+        displayOffset = .zero
+        contentSizeInWindow = contentFrame.size
+        activeScreen = nil
+        activeZone = nil
+
+        setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
+        layOutCardViews()
         if !isVisible {
             orderFrontRegardless()
         }
         if edgeSafeEnabled {
             cursorTransition.move(from: clickNS, to: cancelCenter)
         }
-        positionTargetChip(panelFrame: windowFrame)
+        positionTargetChip(panelFrame: contentFrame)
     }
 
     private func showMultiDisplay(atCGPoint cgScreenPoint: CGPoint) {
@@ -268,13 +313,15 @@ final class TileCancelDot: NSPanel {
             currentScreen: currentScreen
         )
 
-        // Anchor: current card's center aligned to the click point.
+        // Anchor: the current card's GRID center aligned to the click point,
+        // so the cursor starts in the center (cancel) cell — the title row
+        // sits above the grid and must not shift that.
         let anchorCenter: NSPoint = result.cards.first(where: { $0.isCurrent })
-            .map { NSPoint(x: $0.cardRect.midX, y: $0.cardRect.midY) }
+            .map { NSPoint(x: $0.gridRect.midX, y: $0.gridRect.midY) }
             ?? NSPoint(x: result.panelSize.width / 2, y: result.panelSize.height / 2)
 
-        // The IDEAL panel rect: what we'd show if there were no screen
-        // boundaries. The current card's center lands exactly on the
+        // The IDEAL layout rect: what we'd show if there were no screen
+        // boundaries. The current card's grid center lands exactly on the
         // click point in this rect.
         let idealFrame = NSRect(
             x: cgScreenPoint.x - anchorCenter.x,
@@ -283,26 +330,28 @@ final class TileCancelDot: NSPanel {
             height: result.panelSize.height
         )
 
-        // Edge-safe (default): clamp the whole panel on-screen + warp the
-        // cursor to the current card's center. Off: the original path — clip
-        // the window to the current display so it never straddles two displays
-        // (cards keep their ideal positions; the view bounds clip the
-        // off-display ones), with no clamping and no cursor warp.
-        let windowFrame: NSRect
+        // Edge-safe (default): clamp the whole layout on-screen + warp the
+        // cursor to the current card's grid center. Off: the original path —
+        // clip the window to the current display so it never straddles two
+        // displays (cards keep their ideal positions; the window bounds clip
+        // the off-display ones), with no clamping and no cursor warp.
+        // As in the single-display path, placement works on the CONTENT rect
+        // and the window is grown by `shadowMargin` afterwards.
+        let contentFrame: NSRect
         let layoutOrigin: NSPoint
-        let displayOffset: NSPoint
+        let offset: NSPoint
         if edgeSafeEnabled {
             let placement = Self.placePanel(idealFrame: idealFrame, visibleFrame: currentScreen.visibleFrame)
-            windowFrame = placement.windowFrame
+            contentFrame = placement.windowFrame
             layoutOrigin = placement.layoutOrigin
-            displayOffset = placement.displayOffset
+            offset = placement.displayOffset
         } else {
             let clipped = idealFrame.intersection(currentScreen.visibleFrame)
-            windowFrame = clipped.isEmpty ? idealFrame : clipped
+            contentFrame = clipped.isEmpty ? idealFrame : clipped
             layoutOrigin = idealFrame.origin
-            displayOffset = NSPoint(
-                x: windowFrame.minX - idealFrame.minX,
-                y: windowFrame.minY - idealFrame.minY
+            offset = NSPoint(
+                x: contentFrame.minX - idealFrame.minX,
+                y: contentFrame.minY - idealFrame.minY
             )
         }
         let cancelCenter = NSPoint(
@@ -311,20 +360,21 @@ final class TileCancelDot: NSPanel {
         )
         gestureOriginNS = cancelCenter
         layoutOriginNS = layoutOrigin
-        setFrame(windowFrame, display: true)
-        fillView.displayLayout = result.cards
-        fillView.currentScreen = currentScreen
-        fillView.activeScreen = nil
-        fillView.activeZone = nil
-        fillView.displayOffset = displayOffset
-        fillView.needsDisplay = true
+        displayLayout = result.cards
+        displayOffset = offset
+        contentSizeInWindow = contentFrame.size
+        activeScreen = nil
+        activeZone = nil
+
+        setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
+        layOutCardViews()
         if !isVisible {
             orderFrontRegardless()
         }
         if edgeSafeEnabled {
             cursorTransition.move(from: clickNS, to: cancelCenter)
         }
-        positionTargetChip(panelFrame: windowFrame)
+        positionTargetChip(panelFrame: contentFrame)
     }
 
     func hide() {
@@ -343,6 +393,70 @@ final class TileCancelDot: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    // MARK: - Card views
+
+    /// Size the card-view pool to `count`, creating/removing as needed. Each
+    /// card is a pair: a shadow view underneath and the glass card on top.
+    private func syncCardViewCount(_ count: Int) {
+        while cardViews.count < count {
+            let shadow = BentoCardShadowView()
+            let view = BentoCardView()
+            contentContainer.addSubview(shadow)
+            contentContainer.addSubview(view, positioned: .above, relativeTo: shadow)
+            shadowViews.append(shadow)
+            cardViews.append(view)
+        }
+        while cardViews.count > count {
+            cardViews.removeLast().removeFromSuperview()
+            shadowViews.removeLast().removeFromSuperview()
+        }
+    }
+
+    /// Position + configure one glass island per card for the current
+    /// layout. Called right after `setFrame` so the views land on the
+    /// window's final bounds.
+    private func layOutCardViews() {
+        let margin = Self.shadowMargin
+        if let layout = displayLayout {
+            syncCardViewCount(layout.count)
+            for (index, card) in layout.enumerated() {
+                let view = cardViews[index]
+                // Ideal layout-local → window-local: undo any clipping offset,
+                // then shift past the transparent shadow margin.
+                view.frame = card.cardRect.offsetBy(
+                    dx: -displayOffset.x + margin,
+                    dy: -displayOffset.y + margin
+                )
+                shadowViews[index].frame = view.frame
+                shadowViews[index].cornerRadius = Self.multiCardCornerRadius
+                view.cornerRadius = Self.multiCardCornerRadius
+                view.content.alphaValue = card.isCurrent ? 1.0 : Self.dimmedContentAlpha
+                view.content.titleAreaHeight = Self.cardTitleAreaHeight
+                view.content.label = card.label
+                view.content.isCurrent = card.isCurrent
+                view.content.activeZone = nil
+                view.content.cancelActive = false
+                view.content.needsDisplay = true
+            }
+        } else {
+            syncCardViewCount(1)
+            let view = cardViews[0]
+            view.frame = NSRect(origin: NSPoint(x: margin, y: margin), size: contentSizeInWindow)
+            shadowViews[0].frame = view.frame
+            shadowViews[0].cornerRadius = Self.singleCardCornerRadius
+            view.cornerRadius = Self.singleCardCornerRadius
+            view.content.alphaValue = 1.0
+            view.content.titleAreaHeight = 0
+            view.content.label = nil
+            view.content.isCurrent = false
+            view.content.activeZone = nil
+            // Fresh show: the cursor is at the card's center, i.e. the
+            // cancel cell is the current selection.
+            view.content.cancelActive = true
+            view.content.needsDisplay = true
+        }
+    }
 
     // MARK: - Edge-safe placement
 
@@ -393,14 +507,15 @@ final class TileCancelDot: NSPanel {
         screens: [NSScreen],
         currentScreen: NSScreen
     ) -> (panelSize: CGSize, cards: [DisplayCard]) {
-        // Each card matches the original single-display bento size exactly,
-        // so the user sees identical chrome / cell / preview / cancel-ring
-        // rendering inside each card. Multi-display becomes "lay N of those
-        // cards out in a grid that mirrors the macOS arrangement."
+        // Each card's grid box matches the single-display card exactly, so
+        // the user sees identical cell / preview / cancel-ring rendering
+        // inside each one. Multi-display becomes "lay N of those cards out
+        // in a grid that mirrors the macOS arrangement", each with its own
+        // title row on top.
         let cardW = panelWidth
-        let cardH = panelHeight
+        let gridH = panelHeight
+        let cardH = cardTitleAreaHeight + gridH
         let gap = multiCardGap
-        let pad = chromePadding
 
         // Group screens into columns by the x-center of their NS frames.
         // Screens whose centers are within `tolX` of a previous column join
@@ -428,39 +543,35 @@ final class TileCancelDot: NSPanel {
             }
         }
         // Within each column, sort by y-center descending (high NS y is
-        // visually higher in the panel, since the view is non-flipped).
-        // Group rows by tolY so vertically close screens align.
+        // visually higher in the layout, since views are non-flipped).
         for c in columns.indices {
             columns[c].sort { $0.frame.midY > $1.frame.midY }
         }
 
         // For simplicity in this v1, use a uniform N×M grid where N =
         // column count and M = max rows-in-any-column. Each cell holds one
-        // screen; empty cells are blank gaps in the panel.
+        // screen; empty cells are blank gaps.
         let nCols = columns.count
         let nRows = columns.map(\.count).max() ?? 0
 
-        // Each "slot" is one card plus the label area BELOW the card.
-        // Slot height grows the panel so the label has room without
-        // crowding the card or the next row.
-        let labelAreaH = cardLabelAreaHeight
-        let slotH = cardH + labelAreaH
-
-        let panelW = pad * 2 + CGFloat(nCols) * cardW + CGFloat(max(0, nCols - 1)) * gap
-        let panelH = pad * 2 + CGFloat(nRows) * slotH + CGFloat(max(0, nRows - 1)) * gap
+        // No outer container any more: the layout is exactly the cards plus
+        // the gaps between them.
+        let panelW = CGFloat(nCols) * cardW + CGFloat(max(0, nCols - 1)) * gap
+        let panelH = CGFloat(nRows) * cardH + CGFloat(max(0, nRows - 1)) * gap
 
         var cards: [DisplayCard] = []
         for (col, columnScreens) in columns.enumerated() {
             for (rowFromTop, screen) in columnScreens.enumerated() {
-                let x = pad + CGFloat(col) * (cardW + gap)
-                // Slot top y (non-flipped: y=0 at bottom, row 0 is the
-                // visual TOP). Card sits at the top of its slot; label
-                // occupies the area below.
-                let slotTopY = panelH - pad - CGFloat(rowFromTop) * (slotH + gap)
-                let cardY = slotTopY - cardH
+                let x = CGFloat(col) * (cardW + gap)
+                // Card top y (non-flipped: y=0 at bottom, row 0 is the
+                // visual TOP). The title row occupies the top of the card,
+                // the grid box the rest.
+                let cardTopY = panelH - CGFloat(rowFromTop) * (cardH + gap)
+                let cardY = cardTopY - cardH
                 cards.append(DisplayCard(
                     screen: screen,
                     cardRect: NSRect(x: x, y: cardY, width: cardW, height: cardH),
+                    gridRect: NSRect(x: x, y: cardY, width: cardW, height: gridH),
                     isCurrent: screen == currentScreen,
                     label: screen.localizedName
                 ))
@@ -485,13 +596,13 @@ final class TileCancelDot: NSPanel {
             return nil
         }
 
-        if let layout = fillView.displayLayout {
-            // Multi-display: hit-test in the IDEAL panel coord space so
+        if let layout = displayLayout {
+            // Multi-display: hit-test in the IDEAL layout coord space so
             // a cursor over a card cell that's been clipped off-window
             // (e.g. dragged past the visible bento edge into where the
             // ideal layout would still have a cell) still resolves
             // correctly. The window's frame is a clipped subset of the
-            // ideal — cardRects are stored in ideal panel-local coords,
+            // ideal — card rects are stored in ideal layout-local coords,
             // and so is `cursorLocal` here.
             let originNS = layoutOriginNS ?? self.frame.origin
             let local = NSPoint(
@@ -509,13 +620,17 @@ final class TileCancelDot: NSPanel {
         layout: [DisplayCard]
     ) -> (screen: NSScreen, zone: TileZone)? {
         for card in layout where card.cardRect.contains(cursorLocal) {
-            let localInCard = NSPoint(
-                x: cursorLocal.x - card.cardRect.minX,
-                y: cursorLocal.y - card.cardRect.minY
-            )
-            let col = max(0, min(2, Int(localInCard.x / (card.cardRect.width / 3))))
-            // Row 0 = visual top = HIGH local y (view is non-flipped).
-            let rowFromBottom = max(0, min(2, Int(localInCard.y / (card.cardRect.height / 3))))
+            // Cells are the thirds of the GRID box, not of the whole card:
+            // the title row is part of the card's visual rect but not part
+            // of the grid. Clamping (rather than rejecting) means the title
+            // row belongs to the top row of cells, so there's no dead band
+            // inside a card.
+            let grid = card.gridRect
+            let clampedX = min(max(cursorLocal.x, grid.minX), grid.maxX - 0.001)
+            let clampedY = min(max(cursorLocal.y, grid.minY), grid.maxY - 0.001)
+            let col = max(0, min(2, Int((clampedX - grid.minX) / (grid.width / 3))))
+            // Row 0 = visual top = HIGH local y (views are non-flipped).
+            let rowFromBottom = max(0, min(2, Int((clampedY - grid.minY) / (grid.height / 3))))
             let row = 2 - rowFromBottom
             let zoneMatrix: [[TileZone?]] = [
                 [.topLeft,    .full,      .topRight],
@@ -535,9 +650,9 @@ final class TileCancelDot: NSPanel {
         cursorNS: NSPoint
     ) -> (screen: NSScreen, zone: TileZone)? {
         // Single-display: the cells extend to infinity, so resolve from
-        // the panel-relative offset and look up which screen the cursor
+        // the card-relative offset and look up which screen the cursor
         // is currently on (since the tile target follows the cursor's
-        // display, not a specific panel-local one).
+        // display, not a specific card-local one).
         let origin = gestureOriginNS ?? NSPoint(x: frame.midX, y: frame.midY)
         let dx = cursorNS.x - origin.x
         let dy = origin.y - cursorNS.y  // flip to y-down for the existing math
@@ -559,115 +674,221 @@ final class TileCancelDot: NSPanel {
     func setActive(_ hit: (screen: NSScreen, zone: TileZone)?) {
         let newScreen = hit?.screen
         let newZone = hit?.zone
-        guard newScreen != fillView.activeScreen || newZone != fillView.activeZone else { return }
-        fillView.activeScreen = newScreen
-        fillView.activeZone = newZone
-        fillView.needsDisplay = true
-    }
-}
+        guard newScreen != activeScreen || newZone != activeZone else { return }
+        activeScreen = newScreen
+        activeZone = newZone
 
-/// `NSVisualEffectView` does not reliably clip its WindowServer backdrop when
-/// it is the window's root content view. Hosted inside a transparent root, an
-/// explicit alpha mask keeps all four corners genuinely transparent.
-private final class BentoPopoverEffectView: NSVisualEffectView {
-    override func layout() {
-        super.layout()
-        let size = bounds.size
-        guard size.width > 0, size.height > 0 else { return }
-        maskImage = NSImage(size: size, flipped: false) { rect in
-            NSColor.white.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14).fill()
-            return true
+        if let layout = displayLayout {
+            // Only the card whose screen matches the hit shows a highlight.
+            for (view, card) in zip(cardViews, layout) {
+                let zone = card.screen == newScreen ? newZone : nil
+                guard view.content.activeZone != zone else { continue }
+                view.content.activeZone = zone
+                view.content.needsDisplay = true
+            }
+        } else if let view = cardViews.first {
+            view.content.activeZone = newZone
+            // No zone → the cursor is back in the deadzone: light the ring.
+            view.content.cancelActive = newZone == nil
+            view.content.needsDisplay = true
         }
     }
 }
 
 // MARK: - DisplayCard
 
-/// One display's rendered position inside the multi-display panel.
-/// `cardRect` is in the view's local coords (non-flipped, bottom-left
-/// origin), matching what the view's draw routines expect.
+/// One display's rendered position inside the multi-display layout.
+/// Both rects are in ideal layout-local coords (non-flipped, bottom-left
+/// origin). `cardRect` is the glass island (title row + grid box) and is
+/// what decides "is the cursor over this display at all"; `gridRect` is
+/// just the 3×3 grid box and is what the cells are derived from.
 struct DisplayCard {
     let screen: NSScreen
     let cardRect: NSRect
+    let gridRect: NSRect
     let isCurrent: Bool
     let label: String
 }
 
-// MARK: - Fill View
+// MARK: - BentoCardShadowView
 
-private final class TileCancelDotView: NSView {
+/// The soft shadow behind one glass island. It has no content of its own —
+/// with `shadowPath` set, the layer casts the shadow from that path, so
+/// nothing is drawn where the card will sit. Wide radius + low opacity on
+/// purpose: the point is a gradual falloff that never forms a line along the
+/// card's edge (see `TileCancelDot.shadowMargin`).
+private final class BentoCardShadowView: NSView {
 
-    var activeZone: TileZone? = nil
-    var activeScreen: NSScreen? = nil
-    /// nil → single-display path: render one card filling the whole
-    /// panel, with no per-card chrome (no border, no label).
-    /// Non-nil → multi-display: render one card per layout entry, each
-    /// at the original single-display size (`panelWidth × panelHeight`)
-    /// with the home display marked by an accent border.
-    var displayLayout: [DisplayCard]? = nil
-    var currentScreen: NSScreen? = nil
-    /// Multi-display only: how much of the IDEAL panel was clipped off
-    /// the bottom-left when the window's frame was intersected with the
-    /// current display's visibleFrame. Card positions in `displayLayout`
-    /// are stored in ideal panel-local coords; drawing translates by
-    /// `-displayOffset` so view-local (0,0) corresponds to ideal
-    /// panel-local `displayOffset`. Cards whose translated rect falls
-    /// outside the view's bounds are naturally clipped — that's how the
-    /// off-current-display cards "disappear" instead of pushing the
-    /// whole panel onto another screen.
-    var displayOffset: NSPoint = .zero
+    var cornerRadius: CGFloat = 15 {
+        didSet {
+            guard cornerRadius != oldValue else { return }
+            needsLayout = true
+        }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.18
+        layer?.shadowRadius = 16
+        // Centered: a cursor-anchored overlay has no lighting direction, and
+        // an offset shadow would pool on one edge and read as a line again.
+        layer?.shadowOffset = .zero
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        layer?.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: cornerRadius,
+            cornerHeight: cornerRadius,
+            transform: nil
+        )
+    }
+}
+
+// MARK: - BentoCardView
+
+/// One glass island: `.popover` vibrancy with a rounded alpha mask, hosting
+/// the content view that draws the title row and the 3×3 grid.
+///
+/// `NSVisualEffectView` does not reliably clip its WindowServer backdrop to
+/// a layer corner radius, so the rounding is done with an explicit
+/// `maskImage` — that keeps all four corners genuinely transparent, which is
+/// also what lets the window's system shadow follow the island's shape.
+private final class BentoCardView: NSVisualEffectView {
+
+    let content = BentoCardContentView()
+
+    var cornerRadius: CGFloat = 15 {
+        didSet {
+            guard cornerRadius != oldValue else { return }
+            needsLayout = true
+        }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        material = .popover
+        blendingMode = .behindWindow
+        state = .active
+        content.autoresizingMask = [.width, .height]
+        addSubview(content)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        content.frame = bounds
+        let size = bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        // Capture the radius in a local so the drawing handler doesn't
+        // retain `self` (the image is owned by this view).
+        let radius = cornerRadius
+        maskImage = NSImage(size: size, flipped: false) { rect in
+            NSColor.white.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+    }
+}
+
+// MARK: - BentoCardContentView
+
+/// Draws one card's contents: the optional title row (dot + display name)
+/// and the 3×3 grid of tiles. No borders anywhere — the card's shape comes
+/// from the glass mask behind this view, and the only line-ish element is
+/// the specular top-edge highlight that makes the glass read as glass.
+private final class BentoCardContentView: NSView {
+
+    var activeZone: TileZone?
+    /// The center cell has no zone — "no zone" IS the cancel selection — so
+    /// it can't be derived from `activeZone` and is passed in explicitly.
+    /// Single-display: true whenever no zone is selected (the cursor sits in
+    /// the deadzone), which is how the overlay looks the moment it appears.
+    /// Multi-display: always false, because a nil hit doesn't say WHICH
+    /// card's center the cursor is over.
+    var cancelActive: Bool = false
+    /// nil → no title row (single-display path).
+    var label: String?
+    var isCurrent: Bool = false
+    /// Height reserved at the TOP of the card for the title row. 0 when
+    /// there's no title, in which case the grid fills the whole card.
+    var titleAreaHeight: CGFloat = 0
 
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
-        let accent = NSColor.controlAccentColor
+        let gridRect = NSRect(
+            x: bounds.minX,
+            y: bounds.minY,
+            width: bounds.width,
+            height: max(0, bounds.height - titleAreaHeight)
+        )
+        drawGrid(in: gridRect, accent: NSColor.controlAccentColor)
 
-        // Panel border. Drawn here (not on the host layer) so it resolves
-        // the dynamic color against the current effective appearance each
-        // redraw — switching system theme mid-life works without extra
-        // KVO/observer plumbing.
-        let borderRect = bounds.insetBy(dx: 0.5, dy: 0.5)
-        let borderPath = NSBezierPath(roundedRect: borderRect, xRadius: 13.5, yRadius: 13.5)
-        Self.panelBorderColor.setStroke()
-        borderPath.lineWidth = 1
-        borderPath.stroke()
-
-        drawSpecularHighlight()
-
-        if let layout = displayLayout {
-            for card in layout {
-                // Translate from ideal panel-local to view-local.
-                let viewRect = card.cardRect.offsetBy(dx: -displayOffset.x, dy: -displayOffset.y)
-                drawBentoCard(in: viewRect,
-                              screen: card.screen,
-                              isCurrent: card.isCurrent,
-                              label: card.label,
-                              accent: accent)
-            }
-        } else {
-            // Single-display: one card fills the whole panel. No accent
-            // border (the panel chrome is the only chrome), no label.
-            drawBentoCard(in: bounds,
-                          screen: nil,
-                          isCurrent: false,
-                          label: nil,
-                          accent: accent)
+        if let label, !label.isEmpty {
+            drawTitle(label)
         }
     }
 
-    // MARK: - The unit "draw one bento card" routine
-    //
-    // Single-display and multi-display both go through this. Same
-    // chromePadding, tileGap, tile dimensions, tile colors, cancel-ring
-    // sizes, and mini-preview math. To tweak the look, tweak it here
-    // once.
+    // No specular top-edge highlight. It came from the era of one big panel,
+    // where a 590pt-wide white sliver read as glass catching light. Per card
+    // it's only 290pt wide with 16pt cut off each end, so it stops before the
+    // rounded corners and reads as a stray white line instead. This overlay
+    // is meant to have no lines at all; `.popover` already carries its own
+    // subtle top brightness.
 
-    private func drawBentoCard(in rect: NSRect,
-                               screen cardScreen: NSScreen?,
-                               isCurrent: Bool,
-                               label: String?,
-                               accent: NSColor) {
+    // MARK: - Title row
+
+    private func drawTitle(_ text: String) {
+        let titleH = TileCancelDot.cardTitleHeight
+        let rowY = bounds.maxY - TileCancelDot.cardTitleTopPad - titleH
+
+        let dotSize = TileCancelDot.cardTitleDotSize
+        let dotRect = NSRect(
+            x: bounds.minX + TileCancelDot.cardTitleLeftPad,
+            y: rowY + (titleH - dotSize) / 2,
+            width: dotSize,
+            height: dotSize
+        )
+        (isCurrent ? NSColor.controlAccentColor : Self.cardDotIdleColor).setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+
+        let textX = dotRect.maxX + TileCancelDot.cardTitleDotGap
+        let textRect = NSRect(
+            x: textX,
+            y: rowY - 1,
+            width: max(0, bounds.maxX - TileCancelDot.chromePadding - textX),
+            height: titleH + 2
+        )
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: isCurrent ? NSColor.controlAccentColor : Self.cardLabelColor,
+            .kern: 0.8,
+            .paragraphStyle: paragraph,
+        ]
+        NSAttributedString(string: text.uppercased(), attributes: attrs).draw(in: textRect)
+    }
+
+    // MARK: - Grid
+    //
+    // Same chromePadding, tileGap, tile dimensions, tile colors, cancel-ring
+    // sizes, and mini-preview math for single- and multi-display. To tweak
+    // the look, tweak it here once.
+
+    private func drawGrid(in rect: NSRect, accent: NSColor) {
         let pad = TileCancelDot.chromePadding
         let gap = TileCancelDot.tileGap
         let inner = rect.insetBy(dx: pad, dy: pad)
@@ -686,79 +907,11 @@ private final class TileCancelDotView: NSView {
                 let x = inner.minX + CGFloat(col) * (tileW + gap)
                 let y = inner.maxY - CGFloat(row + 1) * tileH - CGFloat(row) * gap
                 let cellRect = NSRect(x: x, y: y, width: tileW, height: tileH)
-                let isActive: Bool = {
-                    guard zone == activeZone else { return false }
-                    // Single-display (cardScreen == nil) doesn't check
-                    // screen — there's only one notional card. Multi-
-                    // display restricts highlighting to the card whose
-                    // screen matches the resolved hit.
-                    guard let cardScreen else { return true }
-                    return cardScreen == activeScreen
-                }()
+                let isActive = zone == nil ? cancelActive : (zone == activeZone)
                 drawTile(in: cellRect, zone: zone, isActive: isActive, accent: accent)
             }
         }
-
-        // Home-display accent border. Drawn AFTER the cells so it sits
-        // on top of any tile that brushes the card edge.
-        if isCurrent {
-            let borderPath = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
-                                          xRadius: 10, yRadius: 10)
-            accent.withAlphaComponent(0.85).setStroke()
-            borderPath.lineWidth = 1.5
-            borderPath.stroke()
-        }
-
-        if let label {
-            drawCardLabel(rect: rect, text: label, isCurrent: isCurrent)
-        }
     }
-
-    private func drawCardLabel(rect: NSRect, text: String, isCurrent: Bool) {
-        let maxChars = max(6, Int(rect.width / 7))
-        let displayName: String = {
-            if text.count <= maxChars { return text }
-            let i = text.index(text.startIndex, offsetBy: maxChars - 1)
-            return text[..<i] + "…"
-        }()
-
-        let labelColor: NSColor = isCurrent
-            ? NSColor.controlAccentColor
-            : Self.cardLabelColor
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
-            .foregroundColor: labelColor,
-            .kern: 0.8,
-        ]
-        let s = NSAttributedString(string: displayName.uppercased(), attributes: attrs)
-        let size = s.size()
-        // Sits BELOW the card, horizontally centered, with the same top
-        // margin used by the layout's slot calculation.
-        let origin = NSPoint(
-            x: rect.midX - size.width / 2,
-            y: rect.minY - TileCancelDot.cardLabelTopMargin - size.height
-        )
-        s.draw(at: origin)
-    }
-
-    // MARK: - Specular highlight
-
-    private func drawSpecularHighlight() {
-        // Subtle "glass top edge" — kept as a constant white-alpha so it
-        // reads as a brightness flash regardless of mode (in light mode
-        // it's near-invisible against the lighter panel surface, which is
-        // intentional — the .popover material already has its own subtle
-        // top brightness).
-        let panel = bounds
-        let highlight = NSBezierPath()
-        highlight.move(to: NSPoint(x: panel.minX + 16, y: panel.maxY - 0.5))
-        highlight.line(to: NSPoint(x: panel.maxX - 16, y: panel.maxY - 0.5))
-        NSColor.white.withAlphaComponent(0.12).setStroke()
-        highlight.lineWidth = 1
-        highlight.stroke()
-    }
-
-    // MARK: - Tile drawing (shared)
 
     private func drawTile(in rect: NSRect,
                           zone: TileZone?,
@@ -777,11 +930,11 @@ private final class TileCancelDotView: NSView {
             tilePath.lineWidth = 1.2
             tilePath.stroke()
         } else {
+            // No border: the tile is a plain filled block. (The active
+            // tile keeps its accent stroke — that's a highlight, not
+            // chrome.)
             Self.tileBgColor.setFill()
             tilePath.fill()
-            Self.tileBorderColor.setStroke()
-            tilePath.lineWidth = 1
-            tilePath.stroke()
         }
 
         if let zone = zone {
@@ -871,17 +1024,9 @@ private final class TileCancelDotView: NSView {
         }
     }
 
-    private static let panelBorderColor = dynamic(
-        dark:  NSColor.white.withAlphaComponent(0.18),
-        light: NSColor.black.withAlphaComponent(0.18)
-    )
     private static let tileBgColor = dynamic(
         dark:  NSColor.white.withAlphaComponent(0.10),
         light: NSColor.black.withAlphaComponent(0.06)
-    )
-    private static let tileBorderColor = dynamic(
-        dark:  NSColor.white.withAlphaComponent(0.14),
-        light: NSColor.black.withAlphaComponent(0.10)
     )
     private static let cancelRingIdleStroke = dynamic(
         dark:  NSColor.white.withAlphaComponent(0.42),
@@ -906,5 +1051,9 @@ private final class TileCancelDotView: NSView {
     private static let cardLabelColor = dynamic(
         dark:  NSColor.white.withAlphaComponent(0.55),
         light: NSColor.black.withAlphaComponent(0.55)
+    )
+    private static let cardDotIdleColor = dynamic(
+        dark:  NSColor.white.withAlphaComponent(0.28),
+        light: NSColor.black.withAlphaComponent(0.28)
     )
 }
