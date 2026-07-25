@@ -72,7 +72,7 @@ A glowing **Corner Bracket** indicator marks the active corner during the resize
 
 Set the **middle-click action** to *Tile by direction*, then hold the middle button and drag toward an edge or corner to snap.
 
-On a multi-monitor setup the panel lays out **every display at its real arrangement**, so you can pick *any display × any zone* in a single gesture. A *drag-only trigger mode* keeps a plain middle-click fully native — the panel only appears once you start moving.
+On a multi-monitor setup the panel lays out **every display at its real arrangement**, so you can pick *any display × any zone* in a single gesture. Landing on the **middle cell of another display's card** sends the window to that display *unchanged* — same size, same spot — instead of tiling it; the cell previews exactly where it will go. The middle cell of the display you started on stays the cancel target. A *drag-only trigger mode* keeps a plain middle-click fully native — the panel only appears once you start moving.
 
 ### ⌨️ Modifier keys
 

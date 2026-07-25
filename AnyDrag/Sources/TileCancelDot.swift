@@ -293,6 +293,10 @@ final class TileCancelDot: NSPanel {
     private let targetChip = BentoTargetChip()
     private var targetAppName: String?
     private var targetAppIcon: NSImage?
+    /// Where the target window currently sits. Feeds the `.moveToDisplay`
+    /// cell: without it there is nothing to preview, so that cell falls back
+    /// to being the plain cancel ring.
+    private var targetSource: TileZone.Source?
 
     init() {
         super.init(
@@ -320,15 +324,17 @@ final class TileCancelDot: NSPanel {
     // MARK: - Target chip (Plan B)
 
     /// Set the window the next `show(...)` will be tiling, so the floating
-    /// chip can name it. Prefer the running app's localized name + real
-    /// icon; fall back to the CG owner name passed by the caller (the
+    /// chip can name it and the other displays' cards can preview where it
+    /// would land. Prefer the running app's localized name + real icon; fall
+    /// back to the CG owner name passed by the caller (the
     /// `pid → NSRunningApplication` lookup can briefly return nil right
     /// after launch). Call on the main thread before `show(...)`.
-    func setTarget(pid: pid_t, appName: String) {
+    func setTarget(pid: pid_t, appName: String, source: TileZone.Source) {
         let running = NSRunningApplication(processIdentifier: pid)
         let resolved = running?.localizedName ?? appName
         targetAppName = resolved.isEmpty ? appName : resolved
         targetAppIcon = running?.icon
+        targetSource = source
     }
 
     /// Anchor the chip above `anchorFrame` (NS coords) and show it. No target
@@ -448,7 +454,8 @@ final class TileCancelDot: NSPanel {
 
         let result = Self.computeMultiDisplayLayout(
             screens: screens,
-            currentScreen: currentScreen
+            currentScreen: currentScreen,
+            source: targetSource
         )
 
         // Anchor: the current card's GRID center aligned to the click point,
@@ -528,9 +535,10 @@ final class TileCancelDot: NSPanel {
         gestureOriginNS = nil
         layoutOriginNS = nil
         // Drop the target so a stray show() without a fresh setTarget(...)
-        // can't surface the previous gesture's app name/icon.
+        // can't surface the previous gesture's app name/icon/geometry.
         targetAppName = nil
         targetAppIcon = nil
+        targetSource = nil
     }
 
     override var canBecomeKey: Bool { false }
@@ -583,6 +591,8 @@ final class TileCancelDot: NSPanel {
                 view.content.titleAreaHeight = Self.cardTitleAreaHeight
                 view.content.label = card.label
                 view.content.isCurrent = card.isCurrent
+                view.content.centerZone = card.centerZone
+                view.content.moveHerePreview = card.moveHerePreview
                 view.content.activeZone = nil
                 view.content.cancelActive = false
                 view.content.needsDisplay = true
@@ -602,6 +612,9 @@ final class TileCancelDot: NSPanel {
             view.content.titleAreaHeight = 0
             view.content.label = nil
             view.content.isCurrent = false
+            // Single card: its center is the cancel ring, nowhere to move to.
+            view.content.centerZone = nil
+            view.content.moveHerePreview = nil
             view.content.activeZone = nil
             // Fresh show: the cursor is at the card's center, i.e. the
             // cancel cell is the current selection.
@@ -655,9 +668,14 @@ final class TileCancelDot: NSPanel {
 
     // MARK: - Layout computation (multi-display)
 
+    /// `source` is the window being tiled. Cards other than the current one
+    /// turn their center cell into `.moveToDisplay` and carry a preview of
+    /// where the window would land; without a source there is nothing to
+    /// preview, so every center cell stays the cancel ring.
     private static func computeMultiDisplayLayout(
         screens: [NSScreen],
-        currentScreen: NSScreen
+        currentScreen: NSScreen,
+        source: TileZone.Source?
     ) -> (panelSize: CGSize, cards: [DisplayCard]) {
         // Each card's grid box matches the single-display card exactly, so
         // the user sees identical cell / preview / cancel-ring rendering
@@ -720,18 +738,40 @@ final class TileCancelDot: NSPanel {
                 // the grid box the rest.
                 let cardTopY = panelH - CGFloat(rowFromTop) * (cardH + gap)
                 let cardY = cardTopY - cardH
+                let isCurrent = screen == currentScreen
+                let canMoveHere = !isCurrent && source != nil
                 cards.append(DisplayCard(
                     screen: screen,
                     cardRect: NSRect(x: x, y: cardY, width: cardW, height: cardH),
                     gridRect: NSRect(x: x, y: cardY, width: cardW, height: gridH),
-                    isCurrent: screen == currentScreen,
-                    label: screen.localizedName
+                    isCurrent: isCurrent,
+                    label: screen.localizedName,
+                    centerZone: canMoveHere ? .moveToDisplay : nil,
+                    moveHerePreview: canMoveHere
+                        ? moveHereUnitRect(source: source!, on: screen)
+                        : nil
                 ))
             }
         }
         // Suppress "unused" warnings (kept for future row-clustering work).
         _ = tolY
         return (CGSize(width: panelW, height: panelH), cards)
+    }
+
+    /// The window's landing rect on `screen`, expressed as a fraction of that
+    /// screen's visible frame, so a card can draw it at card scale. Goes
+    /// through `TileZone.sameSpotRect` — the same call the commit makes — so
+    /// the little block in the cell can't promise a spot the move won't honour.
+    private static func moveHereUnitRect(source: TileZone.Source, on screen: NSScreen) -> NSRect? {
+        let visible = screen.visibleFrame
+        guard visible.width > 0, visible.height > 0 else { return nil }
+        let landing = TileZone.sameSpotRect(source, in: visible)
+        return NSRect(
+            x: (landing.minX - visible.minX) / visible.width,
+            y: (landing.minY - visible.minY) / visible.height,
+            width: landing.width / visible.width,
+            height: landing.height / visible.height
+        )
     }
 
     // MARK: - Resolution / highlighting
@@ -791,8 +831,12 @@ final class TileCancelDot: NSPanel {
             ]
             if let zone = zoneMatrix[row][col] {
                 return (card.screen, zone)
+            } else if let center = card.centerZone {
+                // Center cell of another display's card: send the window
+                // there untouched.
+                return (card.screen, center)
             } else {
-                return nil  // center cell -> cancel
+                return nil  // center cell of the current card -> cancel
             }
         }
         return nil  // outside every card
@@ -860,6 +904,18 @@ struct DisplayCard {
     let gridRect: NSRect
     let isCurrent: Bool
     let label: String
+    /// What this card's CENTER cell means. nil on the card the gesture
+    /// started on — there it stays the cancel ring. `.moveToDisplay` on every
+    /// other card: "send the window to this display exactly as it is".
+    /// Computed once here so the hit test and the drawing can never disagree
+    /// about which cell does what.
+    let centerZone: TileZone?
+    /// Only set alongside `centerZone == .moveToDisplay`: where the window
+    /// would land on THIS display, as a fraction of the display's visible
+    /// frame (x/y from the bottom-left, like the rest of this file's coords).
+    /// The center cell draws it, so the user sees the window's real size and
+    /// position on the destination before committing.
+    let moveHerePreview: NSRect?
 }
 
 // MARK: - BentoCardShadowView
@@ -973,6 +1029,13 @@ private final class BentoCardContentView: NSView {
     /// nil → no title row (single-display path).
     var label: String?
     var isCurrent: Bool = false
+    /// What the CENTER cell is. nil → the cancel ring (single-display, and
+    /// the card the gesture started on). `.moveToDisplay` → this card belongs
+    /// to another display, and the cell previews the window landing there.
+    var centerZone: TileZone?
+    /// The `.moveToDisplay` landing rect as a fraction of this display's
+    /// visible frame. Drawn inside the center cell's mini-screen.
+    var moveHerePreview: NSRect?
     /// Height reserved at the TOP of the card for the title row. 0 when
     /// there's no title, in which case the grid fills the whole card.
     var titleAreaHeight: CGFloat = 0
@@ -1075,9 +1138,11 @@ private final class BentoCardContentView: NSView {
         let tileW = TileCancelDot.tileWidth
         let tileH = TileCancelDot.tileHeight
 
+        // The middle cell is the only one that changes meaning per card: the
+        // cancel ring at home, "move the window here" on any other display.
         let zoneAt: [[TileZone?]] = [
             [.topLeft,    .full,      .topRight],
-            [.left,       nil,        .right],
+            [.left,       centerZone, .right],
             [.bottomLeft, .centered,  .bottomRight],
         ]
 
@@ -1183,6 +1248,19 @@ private final class BentoCardContentView: NSView {
         case .bottomRight:
             preview = NSRect(x: mini.midX + g, y: mini.minY,
                              width: mini.width / 2 - g, height: mini.height / 2 - g)
+        case .moveToDisplay:
+            // The window at its real relative position and size on this
+            // display. Floored to a visible size so a small window still
+            // reads as a block rather than a speck.
+            let u = moveHerePreview ?? NSRect(x: 0.2, y: 0.2, width: 0.6, height: 0.6)
+            let w = max(4, u.width * mini.width)
+            let h = max(3, u.height * mini.height)
+            preview = NSRect(
+                x: min(mini.minX + u.minX * mini.width, mini.maxX - w),
+                y: min(mini.minY + u.minY * mini.height, mini.maxY - h),
+                width: w,
+                height: h
+            )
         }
 
         let fg: NSColor = isActive

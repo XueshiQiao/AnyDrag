@@ -163,88 +163,6 @@ enum ResizeTrigger: String, CaseIterable {
     }
 }
 
-// MARK: - Tile Zone Model
-
-/// A target region on the screen, selected by drag direction.
-enum TileZone {
-    case full          // drag up
-    case centered      // drag down (`DragEngine.centeredSizePercent` of the visible frame)
-    case left, right
-    case topLeft, topRight, bottomLeft, bottomRight
-
-    /// Map a cursor offset (in CG coords, Y-down) relative to the bento
-    /// overlay's center to a tile zone via 3×3 cell hit-testing. Returns
-    /// nil when the cursor is inside the center deadzone (cancel cell).
-    ///
-    /// Cell boundaries align with the visible gaps in `TileCancelDot`'s
-    /// 3×3 grid — keep the half-deadzone constants in sync with the
-    /// drawn cell geometry so "cursor crossing the visible gap" matches
-    /// "cursor commits to the adjacent tile".
-    static func bentoZone(forDx dx: CGFloat,
-                          dy: CGFloat,
-                          halfDeadzoneWidth: CGFloat,
-                          halfDeadzoneHeight: CGFloat) -> TileZone? {
-        let col: Int = dx < -halfDeadzoneWidth ? 0 : (dx > halfDeadzoneWidth ? 2 : 1)
-        let row: Int = dy < -halfDeadzoneHeight ? 0 : (dy > halfDeadzoneHeight ? 2 : 1)
-        // Center cell — release here to cancel.
-        if col == 1 && row == 1 { return nil }
-        // Y-down: row 0 = above center = top of screen. The middle entry of
-        // the middle row is unreachable (the col==1 && row==1 early return
-        // above is the only path to it); `.full` is a harmless placeholder
-        // chosen to keep the matrix non-Optional.
-        let grid: [[TileZone]] = [
-            [.topLeft,    .full,      .topRight],
-            [.left,       .full,      .right],
-            [.bottomLeft, .centered,  .bottomRight],
-        ]
-        return grid[row][col]
-    }
-
-    /// The centered-window rect for a visible frame, at `fraction` of its width
-    /// and height. THE one place that turns the user's centered-size preference
-    /// into a frame — both centered entry points (the middle-drag-down gesture
-    /// and the tiling panel's Center button) come through here.
-    ///
-    /// Centering is symmetric, so this is correct in either coordinate space:
-    /// pass an NS visible frame (bottom-left origin) or a CG one (top-left) and
-    /// the result comes back in the same space.
-    static func centeredRect(in visible: CGRect, fraction: CGFloat) -> CGRect {
-        let w = visible.width * fraction
-        let h = visible.height * fraction
-        return CGRect(x: visible.minX + (visible.width - w) / 2,
-                      y: visible.minY + (visible.height - h) / 2,
-                      width: w, height: h)
-    }
-
-    /// Compute the target rect within the screen's visible NSScreen-coord frame
-    /// (bottom-left origin).
-    ///
-    /// `centeredFraction` deliberately has NO default value: it is the user's
-    /// setting, and every call site must pass `DragEngine.centeredFraction` so
-    /// the commit and its live preview can never disagree. Adding a default
-    /// back would let a call site silently fall out of sync again.
-    func rect(in v: NSRect, centeredFraction: CGFloat) -> NSRect {
-        switch self {
-        case .full:
-            return v
-        case .centered:
-            return Self.centeredRect(in: v, fraction: centeredFraction)
-        case .left:
-            return NSRect(x: v.minX, y: v.minY, width: v.width / 2, height: v.height)
-        case .right:
-            return NSRect(x: v.midX, y: v.minY, width: v.width / 2, height: v.height)
-        case .topLeft:
-            return NSRect(x: v.minX, y: v.midY, width: v.width / 2, height: v.height / 2)
-        case .topRight:
-            return NSRect(x: v.midX, y: v.midY, width: v.width / 2, height: v.height / 2)
-        case .bottomLeft:
-            return NSRect(x: v.minX, y: v.minY, width: v.width / 2, height: v.height / 2)
-        case .bottomRight:
-            return NSRect(x: v.midX, y: v.minY, width: v.width / 2, height: v.height / 2)
-        }
-    }
-}
-
 // MARK: - DragEngine
 
 /// Intercepts mouse events via a CGEvent tap and delegates to TitleBarDragStrategy
@@ -1496,9 +1414,9 @@ final class DragEngine {
     /// anchored at `origin`. Main thread. No-op if the gesture was aborted
     /// between the dispatch and now.
     private func presentTileCancelDot(at origin: CGPoint) {
-        let target: (pid: pid_t, app: String)? = cbState.withLock { state in
+        let target: (pid: pid_t, app: String, frame: CGRect)? = cbState.withLock { state in
             guard let t = state.tileTarget else { return nil }
-            return (t.pid, t.app)
+            return (t.pid, t.app, t.frame)
         }
         guard let target else { return }
         tileCancelDot.multiDisplayEnabled = multiDisplayBentoEnabled
@@ -1506,7 +1424,8 @@ final class DragEngine {
         tileCancelDot.material = bentoMaterial
         tileCancelDot.tint = bentoTint
         tileCancelDot.edgeSafeEnabled = overlayEdgeSafeEnabled
-        tileCancelDot.setTarget(pid: target.pid, appName: target.app)
+        tileCancelDot.setTarget(pid: target.pid, appName: target.app,
+                                source: tileSource(forWindowCGFrame: target.frame))
         tileCancelDot.show(atCGPoint: origin)
     }
 
@@ -1567,18 +1486,22 @@ final class DragEngine {
     /// originating drag event and this dispatch.
     private func resolveTileDrag(cursorScreenPoint: CGPoint) {
         let hit = tileCancelDot.resolve(cursorAtCGPoint: cursorScreenPoint)
-        let stillActive: Bool = cbState.withLock { state in
-            guard state.tileTarget != nil else { return false }
+        // The window's frame comes back out with the same lock that arms the
+        // gesture state: `.moveToDisplay` previews are relative to it.
+        let windowCGFrame: CGRect? = cbState.withLock { state -> CGRect? in
+            guard let target = state.tileTarget else { return nil }
             state.tileZone = hit?.zone
             state.tileTargetScreen = hit?.screen
             if hit != nil { state.tileSawDirection = true }
-            return true
+            return target.frame
         }
-        guard stillActive else { return }
+        guard let windowCGFrame else { return }
         if let hit {
-            // Same `centeredFraction` the commit uses (`applyTile`) — the
-            // preview must show where the window will actually land.
-            let target = hit.zone.rect(in: hit.screen.visibleFrame, centeredFraction: centeredFraction)
+            // Same `centeredFraction` and source the commit uses (`applyTile`)
+            // — the preview must show where the window will actually land.
+            let target = hit.zone.rect(in: hit.screen.visibleFrame,
+                                       centeredFraction: centeredFraction,
+                                       source: tileSource(forWindowCGFrame: windowCGFrame))
             tileOverlay.show(rect: target)
             tileCancelDot.setActive(hit)
         } else {
@@ -1693,11 +1616,15 @@ final class DragEngine {
         }
         Self.log.info("tile commit: app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)")
 
-        let nsRect = zone.rect(in: screen.visibleFrame, centeredFraction: centeredFraction)
+        // The live frame is read BEFORE the target is computed: `.moveToDisplay`
+        // is defined relative to where the window is right now.
+        let currentFrame = getWindowFrame(axWindow) ?? target.frame
+        let nsRect = zone.rect(in: screen.visibleFrame,
+                               centeredFraction: centeredFraction,
+                               source: tileSource(forWindowCGFrame: currentFrame))
         let cgRect = cgRectFromNSScreenRect(nsRect)
 
         // Remember the pre-AnyDrag frame so restore / double-click can go back.
-        let currentFrame = getWindowFrame(axWindow) ?? target.frame
         rememberOriginalFrame(windowID: target.windowID, pid: target.pid, currentFrame: currentFrame)
 
         let sourceCenter = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
@@ -1815,6 +1742,25 @@ final class DragEngine {
         return CGRect(x: ns.origin.x,
                       y: primaryHeight - ns.origin.y - ns.height,
                       width: ns.width, height: ns.height)
+    }
+
+    /// Convert a Quartz CG rect (top-left origin) into NSScreen coords (bottom-left origin).
+    private func nsScreenRectFromCGRect(_ cg: CGRect) -> NSRect {
+        guard let primary = NSScreen.screens.first else { return cg }
+        let primaryHeight = primary.frame.height
+        return NSRect(x: cg.origin.x,
+                      y: primaryHeight - cg.origin.y - cg.height,
+                      width: cg.width, height: cg.height)
+    }
+
+    /// The `TileZone.Source` for a window sitting at `cgFrame` (Quartz coords):
+    /// its own frame plus the visible frame of the display it is currently on,
+    /// both in NS coords. `.moveToDisplay` is defined against exactly this.
+    private func tileSource(forWindowCGFrame cgFrame: CGRect) -> TileZone.Source {
+        let nsFrame = nsScreenRectFromCGRect(cgFrame)
+        let center = CGPoint(x: cgFrame.midX, y: cgFrame.midY)
+        let visible = screen(containingCGPoint: center)?.visibleFrame ?? nsFrame
+        return TileZone.Source(frame: nsFrame, visible: visible)
     }
 
     /// Find the NSScreen containing a given CG point (top-left origin, Y-down).
