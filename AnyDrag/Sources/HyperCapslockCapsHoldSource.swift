@@ -30,6 +30,13 @@ final class HyperCapslockCapsHoldSource {
     private let heldLock = OSAllocatedUnfairLock(initialState: false)
     var isHeld: Bool { heldLock.withLock { $0 } }
 
+    /// Invoked on main when a CapsLock hold *ends* — the Hyper equivalent of
+    /// releasing the primary modifier. Hyper carries no CGEvent flag, so its
+    /// release never reaches DragEngine's event-tap `handleFlagsChanged`; this
+    /// is how the tiling panel learns to dismiss on Hyper release (issue #29).
+    /// Fires only on a real held→not-held transition.
+    var onHoldEnded: (() -> Void)?
+
     // Everything below is main-thread only.
     private var enabled = false
     private var observers: [NSObjectProtocol] = []
@@ -73,8 +80,13 @@ final class HyperCapslockCapsHoldSource {
     }
 
     private func endHold() {
-        heldLock.withLock { $0 = false }
+        let wasHeld = heldLock.withLock { held -> Bool in
+            let prev = held
+            held = false
+            return prev
+        }
         stopHeartbeat()
+        if wasHeld { onHoldEnded?() }
     }
 
     // MARK: - Liveness watchdog (main queue)

@@ -494,6 +494,13 @@ final class DragEngine {
     init() {
         installTrustObserver()
         installRunningAppsObserver()
+        // Hyper (CapsLock) carries no CGEvent flag, so releasing it never reaches
+        // `handleFlagsChanged` in the tap. Close the tiling panel when the hold
+        // ends instead — the Hyper equivalent of releasing the primary modifier
+        // (issue #29). Runs on main; `dismiss()` is a no-op when nothing is shown.
+        hyperCapslockSource.onHoldEnded = { [weak self] in
+            self?.tilingPanel?.dismiss()
+        }
     }
 
     deinit {
@@ -532,6 +539,9 @@ final class DragEngine {
             .leftMouseDown, .leftMouseDragged, .leftMouseUp,
             .rightMouseDown, .rightMouseDragged, .rightMouseUp,
             .otherMouseDown, .otherMouseDragged, .otherMouseUp,
+            // Modifier transitions — used only to auto-dismiss the TilingPanel
+            // when the primary modifier is released (issue #29). Never consumed.
+            .flagsChanged,
         ]
         let eventMask: CGEventMask = maskedTypes.reduce(into: CGEventMask(0)) { mask, type in
             mask |= CGEventMask(1) << type.rawValue
@@ -1003,9 +1013,28 @@ final class DragEngine {
             return handleOtherMouseDragged(event: event)
         case .otherMouseUp:
             return handleOtherMouseUp(event: event)
+        case .flagsChanged:
+            return handleFlagsChanged(event: event)
         default:
             return Unmanaged.passUnretained(event)
         }
+    }
+
+    // MARK: - Modifier changes
+
+    /// Auto-dismiss the TilingPanel the moment the primary modifier is released.
+    /// The panel is opened by primary-modifier + right-click; once it's up the
+    /// user tends to let go of the modifier, and a lingering menu is annoying —
+    /// so releasing the primary closes it (issue #29). We never consume the
+    /// event, and the panel's other dismiss paths (pick a tile, click outside,
+    /// Esc) are unaffected. The `dismiss()` touches UI, so hop to main.
+    private func handleFlagsChanged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        if tilingPanel?.isVisible == true, !primaryModifierHeld(event.flags) {
+            DispatchQueue.main.async { [weak self] in
+                self?.tilingPanel?.dismiss()
+            }
+        }
+        return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Mouse Down
@@ -1837,6 +1866,24 @@ final class DragEngine {
         // Allow base shortcut + Option so users can combine AnyDrag with
         // the macOS "Hold Option key while dragging windows to tile" feature.
         return activeModifiers == targetModifiers.union(.maskAlternate)
+    }
+
+    /// True while the configured primary modifier is still physically held.
+    /// Drives the TilingPanel auto-dismiss (issue #29). Unlike
+    /// `matchesConfiguredModifier`, this is a *superset* test, not an exact
+    /// match: pressing an extra modifier on top of the primary doesn't count as
+    /// "released", so only lifting the primary itself closes the panel.
+    private func primaryModifierHeld(_ flags: CGEventFlags) -> Bool {
+        // Hyper base: its held state lives in the CapsLock source, not the flags.
+        // (Hyper is exclusive — it never coexists with real flag modifiers.)
+        if modifiers.contains(.hyper) {
+            return hyperCapslockSource.isHeld
+        }
+        let target = modifiers.eventFlags
+        // No primary configured = nothing to hold; treat as not-held.
+        guard !target.isEmpty else { return false }
+        let active = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
+        return active.isSuperset(of: target)
     }
 
     /// True when the held flags are exactly the configured secondary modifier —
