@@ -331,17 +331,10 @@ final class TileCancelDot: NSPanel {
         targetAppIcon = running?.icon
     }
 
-    /// Anchor the chip to the visible bento panel's top-center and show it.
-    /// No target name → hide it (defensive; the tile path always sets one).
-    private func positionTargetChip(panelFrame: NSRect) {
+    /// Anchor the chip above `anchorFrame` (NS coords) and show it. No target
+    /// name → hide it (defensive; the tile path always sets one).
+    private func positionTargetChip(anchorFrame: NSRect, on screen: NSScreen) {
         guard let name = targetAppName, !name.isEmpty else {
-            targetChip.hide()
-            return
-        }
-        let center = NSPoint(x: panelFrame.midX, y: panelFrame.midY)
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(center) })
-            ?? NSScreen.screens.first
-        guard let screen else {
             targetChip.hide()
             return
         }
@@ -349,7 +342,36 @@ final class TileCancelDot: NSPanel {
         // appearance options — a bordered grid with a border-less pill (or two
         // different materials) would read as a bug.
         targetChip.applyAppearance(material: material, tint: tint, border: borderEnabled)
-        targetChip.show(icon: targetAppIcon, name: name, anchoredAbove: panelFrame, on: screen)
+        targetChip.show(icon: targetAppIcon, name: name, anchoredAbove: anchorFrame, on: screen)
+    }
+
+    /// Where the chip hangs in the multi-display layout: over the CURRENT
+    /// display's card, not over the whole layout. Anchoring to the panel put
+    /// the pill in the seam between two side-by-side cards, where it reads as
+    /// belonging to neither — it names the window being tiled, and that window
+    /// lives on the current display.
+    ///
+    /// Horizontal position comes from the current card alone. Vertical spans
+    /// the whole COLUMN that card sits in (every card whose x-range overlaps
+    /// it), so with displays stacked one above the other the pill floats above
+    /// the top card of the column instead of landing on the card above.
+    ///
+    /// Returns the rect in screen coords; nil when there's no current card
+    /// (can't happen in practice — the caller falls back to the panel).
+    private static func chipAnchorRect(cards: [DisplayCard], layoutOrigin: NSPoint) -> NSRect? {
+        guard let current = cards.first(where: { $0.isCurrent }) else { return nil }
+        let card = current.cardRect
+        let column = cards.filter {
+            $0.cardRect.minX < card.maxX && $0.cardRect.maxX > card.minX
+        }
+        let top = column.map(\.cardRect.maxY).max() ?? card.maxY
+        let bottom = column.map(\.cardRect.minY).min() ?? card.minY
+        return NSRect(
+            x: card.minX + layoutOrigin.x,
+            y: bottom + layoutOrigin.y,
+            width: card.width,
+            height: top - bottom
+        )
     }
 
     // MARK: - Lifecycle
@@ -413,7 +435,8 @@ final class TileCancelDot: NSPanel {
         if edgeSafeEnabled {
             cursorTransition.move(from: clickNS, to: cancelCenter)
         }
-        positionTargetChip(panelFrame: contentFrame)
+        // One card, so the card IS the anchor.
+        positionTargetChip(anchorFrame: contentFrame, on: currentScreen)
     }
 
     private func showMultiDisplay(atCGPoint cgScreenPoint: CGPoint) {
@@ -489,7 +512,11 @@ final class TileCancelDot: NSPanel {
         if edgeSafeEnabled {
             cursorTransition.move(from: clickNS, to: cancelCenter)
         }
-        positionTargetChip(panelFrame: contentFrame)
+        positionTargetChip(
+            anchorFrame: Self.chipAnchorRect(cards: result.cards, layoutOrigin: layoutOrigin)
+                ?? contentFrame,
+            on: currentScreen
+        )
     }
 
     func hide() {

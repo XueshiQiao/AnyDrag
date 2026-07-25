@@ -8,10 +8,11 @@ import AppKit
 // icon + name.
 //
 // It's a separate borderless panel (not part of the bento panel) on purpose:
-// the bento grid stays pixel-for-pixel as it ships today, and the chip
-// anchors to the bento panel's top edge identically whether there's one
-// display card or N. It floats above the panel, flipping below when there's
-// no headroom near the screen's top edge.
+// the bento grid stays pixel-for-pixel as it ships today. The caller passes
+// the rect to hang off — the single card, or in multi-display the CURRENT
+// display's card, so the pill sits over the display the window is on instead
+// of in the seam between two cards. It floats above that rect, flipping below
+// when there's no headroom near the screen's top edge.
 //
 // Same material language as the bento cards ("Frameless Islands", see
 // docs/bento-panel-chrome-mockups.html): `.popover` vibrancy, NO hairline
@@ -152,9 +153,9 @@ final class BentoTargetChip: NSPanel {
     // MARK: - Show / hide
 
     /// Show the chip for `name` (+ optional `icon`) anchored to the top edge
-    /// of `panelFrame` (the bento panel, NS coords) on `screen`. Centered
-    /// horizontally over the panel, `panelGap` above it — flipped to below
-    /// when there isn't room above within the screen's visible frame.
+    /// of `panelFrame` (the card it belongs to, NS coords) on `screen`.
+    /// Centered horizontally over that rect, `panelGap` above it — flipped to
+    /// below when there isn't room above within the screen's visible frame.
     func show(icon: NSImage?, name: String, anchoredAbove panelFrame: NSRect, on screen: NSScreen) {
         let hasIcon = icon != nil
         iconView.image = icon
