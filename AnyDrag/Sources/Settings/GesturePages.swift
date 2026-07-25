@@ -54,8 +54,33 @@ struct WindowDragPage: View {
             }
             .disabled(store.modifiers.isEmpty)
 
-            // ─── Advanced: per-app title-bar Y offset ───────────────
+            // ─── Advanced: centered-window size + per-app title-bar Y offset ──
             Section {
+                // One value for every centered path — the tiling panel's Center
+                // button and the middle-click drag-down gesture (its live
+                // preview included). See DragEngine.centeredSizePercent.
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L("centeredSize.title"))
+                        Text(L("centeredSize.note"))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Picker("", selection: Binding(
+                        get: { store.centeredSizePercent },
+                        set: { store.setCenteredSizePercent($0) }
+                    )) {
+                        ForEach(Preferences.centeredPercentStops, id: \.self) { percent in
+                            Text(String(format: L("centeredSize.value.format"), percent))
+                                .tag(percent)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 84)
+                }
+                .padding(.vertical, 2)
+
                 Text(L("perAppOffset.note"))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

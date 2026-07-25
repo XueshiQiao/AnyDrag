@@ -6,7 +6,33 @@ import AppKit
 enum TileAction: Hashable {
     case leftHalf, rightHalf, topHalf, bottomHalf
     case topLeft, topRight, bottomLeft, bottomRight
+    case centered, restoreOriginal, minimize
     case fill, fillRight, leftAndRight, quarters
+}
+
+extension TileAction {
+    /// Tooltip text. Only the window-action row carries one: the geometry
+    /// buttons draw exactly what they do, while "restore" and "minimize" are
+    /// not something a shape can spell out.
+    var tooltip: String? {
+        switch self {
+        case .centered:        return NSLocalizedString("tile.centered", comment: "")
+        case .restoreOriginal: return NSLocalizedString("tile.restore", comment: "")
+        case .minimize:        return NSLocalizedString("tile.minimize", comment: "")
+        default:               return nil
+        }
+    }
+
+    /// The SF Symbol drawn inside the mini-screen outline. Only Restore uses one:
+    /// a hand-drawn counter-clockwise arc at 44×30 reads ambiguously (it looks
+    /// like a clockwise "reload"), so that one glyph borrows Apple's, while the
+    /// outline around it stays hand-drawn like every other icon.
+    var symbolName: String? {
+        switch self {
+        case .restoreOriginal: return "arrow.counterclockwise"
+        default:               return nil
+        }
+    }
 }
 
 // MARK: - TilingPanel
@@ -17,7 +43,11 @@ final class TilingPanel: NSPanel {
     private var clickMonitor: Any?
     private var keyMonitor: Any?
 
-    init() {
+    /// - Parameter canRestore: whether the clicked window has a frame AnyDrag can
+    ///   put it back to. False disables the Restore button — the state is read
+    ///   once when the panel is built, which is fine because the panel is
+    ///   short-lived (it closes on the next click or when the modifier is let go).
+    init(canRestore: Bool) {
         super.init(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -30,7 +60,7 @@ final class TilingPanel: NSPanel {
         hasShadow = true
         animationBehavior = .utilityWindow
 
-        let panelView = TilingPanelView { [weak self] action in
+        let panelView = TilingPanelView(canRestore: canRestore) { [weak self] action in
             self?.onAction?(action)
             self?.dismiss()
         }
@@ -68,6 +98,7 @@ final class TilingPanel: NSPanel {
 // MARK: - TilingPanelView
 
 struct TilingPanelView: View {
+    let canRestore: Bool
     let onAction: (TileAction) -> Void
 
     var body: some View {
@@ -76,6 +107,11 @@ struct TilingPanelView: View {
             tileRow([.leftHalf, .rightHalf, .topHalf, .bottomHalf])
             Spacer().frame(height: 6)
             tileRow([.topLeft, .topRight, .bottomLeft, .bottomRight])
+            Spacer().frame(height: 6)
+            // Window actions. Three buttons in a four-column row: the empty
+            // slot is deliberate — it holds the column width so these line up
+            // with the rows above, and leaves room for a future action.
+            tileRow([.centered, .restoreOriginal, .minimize])
 
             Divider().padding(.vertical, 8)
 
@@ -105,13 +141,28 @@ struct TilingPanelView: View {
             .padding(.bottom, 8)
     }
 
+    /// A row of tile buttons, padded out to `columns` slots so a short row still
+    /// lines its buttons up with the full rows above it. The filler is an
+    /// invisible, non-hit-testing spacer — not a disabled button, so there is
+    /// nothing there to hover or click.
     @ViewBuilder
-    private func tileRow(_ actions: [TileAction]) -> some View {
+    private func tileRow(_ actions: [TileAction], columns: Int = 4) -> some View {
         HStack(spacing: 4) {
             ForEach(actions, id: \.self) { action in
-                TileButton(action: action) { onAction(action) }
+                TileButton(action: action, isEnabled: isEnabled(action)) { onAction(action) }
+            }
+            ForEach(0..<max(0, columns - actions.count), id: \.self) { _ in
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
             }
         }
+    }
+
+    /// Restore is the only action that can be unavailable: AnyDrag has to have
+    /// moved the window at least once to know what to put it back to.
+    private func isEnabled(_ action: TileAction) -> Bool {
+        action == .restoreOriginal ? canRestore : true
     }
 
     @ViewBuilder
@@ -161,22 +212,47 @@ private struct MenuRowButton<Label: View>: View {
 
 private struct TileButton: View {
     let action: TileAction
+    var isEnabled: Bool = true
     let onTap: () -> Void
     @State private var isHovered = false
 
+    /// A disabled Restore button explains itself instead of leaving the user
+    /// wondering why it won't click.
+    private var helpText: String? {
+        if action == .restoreOriginal, !isEnabled {
+            return NSLocalizedString("tile.restore.unavailable", comment: "")
+        }
+        return action.tooltip
+    }
+
     var body: some View {
+        if let helpText {
+            cell.help(helpText)
+        } else {
+            cell
+        }
+    }
+
+    private var cell: some View {
+        // The frame and padding live INSIDE the button's label, with a
+        // `contentShape` matching the highlight: the whole visible cell
+        // hit-tests, not just the opaque icon in the middle of it.
         Button(action: onTap) {
             TileIconView(action: action, isHovered: isHovered)
                 .frame(width: 44, height: 30)
+                .opacity(isEnabled ? 1 : 0.35)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .disabled(!isEnabled)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(isHovered ? Color.accentColor : .clear)
         )
-        .onHover { isHovered = $0 }
+        // Never highlight what can't be clicked.
+        .onHover { isHovered = isEnabled && $0 }
     }
 }
 
@@ -187,6 +263,20 @@ private struct TileIconView: View {
     let isHovered: Bool
 
     var body: some View {
+        canvas
+            // Actions whose meaning is an arrow get Apple's glyph centered in
+            // the (hand-drawn) screen outline. The outline is inset evenly, so
+            // the view's center is the outline's center.
+            .overlay {
+                if let symbol = action.symbolName {
+                    Image(systemName: symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isHovered ? Color.white : Color(nsColor: .labelColor))
+                }
+            }
+    }
+
+    private var canvas: some View {
         Canvas { context, size in
             let screenRect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 1)
             let cr: CGFloat = 4    // screen corner radius
@@ -246,6 +336,47 @@ private struct TileIconView: View {
                 fillRect(context, CGRect(x: content.midX + gap / 2, y: content.midY + gap / 2,
                      width: content.width / 2 - gap / 2, height: content.height / 2 - gap / 2),
                      color: fill, cr: ir)
+
+            // MARK: Window actions
+            case .centered:
+                // Drawn at a fixed 75% regardless of the user's centered-size
+                // setting: 5% steps are invisible at this size, and a block at
+                // the 85% default leaves so little margin it reads as "fill".
+                let cw = content.width * 0.75
+                let ch = content.height * 0.75
+                fillRect(context, CGRect(x: content.midX - cw / 2, y: content.midY - ch / 2,
+                     width: cw, height: ch),
+                     color: fill, cr: ir)
+
+            case .minimize:
+                // A window shrinking away downwards: a block up top with a
+                // short arrow under it. Hand-drawn on purpose — the SF Symbol
+                // "arrow into a line" glyph reads as *download*, not minimize.
+                let bw = content.width * 0.56
+                let bh = content.height * 0.45
+                let block = CGRect(x: content.midX - bw / 2, y: content.minY + 1.2,
+                                   width: bw, height: bh)
+                fillRect(context, block, color: fill, cr: ir)
+
+                let headHeight: CGFloat = 3.4
+                let headHalfWidth: CGFloat = 2.8
+                let tipY = content.maxY - 0.4
+                var shaft = Path()
+                shaft.move(to: CGPoint(x: content.midX, y: block.maxY + 2.4))
+                shaft.addLine(to: CGPoint(x: content.midX, y: tipY - headHeight))
+                context.stroke(shaft, with: .color(fill),
+                               style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
+
+                var head = Path()
+                head.move(to: CGPoint(x: content.midX - headHalfWidth, y: tipY - headHeight))
+                head.addLine(to: CGPoint(x: content.midX + headHalfWidth, y: tipY - headHeight))
+                head.addLine(to: CGPoint(x: content.midX, y: tipY))
+                head.closeSubpath()
+                context.fill(head, with: .color(fill))
+
+            case .restoreOriginal:
+                // Screen outline only — the SF Symbol overlay draws the rest.
+                break
 
             // MARK: Fill & Arrange
             case .fill:

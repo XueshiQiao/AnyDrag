@@ -53,6 +53,11 @@ enum Preferences {
         // glides to its center; when off, the overlay centers on the cursor
         // with no edge clamping and no cursor warp. Absent = default (on).
         static let overlayEdgeSafeEnabled = "AnyDragOverlayEdgeSafeEnabled"
+        // Centered-window size, as an Int percent of the screen's visible frame
+        // (50…85, step 5). Stored as a percent rather than a fraction so the
+        // persisted value can't drift through float rounding. Absent = 85, the
+        // value that was hard-coded before this setting existed.
+        static let centeredSizePercent = "AnyDragCenteredSizePercent"
         // Note: the "Hyper" (CapsLock-via-HyperCapslock) modifier needs no key of
         // its own — it's a bit in `modifierFlags`, so it persists with the rest of
         // the modifier combination and drives the CapsLock source via didSet.
@@ -129,6 +134,37 @@ enum Preferences {
     /// AnyDrag-tiled windows to resize both at once). TRUE preserves the
     /// always-on behavior shipped before the toggle existed.
     static let defaultLinkedResizeEnabled = true
+
+    // ─── Centered-window size ────────────────────────────────────────────────
+
+    /// Default centered-window size, as a percent of the screen's visible frame.
+    /// 85 was hard-coded before the setting existed — keeping it as the default
+    /// means an upgrade changes nothing.
+    static let defaultCenteredPercent = 85
+
+    /// Selectable range for the centered-window size. Both bounds are multiples
+    /// of `centeredPercentStep` so every legal value is a stop the UI can show.
+    static let centeredPercentRange: ClosedRange<Int> = 50...85
+
+    /// Granularity of the centered-window size picker.
+    static let centeredPercentStep = 5
+
+    /// Every value the picker offers, low to high.
+    static var centeredPercentStops: [Int] {
+        Array(stride(from: centeredPercentRange.lowerBound,
+                     through: centeredPercentRange.upperBound,
+                     by: centeredPercentStep))
+    }
+
+    /// Clamp to the selectable range and snap to a legal stop, so a hand-edited
+    /// defaults entry can't put the engine on a value the picker can't show.
+    static func normalizedCenteredPercent(_ raw: Int) -> Int {
+        let clamped = min(max(raw, centeredPercentRange.lowerBound), centeredPercentRange.upperBound)
+        let stepped = (Double(clamped) / Double(centeredPercentStep)).rounded() * Double(centeredPercentStep)
+        // Snapping happens inside the clamped range and both bounds are already
+        // multiples of the step, so the result can't leave the range.
+        return Int(stepped)
+    }
 
     /// Default for edge-safe tiling-overlay placement + cursor warp. TRUE keeps
     /// the overlay on-screen near an edge and glides the cursor to its center;
@@ -255,6 +291,9 @@ enum Preferences {
         engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
         engine.linkedResizeEnabled = d.object(forKey: Key.linkedResizeEnabled) as? Bool ?? defaultLinkedResizeEnabled
         engine.overlayEdgeSafeEnabled = d.object(forKey: Key.overlayEdgeSafeEnabled) as? Bool ?? defaultOverlayEdgeSafeEnabled
+        engine.centeredSizePercent = normalizedCenteredPercent(
+            (d.object(forKey: Key.centeredSizePercent) as? Int) ?? defaultCenteredPercent
+        )
 
         // Empty is a valid persisted state (means "AnyDrag off"), so only the
         // first-launch path falls back to .option.

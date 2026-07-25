@@ -51,6 +51,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var linkedResizeEnabled: Bool
     @Published private(set) var overlayEdgeSafeEnabled: Bool
     @Published private(set) var middleAction: MiddleAction
+    @Published private(set) var centeredSizePercent: Int
     @Published private(set) var titleBarYOffset: CGFloat
     @Published private(set) var resizeCornerInset: CGFloat
     @Published private(set) var showDebugDot: Bool
@@ -83,6 +84,7 @@ final class SettingsStore: ObservableObject {
         linkedResizeEnabled = engine.linkedResizeEnabled
         overlayEdgeSafeEnabled = engine.overlayEdgeSafeEnabled
         middleAction = engine.middleAction
+        centeredSizePercent = engine.centeredSizePercent
         titleBarYOffset = engine.titleBarYOffset
         resizeCornerInset = engine.resizeCornerInset
         showDebugDot = engine.showDebugDot
@@ -203,6 +205,22 @@ final class SettingsStore: ObservableObject {
         UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
         if previous != action {
             Analytics.trackPreferenceChanged(key: "middle_action", value: action.rawValue)
+        }
+    }
+
+    // MARK: Centered-window size
+
+    /// Applies to every centered path at once — the tiling panel's Center button
+    /// and the middle-drag-down gesture (both its preview and where it lands) —
+    /// because they all read `engine.centeredSizePercent`.
+    func setCenteredSizePercent(_ percent: Int) {
+        let normalized = Preferences.normalizedCenteredPercent(percent)
+        let previous = engine.centeredSizePercent
+        engine.centeredSizePercent = normalized
+        centeredSizePercent = normalized
+        UserDefaults.standard.set(normalized, forKey: Preferences.Key.centeredSizePercent)
+        if previous != normalized {
+            Analytics.trackPreferenceChanged(key: "centered_size_percent", value: String(normalized))
         }
     }
 

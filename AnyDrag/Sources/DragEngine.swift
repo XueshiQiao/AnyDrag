@@ -168,7 +168,7 @@ enum ResizeTrigger: String, CaseIterable {
 /// A target region on the screen, selected by drag direction.
 enum TileZone {
     case full          // drag up
-    case centered      // drag down (~70% × 70%)
+    case centered      // drag down (`DragEngine.centeredSizePercent` of the visible frame)
     case left, right
     case topLeft, topRight, bottomLeft, bottomRight
 
@@ -200,18 +200,35 @@ enum TileZone {
         return grid[row][col]
     }
 
+    /// The centered-window rect for a visible frame, at `fraction` of its width
+    /// and height. THE one place that turns the user's centered-size preference
+    /// into a frame — both centered entry points (the middle-drag-down gesture
+    /// and the tiling panel's Center button) come through here.
+    ///
+    /// Centering is symmetric, so this is correct in either coordinate space:
+    /// pass an NS visible frame (bottom-left origin) or a CG one (top-left) and
+    /// the result comes back in the same space.
+    static func centeredRect(in visible: CGRect, fraction: CGFloat) -> CGRect {
+        let w = visible.width * fraction
+        let h = visible.height * fraction
+        return CGRect(x: visible.minX + (visible.width - w) / 2,
+                      y: visible.minY + (visible.height - h) / 2,
+                      width: w, height: h)
+    }
+
     /// Compute the target rect within the screen's visible NSScreen-coord frame
-    /// (bottom-left origin). For .centered the window covers 85% × 85%.
-    func rect(in v: NSRect, centeredFraction: CGFloat = 0.85) -> NSRect {
+    /// (bottom-left origin).
+    ///
+    /// `centeredFraction` deliberately has NO default value: it is the user's
+    /// setting, and every call site must pass `DragEngine.centeredFraction` so
+    /// the commit and its live preview can never disagree. Adding a default
+    /// back would let a call site silently fall out of sync again.
+    func rect(in v: NSRect, centeredFraction: CGFloat) -> NSRect {
         switch self {
         case .full:
             return v
         case .centered:
-            let w = v.width * centeredFraction
-            let h = v.height * centeredFraction
-            return NSRect(x: v.minX + (v.width - w) / 2,
-                          y: v.minY + (v.height - h) / 2,
-                          width: w, height: h)
+            return Self.centeredRect(in: v, fraction: centeredFraction)
         case .left:
             return NSRect(x: v.minX, y: v.minY, width: v.width / 2, height: v.height)
         case .right:
@@ -313,6 +330,14 @@ final class DragEngine {
     /// when false, the overlay centers on the cursor with no edge clamping and
     /// no cursor warp. Threaded to `tileCancelDot` before each show.
     var overlayEdgeSafeEnabled: Bool = true
+    /// Size of a centered window, as a percent of the screen's visible frame
+    /// (50…85 in steps of 5 — see `Preferences.centeredPercentRange`). ONE
+    /// source shared by every centered path: the middle-drag-down commit, that
+    /// gesture's live preview overlay, and the tiling panel's Center button.
+    var centeredSizePercent: Int = Preferences.defaultCenteredPercent
+    /// `centeredSizePercent` as the fraction the geometry math wants. Derived in
+    /// exactly one place so no call site rolls its own division.
+    var centeredFraction: CGFloat { CGFloat(centeredSizePercent) / 100 }
     var middleAction: MiddleAction = .off {
         didSet {
             // If the user changes the middle-button action mid-gesture, abort
@@ -480,7 +505,20 @@ final class DragEngine {
 
     private let strategy = TitleBarDragStrategy()
     private let resizeStrategy = ResizeStrategy()
-    private var savedFrames: [CGWindowID: CGRect] = [:]
+    /// Frames from before AnyDrag first moved a window, keyed by window id — the
+    /// source for both Restore and modifier+double-click.
+    ///
+    /// The owning pid is stored alongside the frame so a stale record is
+    /// detectable. Records are only dropped by a restore, so one left behind by
+    /// a window that has since closed can outlive it, and a window id is only
+    /// unique while the window exists.
+    private var savedFrames: [CGWindowID: RememberedFrame] = [:]
+
+    struct RememberedFrame {
+        let pid: pid_t
+        let frame: CGRect
+    }
+
     private var tilingPanel: TilingPanel?
     private lazy var tileOverlay = TileOverlay()
     private lazy var tileCancelDot = TileCancelDot()
@@ -1529,7 +1567,9 @@ final class DragEngine {
         }
         guard stillActive else { return }
         if let hit {
-            let target = hit.zone.rect(in: hit.screen.visibleFrame)
+            // Same `centeredFraction` the commit uses (`applyTile`) — the
+            // preview must show where the window will actually land.
+            let target = hit.zone.rect(in: hit.screen.visibleFrame, centeredFraction: centeredFraction)
             tileOverlay.show(rect: target)
             tileCancelDot.setActive(hit)
         } else {
@@ -1644,12 +1684,12 @@ final class DragEngine {
         }
         Self.log.info("tile commit: app=\"\(target.app)\" wid=\(target.windowID) zone=\(zone)")
 
-        let nsRect = zone.rect(in: screen.visibleFrame)
+        let nsRect = zone.rect(in: screen.visibleFrame, centeredFraction: centeredFraction)
         let cgRect = cgRectFromNSScreenRect(nsRect)
 
-        // Save current frame for double-click restore (matches performTileAction's behavior).
+        // Remember the pre-AnyDrag frame so restore / double-click can go back.
         let currentFrame = getWindowFrame(axWindow) ?? target.frame
-        savedFrames[target.windowID] = currentFrame
+        rememberOriginalFrame(windowID: target.windowID, pid: target.pid, currentFrame: currentFrame)
 
         let sourceCenter = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
         let destinationCenter = CGPoint(x: cgRect.midX, y: cgRect.midY)
@@ -1830,7 +1870,9 @@ final class DragEngine {
         Self.log.info("tile panel: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
         tilingPanel?.dismiss()
 
-        let panel = TilingPanel()
+        // Main thread (both call sites dispatch here), so reading `savedFrames`
+        // is safe. No record → nothing to restore → the button renders disabled.
+        let panel = TilingPanel(canRestore: savedFrame(windowID: windowInfo.windowID, pid: windowInfo.pid) != nil)
         panel.onAction = { [weak self] action in
             self?.performTileAction(action, windowInfo: windowInfo)
         }
@@ -1921,14 +1963,34 @@ final class DragEngine {
             Self.log.warn("performTileAction: findAXWindow returned nil for pid=\(windowInfo.pid) wid=\(windowInfo.windowID)")
             return
         }
+        // Window-state actions, handled BEFORE the `rememberOriginalFrame` call
+        // below: `restoreOriginal` reads that very record, so recording first
+        // would overwrite the frame it needs with the current (already tiled)
+        // one; `minimize` doesn't touch the frame at all, so there is nothing
+        // worth remembering.
+        switch action {
+        case .restoreOriginal:
+            restoreOriginalFrame(axWindow, windowID: windowInfo.windowID, pid: windowInfo.pid, app: windowInfo.app)
+            return
+        case .minimize:
+            // Only drop it from linked-resize tracking if it really did
+            // minimize — a window that stayed put is still half of its pair.
+            if minimizeWindow(axWindow, app: windowInfo.app) {
+                linkedResizeController.removeWindow(windowInfo.windowID)
+            }
+            return
+        default:
+            break
+        }
+
         guard let screen = screenVisibleFrame(for: windowInfo.frame) else {
             Self.log.warn("performTileAction: screenVisibleFrame returned nil for frame=\(windowInfo.frame)")
             return
         }
 
-        // Save original frame for double-click restore
-        let currentFrame = getWindowFrame(axWindow) ?? windowInfo.frame
-        savedFrames[windowInfo.windowID] = currentFrame
+        // Remember the pre-AnyDrag frame so restore / double-click can go back.
+        rememberOriginalFrame(windowID: windowInfo.windowID, pid: windowInfo.pid,
+                              currentFrame: getWindowFrame(axWindow) ?? windowInfo.frame)
 
         func placeCurrent(_ frame: CGRect, slot: LinkedTileSlot? = nil) {
             setWindowFrame(axWindow, frame: frame)
@@ -1989,6 +2051,14 @@ final class DragEngine {
                 x: screen.midX, y: screen.midY,
                 width: screen.width / 2, height: screen.height / 2))
 
+        case .centered:
+            // Same helper and same user setting as the middle-drag-down gesture.
+            placeCurrent(TileZone.centeredRect(in: screen, fraction: centeredFraction))
+
+        case .restoreOriginal, .minimize:
+            // Handled above, before the pre-AnyDrag frame is recorded.
+            break
+
         // MARK: Fill & Arrange
         case .fill:
             // Maximize to screen's visible area (keeps title bar)
@@ -2001,7 +2071,8 @@ final class DragEngine {
                 width: screen.width / 2, height: screen.height)
             placeCurrent(leftFrame, slot: .left)
             if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
-                savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
+                rememberOriginalFrame(windowID: next.windowID, pid: next.pid,
+                                      currentFrame: getWindowFrame(next.axWindow) ?? next.frame)
                 let rightFrame = CGRect(
                     x: screen.midX, y: screen.minY,
                     width: screen.width / 2, height: screen.height)
@@ -2021,7 +2092,8 @@ final class DragEngine {
                 width: screen.width / 2, height: screen.height)
             placeCurrent(rightFrame, slot: .right)
             if let next = nextWindowOnScreen(after: windowInfo.windowID, screen: screen) {
-                savedFrames[next.windowID] = getWindowFrame(next.axWindow) ?? next.frame
+                rememberOriginalFrame(windowID: next.windowID, pid: next.pid,
+                                      currentFrame: getWindowFrame(next.axWindow) ?? next.frame)
                 let leftFrame = CGRect(
                     x: screen.minX, y: screen.minY,
                     width: screen.width / 2, height: screen.height)
@@ -2054,7 +2126,8 @@ final class DragEngine {
             // Next windows → remaining quadrants
             let others = windowsOnScreen(after: windowInfo.windowID, screen: screen, limit: 3)
             for (i, other) in others.enumerated() {
-                savedFrames[other.windowID] = getWindowFrame(other.axWindow) ?? other.frame
+                rememberOriginalFrame(windowID: other.windowID, pid: other.pid,
+                                      currentFrame: getWindowFrame(other.axWindow) ?? other.frame)
                 setWindowFrame(other.axWindow, frame: quadrants[i + 1])
             }
         }
@@ -2084,18 +2157,101 @@ final class DragEngine {
         AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
 
-        if let savedFrame = savedFrames[windowID] {
+        if let savedFrame = savedFrame(windowID: windowID, pid: pid) {
             // Restore to original frame
             setWindowFrame(axWindow, frame: savedFrame)
             savedFrames.removeValue(forKey: windowID)
         } else {
             // Save current frame and maximize to screen's visible area
-            let currentFrame = getWindowFrame(axWindow) ?? windowFrame
-            savedFrames[windowID] = currentFrame
+            rememberOriginalFrame(windowID: windowID, pid: pid,
+                                  currentFrame: getWindowFrame(axWindow) ?? windowFrame)
             if let targetFrame = screenVisibleFrame(for: windowFrame) {
                 setWindowFrame(axWindow, frame: targetFrame)
             }
         }
+    }
+
+    /// Record a window's pre-AnyDrag frame — but only the FIRST time. A window
+    /// that already has a record keeps it, so "restore" goes back to how the
+    /// window looked before AnyDrag first touched it instead of undoing one
+    /// step: tile left, then tile right, then restore lands on the original
+    /// size, not on the left half. Every `savedFrames` write goes through here.
+    ///
+    /// `currentFrame` is an autoclosure so the AX read it usually performs is
+    /// skipped entirely on the (common) repeat-tile path.
+    ///
+    /// A record whose pid doesn't match is not this window's — it belonged to a
+    /// closed window that used to own this id — so it's replaced rather than
+    /// preserved. Without that check, "keep the first record" would hand the new
+    /// window an unrelated frame to restore to.
+    ///
+    /// Main thread only — same constraint the tile and maximize paths already
+    /// carry, which is what keeps `savedFrames` single-threaded.
+    private func rememberOriginalFrame(windowID: CGWindowID, pid: pid_t, currentFrame: @autoclosure () -> CGRect) {
+        if let existing = savedFrames[windowID], existing.pid == pid { return }
+        savedFrames[windowID] = RememberedFrame(pid: pid, frame: currentFrame())
+    }
+
+    /// The remembered pre-AnyDrag frame for a window, or nil when there is none
+    /// to go back to. A record left behind by a different process's window is
+    /// dropped here rather than being handed out.
+    private func savedFrame(windowID: CGWindowID, pid: pid_t) -> CGRect? {
+        guard let record = savedFrames[windowID] else { return nil }
+        guard record.pid == pid else {
+            Self.log.info("savedFrame: dropping stale record for wid=\(windowID) (recorded pid=\(record.pid), now pid=\(pid))")
+            savedFrames.removeValue(forKey: windowID)
+            return nil
+        }
+        return record.frame
+    }
+
+    /// Put the window back to the frame it had before AnyDrag first moved it and
+    /// forget the record, so the next tile starts a fresh one.
+    ///
+    /// The panel greys its Restore button out when there is nothing recorded, so
+    /// the no-record path here is only reachable if the record disappeared
+    /// between the panel opening and the click. Log it and leave the window
+    /// alone rather than guessing at a size.
+    private func restoreOriginalFrame(_ axWindow: AXUIElement, windowID: CGWindowID, pid: pid_t, app: String) {
+        guard let saved = savedFrame(windowID: windowID, pid: pid) else {
+            Self.log.info("restore: nothing recorded for app=\"\(app)\" wid=\(windowID) — leaving the window as is")
+            return
+        }
+        Self.log.info("restore: app=\"\(app)\" wid=\(windowID) → \(saved)")
+        setWindowFrame(axWindow, frame: saved)
+        savedFrames.removeValue(forKey: windowID)
+        // Restored to a free-floating size: it is no longer half of a pair.
+        linkedResizeController.removeWindow(windowID)
+    }
+
+    /// Minimize via the public `AXMinimized` attribute, falling back to pressing
+    /// the window's own minimize button. Both are one-shot AX calls — nothing
+    /// per-frame, so this stays clear of the AX-latency paths AnyDrag avoids.
+    ///
+    /// Windows without a minimize button (some panels and dialogs) simply can't
+    /// be minimized; that's logged and reported back as `false` so the caller
+    /// doesn't act as though the window went away.
+    private func minimizeWindow(_ axWindow: AXUIElement, app: String) -> Bool {
+        let err = AXUIElementSetAttributeValue(axWindow, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        if err == .success {
+            Self.log.info("minimize: app=\"\(app)\" via AXMinimized")
+            return true
+        }
+        Self.log.warn("minimize: AXMinimized failed (err=\(err.rawValue)) for app=\"\(app)\" — trying its minimize button")
+
+        var buttonRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axWindow, kAXMinimizeButtonAttribute as CFString, &buttonRef) == .success,
+              let button = buttonRef, CFGetTypeID(button) == AXUIElementGetTypeID() else {
+            Self.log.warn("minimize: app=\"\(app)\" has no minimize button — window left as is")
+            return false
+        }
+        let pressErr = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+        if pressErr == .success {
+            Self.log.info("minimize: app=\"\(app)\" via minimize button")
+            return true
+        }
+        Self.log.warn("minimize: pressing the minimize button failed (err=\(pressErr.rawValue)) for app=\"\(app)\"")
+        return false
     }
 
     private func setWindowFrame(_ window: AXUIElement, frame: CGRect) {

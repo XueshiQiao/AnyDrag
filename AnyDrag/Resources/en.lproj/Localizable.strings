@@ -16,6 +16,11 @@
 "Fill & Arrange" = "Fill & Arrange";
 "Full Screen" = "Full Screen";
 "Move to %@" = "Move to %@";
+/* Tooltips for the window-action row */
+"tile.centered" = "Center";
+"tile.restore" = "Restore original size";
+"tile.restore.unavailable" = "Nothing to restore — AnyDrag hasn't moved this window yet";
+"tile.minimize" = "Minimize";
 
 /* Settings — window titles */
 "AnyDrag Settings" = "Settings";
@@ -111,8 +116,12 @@
 "diagnostics.resizeCornerInset.hint" = "How far inside the window's corner the resize click lands. Larger values for apps with rounded outer corners (Safari, Finder). Default 5 pt.";
 "diagnostics.reset" = "Reset";
 
-/* Settings — Window Drag → Advanced (per-app title-bar Y offset) */
-"section.advanced" = "Advanced";
+/* Settings — Window Drag → Advanced Tweaks (centered window size, per-app title-bar Y offset) */
+"section.advanced" = "Advanced Tweaks";
+"centeredSize.title" = "Centered window size";
+"centeredSize.note" = "Used by Center in the right-click tiling panel and by the middle-click drag-down center. Default 85%. At 50% the window is half as wide and half as tall — a quarter of the screen area.";
+/* %d = size in percent. The doubled %% renders as a single percent sign. */
+"centeredSize.value.format" = "%d%%";
 "perAppOffset.note" = "Override the title-bar Y offset for specific apps. Apps not listed here use the global value (General → Diagnostics).";
 "perAppOffset.add" = "Add app…";
 "perAppOffset.remove" = "Use global offset";

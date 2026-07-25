@@ -16,6 +16,11 @@
 "Fill & Arrange" = "填充与排列";
 "Full Screen" = "全屏";
 "Move to %@" = "移动到 %@";
+/* 窗口操作那一行的提示文字 */
+"tile.centered" = "居中";
+"tile.restore" = "恢复原始大小";
+"tile.restore.unavailable" = "没有可恢复的尺寸 —— AnyDrag 还没动过这个窗口";
+"tile.minimize" = "最小化";
 
 /* Settings — window titles */
 "AnyDrag Settings" = "设置";
@@ -111,8 +116,12 @@
 "diagnostics.resizeCornerInset.hint" = "Resize 模拟点击距离窗口角的内缩距离。圆角较大的 app(Safari、Finder)需要更大的值。默认 5 pt。";
 "diagnostics.reset" = "重置";
 
-/* Settings — Window Drag → Advanced (per-app title-bar Y offset) */
-"section.advanced" = "高级";
+/* Settings — Window Drag → Advanced Tweaks (centered window size, per-app title-bar Y offset) */
+"section.advanced" = "高级 tweak";
+"centeredSize.title" = "居中窗口大小";
+"centeredSize.note" = "右键平铺面板里的「居中」和中键下滑居中都用这个比例。默认 85%。选 50% 时窗口宽高各取一半，面积是可用区域的四分之一。";
+/* %d = 百分数。两个 %% 渲染成一个百分号。 */
+"centeredSize.value.format" = "%d%%";
 "perAppOffset.note" = "为指定应用单独覆盖标题栏 Y 偏移。未列出的应用使用全局值(通用 → 诊断)。";
 "perAppOffset.add" = "添加应用…";
 "perAppOffset.remove" = "改用全局偏移";
