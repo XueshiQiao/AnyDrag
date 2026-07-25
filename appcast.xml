@@ -5,8 +5,18 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.07.110</title>
-      <description><![CDATA[<h3>What's New in 26.07.110</h3>
+      <title>Version 26.07.111</title>
+      <description><![CDATA[<h3>What's New in 26.07.111</h3>
+<ul>
+  <li><b>Tile menu closes when you release the modifier</b> — When you hold your modifier and right-click a window to open the tile menu, letting go of that modifier now closes it right away instead of leaving it on screen. Choosing a tile, clicking elsewhere, or pressing Esc still close it too. Thanks to 小红书 user 配音员泽坤 for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/29">#29</a>).</li>
+</ul>
+
+<h3>26.07.111 更新内容</h3>
+<ul>
+  <li><b>松开修饰键即关闭平铺菜单</b> — 按住主修饰键、右键点窗口弹出平铺菜单后,现在一松开该修饰键,菜单就立即关闭,不再留在屏幕上。选择某个平铺格子、点击别处、或按 Esc 也同样可以关闭。感谢小红书用户 配音员泽坤 反馈(<a href="https://github.com/XueshiQiao/AnyDrag/issues/29">#29</a>)。</li>
+</ul>
+
+<h3>What's New in 26.07.110</h3>
 <ul>
   <li><b>Linked resize for tiled pairs</b> — Tile two windows into a complementary pair (left + right, or top + bottom), then move the pointer to their shared seam and drag with the plain left button to resize both at once. Toggle it under <b>Settings → Middle-click action → Linked resize</b>. Contributed by <a href="https://github.com/eunrui">@eunrui</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/26">#26</a>).</li>
   <li><b>Tile panel stays fully on screen</b> — Near a screen edge, the middle-click tile panel now keeps itself fully visible and glides the cursor to its center. Prefer it right at the cursor instead? Turn off <b>Settings → Middle-click action → Keep tile panel on screen</b>. Contributed by <a href="https://github.com/eunrui">@eunrui</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/22">#22</a>).</li>
@@ -229,11 +239,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Thu, 16 Jul 2026 03:34:00 +0000</pubDate>
-      <sparkle:version>110</sparkle:version>
-      <sparkle:shortVersionString>26.07.110</sparkle:shortVersionString>
+      <pubDate>Sat, 25 Jul 2026 02:54:01 +0000</pubDate>
+      <sparkle:version>111</sparkle:version>
+      <sparkle:shortVersionString>26.07.111</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.07.110/AnyDrag.dmg" length="3990685" type="application/octet-stream" sparkle:edSignature="YSgC7j0pMDSwPQbKZ5G4BAE+6qA3DhfaSbebY+yqGz4OOwCUiwUeN8D/c0cO6Zi6Qx6+sZLX3wIuT0aDI/U/CQ==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.07.111/AnyDrag.dmg" length="3971202" type="application/octet-stream" sparkle:edSignature="aPvZpRCuUAiY3iGeXvHJscBZpdUBncJmcjN/ALvEdUbO/ZhSQQq2onHbDdktmmakQySOQVSyUABMPEXC76iVDg==" />
     </item>
   </channel>
 </rss>
