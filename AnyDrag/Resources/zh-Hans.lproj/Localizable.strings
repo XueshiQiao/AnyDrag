@@ -81,6 +81,26 @@
 "feature.tileDragOnly.subtitle" = "在「按方向平铺」下,只有按住中键并移动光标后才弹出平铺面板。普通中键单击保持完全原生,不会闪现面板。";
 "feature.overlayEdgeSafe"          = "让平铺面板始终完整显示";
 "feature.overlayEdgeSafe.subtitle" = "靠近屏幕边缘时,让整个平铺面板保持可见,并把光标移到面板中心。关掉则在光标处直接显示面板,不移动光标。";
+
+/* Settings — 平铺面板外观 */
+"bentoAppearance.section"        = "平铺面板外观";
+"feature.bentoBorder"           = "显示边框";
+"feature.bentoBorder.subtitle"  = "给平铺面板和上方的应用名标签描一道细边,盖在别的窗口上时更容易看清边界。";
+"feature.bentoMaterial"          = "面板材质";
+"feature.bentoMaterial.subtitle" = "面板的毛玻璃底。默认跟随系统,和窗口很接近;换成深色或更实的材质,会更容易和背后的窗口分开。";
+"feature.bentoTint"          = "面板染色";
+"feature.bentoTint.subtitle" = "在毛玻璃上加一层很薄的颜色,仍然是半透明,但不容易和背后的窗口混在一起。";
+"bentoMaterial.popover"      = "默认(跟随系统)";
+"bentoMaterial.menu"         = "菜单(稍实)";
+"bentoMaterial.toolTip"      = "提示气泡(更亮)";
+"bentoMaterial.hud"          = "始终深色";
+"bentoMaterial.fullScreenUI" = "深色·更透";
+"bentoMaterial.heavyBlur"    = "重模糊";
+"bentoMaterial.sidebar"      = "侧边栏(最透)";
+"bentoTint.none"    = "无";
+"bentoTint.neutral" = "中性(深一档)";
+"bentoTint.accent"  = "系统强调色";
+"bentoTint.brand"   = "AnyDrag 橙";
 "Drag window" = "拖动窗口";
 "Maximize / Restore" = "最大化 / 恢复";
 "Window tiling" = "窗口平铺";

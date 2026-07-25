@@ -144,6 +144,24 @@ func featureLabel(_ symbol: String, _ color: Color, _ title: String, _ subtitle:
     }
 }
 
+/// A feature row with the standard icon + title + subtitle on the left and a
+/// trailing control (picker, stepper, …) on the right.
+@ViewBuilder
+func optionRow<Control: View>(
+    symbol: String,
+    color: Color,
+    title: String,
+    subtitle: String,
+    @ViewBuilder control: () -> Control
+) -> some View {
+    HStack(spacing: 12) {
+        featureLabel(symbol, color, title, subtitle)
+        Spacer(minLength: 8)
+        control()
+    }
+    .padding(.vertical, 2)
+}
+
 // MARK: - Sidebar row icon
 
 /// A System-Settings-style sidebar row icon: a white SF Symbol on a colored

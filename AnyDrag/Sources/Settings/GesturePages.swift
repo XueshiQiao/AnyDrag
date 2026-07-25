@@ -265,6 +265,56 @@ struct MiddleClickPage: View {
                         featureLabel("rectangle.split.2x1", .orange, L("feature.linkedResize"), L("feature.linkedResize.subtitle"))
                     }
                 }
+
+                // Overlay looks — DEBUG only. The shipping look is fixed (no
+                // border, `.popover` glass, accent wash); these knobs stay in
+                // the code so the look can be re-evaluated without rewriting
+                // anything, but Release users never see the choice.
+                #if DEBUG
+                Section {
+                    Toggle(isOn: Binding(get: { store.bentoBorderEnabled }, set: { store.setBentoBorderEnabled($0) })) {
+                        featureLabel("square.dashed", .gray, L("feature.bentoBorder"), L("feature.bentoBorder.subtitle"))
+                    }
+                    optionRow(
+                        symbol: "circle.lefthalf.filled",
+                        color: .purple,
+                        title: L("feature.bentoMaterial"),
+                        subtitle: L("feature.bentoMaterial.subtitle")
+                    ) {
+                        Picker("", selection: Binding(
+                            get: { store.bentoMaterial },
+                            set: { store.setBentoMaterial($0) }
+                        )) {
+                            ForEach(BentoMaterial.allCases, id: \.self) { option in
+                                Text(option.displayName).tag(option)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 168)
+                    }
+                    optionRow(
+                        symbol: "paintpalette",
+                        color: .mint,
+                        title: L("feature.bentoTint"),
+                        subtitle: L("feature.bentoTint.subtitle")
+                    ) {
+                        Picker("", selection: Binding(
+                            get: { store.bentoTint },
+                            set: { store.setBentoTint($0) }
+                        )) {
+                            ForEach(BentoTint.allCases, id: \.self) { option in
+                                Text(option.displayName).tag(option)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 168)
+                    }
+                } header: {
+                    // The marker is intentionally un-localized: it only ever
+                    // renders in a debug build, for us.
+                    Text(L("bentoAppearance.section") + " · DEBUG ONLY")
+                }
+                #endif
             }
         }
         .formStyle(.grouped)

@@ -52,9 +52,15 @@ final class BentoTargetChip: NSPanel {
 
     private let container = NSView()
     private let shadowView = NSView()
-    private let vibrancyView = NSVisualEffectView()
+    private let vibrancyView = ChipEffectView()
+    /// Optional colour wash over the glass. A plain rectangle is enough: the
+    /// vibrancy view's layer has `masksToBounds`, so it's clipped to the pill.
+    private let tintView = NSView()
     private let iconView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
+
+    /// Set from `TileCancelDot` before each show so the pill matches the cards.
+    private var showBorder = false
 
     init() {
         super.init(
@@ -109,8 +115,12 @@ final class BentoTargetChip: NSPanel {
             layer.shadowOffset = .zero
         }
 
-        vibrancyView.addSubview(iconView)
-        vibrancyView.addSubview(nameField)
+        tintView.wantsLayer = true
+        tintView.isHidden = true
+
+        vibrancyView.addSubview(tintView)
+        vibrancyView.addSubview(iconView, positioned: .above, relativeTo: tintView)
+        vibrancyView.addSubview(nameField, positioned: .above, relativeTo: tintView)
         container.addSubview(shadowView)
         container.addSubview(vibrancyView, positioned: .above, relativeTo: shadowView)
         contentView = container
@@ -118,6 +128,26 @@ final class BentoTargetChip: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    // MARK: - Appearance options
+
+    /// Match the bento cards' material / tint / border. Called before `show`.
+    func applyAppearance(material: BentoMaterial, tint: BentoTint, border: Bool) {
+        vibrancyView.material = material.nsMaterial
+        if let color = tint.color {
+            tintView.isHidden = false
+            // A dynamic NSColor's `cgColor` resolves against whatever
+            // appearance is current, which isn't necessarily this view's —
+            // resolve it explicitly.
+            vibrancyView.effectiveAppearance.performAsCurrentDrawingAppearance {
+                tintView.layer?.backgroundColor = color.cgColor
+            }
+        } else {
+            tintView.isHidden = true
+        }
+        showBorder = border
+        vibrancyView.borderVisible = border
+    }
 
     // MARK: - Show / hide
 
@@ -184,6 +214,7 @@ final class BentoTargetChip: NSPanel {
         )
         let pillFrame = NSRect(x: margin, y: margin, width: panelW, height: panelH)
         vibrancyView.frame = pillFrame
+        tintView.frame = NSRect(origin: .zero, size: pillFrame.size)
         shadowView.frame = pillFrame
         shadowView.layer?.shadowPath = CGPath(
             roundedRect: NSRect(origin: .zero, size: pillFrame.size),
@@ -199,6 +230,39 @@ final class BentoTargetChip: NSPanel {
     func hide() {
         if isVisible {
             orderOut(nil)
+        }
+    }
+}
+
+// MARK: - ChipEffectView
+
+/// The pill's glass. Carries the optional hairline on its own layer so the
+/// border follows the exact same rounded mask and `.continuous` corner curve
+/// as the glass — one shape, so the top edge can't render as two hairlines.
+/// `borderColor` is a plain CGColor, so it is re-resolved whenever the
+/// effective appearance flips between light and dark.
+private final class ChipEffectView: NSVisualEffectView {
+
+    /// Off by default — matches the border-less default of the bento cards.
+    var borderVisible = false {
+        didSet {
+            guard borderVisible != oldValue else { return }
+            updateBorder()
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBorder()
+    }
+
+    private func updateBorder() {
+        guard let layer else { return }
+        layer.borderWidth = borderVisible ? 1 : 0
+        guard borderVisible else { return }
+        // Same system hairline colour the cards stroke with.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer.borderColor = NSColor.separatorColor.cgColor
         }
     }
 }

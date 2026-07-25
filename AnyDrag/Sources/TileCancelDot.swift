@@ -1,5 +1,102 @@
 import AppKit
 
+// MARK: - Overlay appearance options
+//
+// The frameless look blends into neighbouring windows on purpose, which is
+// great over a wallpaper and can be too subtle over another app's window.
+// These three knobs (Settings → Middle-click action) let the user push the
+// overlay forward again without giving up the frosted glass.
+
+/// Which frosted-glass material the overlay's cards + chip are made of. Named
+/// by how it LOOKS rather than by the AppKit constant, because that's what the
+/// user is picking.
+enum BentoMaterial: String, CaseIterable {
+    /// `.popover` — what a system popover is made of. Adapts light/dark, and
+    /// therefore looks the most like every other window.
+    case popover
+    /// `.menu` — a shade more solid than a popover.
+    case menu
+    /// `.toolTip` — brighter/more solid again in light mode.
+    case toolTip
+    /// `.hudWindow` — the volume-OSD look: dark in BOTH appearances, so it
+    /// stands out hardest over light windows.
+    case hud
+    /// `.fullScreenUI` — dark like the HUD but more see-through.
+    case fullScreenUI
+    /// `.underWindowBackground` — very heavy blur, tends dark.
+    case heavyBlur
+    /// `.sidebar` — the most see-through; picks up the desktop's colour.
+    case sidebar
+
+    var nsMaterial: NSVisualEffectView.Material {
+        switch self {
+        case .popover:      return .popover
+        case .menu:         return .menu
+        case .toolTip:      return .toolTip
+        case .hud:          return .hudWindow
+        case .fullScreenUI: return .fullScreenUI
+        case .heavyBlur:    return .underWindowBackground
+        case .sidebar:      return .sidebar
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .popover:      return NSLocalizedString("bentoMaterial.popover", comment: "")
+        case .menu:         return NSLocalizedString("bentoMaterial.menu", comment: "")
+        case .toolTip:      return NSLocalizedString("bentoMaterial.toolTip", comment: "")
+        case .hud:          return NSLocalizedString("bentoMaterial.hud", comment: "")
+        case .fullScreenUI: return NSLocalizedString("bentoMaterial.fullScreenUI", comment: "")
+        case .heavyBlur:    return NSLocalizedString("bentoMaterial.heavyBlur", comment: "")
+        case .sidebar:      return NSLocalizedString("bentoMaterial.sidebar", comment: "")
+        }
+    }
+}
+
+/// A thin wash painted over the glass. Low alpha on purpose: enough to lift
+/// the overlay off the window behind it, not enough to stop being glass.
+enum BentoTint: String, CaseIterable {
+    case none
+    /// Just darker (light mode) / lighter (dark mode) than the surroundings.
+    case neutral
+    /// The system accent colour.
+    case accent
+    /// AnyDrag's own orange — separates from the accent-blue active tile.
+    case brand
+
+    /// nil → paint nothing.
+    var color: NSColor? {
+        switch self {
+        case .none:    return nil
+        case .neutral: return bentoDynamicColor(
+            dark:  NSColor.white.withAlphaComponent(0.06),
+            light: NSColor.black.withAlphaComponent(0.07)
+        )
+        case .accent:  return NSColor.controlAccentColor.withAlphaComponent(0.08)
+        case .brand:   return NSColor.systemOrange.withAlphaComponent(0.08)
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .none:    return NSLocalizedString("bentoTint.none", comment: "")
+        case .neutral: return NSLocalizedString("bentoTint.neutral", comment: "")
+        case .accent:  return NSLocalizedString("bentoTint.accent", comment: "")
+        case .brand:   return NSLocalizedString("bentoTint.brand", comment: "")
+        }
+    }
+}
+
+/// Resolves `dark`/`light` against whatever appearance is drawing.
+func bentoDynamicColor(dark: NSColor, light: NSColor) -> NSColor {
+    NSColor(name: nil) { appearance in
+        switch appearance.bestMatch(from: [.darkAqua, .vibrantDark, .aqua, .vibrantLight]) {
+        case .darkAqua, .vibrantDark: return dark
+        default: return light
+        }
+    }
+}
+
 // MARK: - TileCancelDot
 //
 // Bento-style overlay shown at the middle-button gesture origin while a
@@ -140,6 +237,20 @@ final class TileCancelDot: NSPanel {
     /// (un-warped) cursor/panel center, which keeps it geometrically correct.
     var edgeSafeEnabled: Bool = true
 
+    // MARK: - Appearance (set by DragEngine from Preferences before each show)
+
+    /// Stroke a system-coloured hairline around every card and the app chip.
+    /// Off by default — the frameless look is the point — but available for
+    /// when the overlay sits over another window and blends in too well.
+    var borderEnabled: Bool = false
+
+    /// Which frosted-glass material the cards + chip are made of.
+    var material: BentoMaterial = .popover
+
+    /// Thin colour wash over the glass, for the same "don't blend in" reason
+    /// as `borderEnabled`, without adding a line. Ships as `.accent`.
+    var tint: BentoTint = .accent
+
     /// Origin used by the current layout's hit testing. It differs from the
     /// window origin only when an oversized multi-display layout is clipped.
     private var layoutOriginNS: NSPoint?
@@ -234,6 +345,10 @@ final class TileCancelDot: NSPanel {
             targetChip.hide()
             return
         }
+        // The chip is a separate panel, so it has to be told the same
+        // appearance options — a bordered grid with a border-less pill (or two
+        // different materials) would read as a bug.
+        targetChip.applyAppearance(material: material, tint: tint, border: borderEnabled)
         targetChip.show(icon: targetAppIcon, name: name, anchoredAbove: panelFrame, on: screen)
     }
 
@@ -418,6 +533,8 @@ final class TileCancelDot: NSPanel {
     /// window's final bounds.
     private func layOutCardViews() {
         let margin = Self.shadowMargin
+        let nsMaterial = material.nsMaterial
+        let tintOption = tint
         if let layout = displayLayout {
             syncCardViewCount(layout.count)
             for (index, card) in layout.enumerated() {
@@ -431,6 +548,10 @@ final class TileCancelDot: NSPanel {
                 shadowViews[index].frame = view.frame
                 shadowViews[index].cornerRadius = Self.multiCardCornerRadius
                 view.cornerRadius = Self.multiCardCornerRadius
+                view.material = nsMaterial
+                view.content.cornerRadius = Self.multiCardCornerRadius
+                view.content.tint = tintOption
+                view.content.showBorder = borderEnabled
                 view.content.alphaValue = card.isCurrent ? 1.0 : Self.dimmedContentAlpha
                 view.content.titleAreaHeight = Self.cardTitleAreaHeight
                 view.content.label = card.label
@@ -446,6 +567,10 @@ final class TileCancelDot: NSPanel {
             shadowViews[0].frame = view.frame
             shadowViews[0].cornerRadius = Self.singleCardCornerRadius
             view.cornerRadius = Self.singleCardCornerRadius
+            view.material = nsMaterial
+            view.content.cornerRadius = Self.singleCardCornerRadius
+            view.content.tint = tintOption
+            view.content.showBorder = borderEnabled
             view.content.alphaValue = 1.0
             view.content.titleAreaHeight = 0
             view.content.label = nil
@@ -824,10 +949,26 @@ private final class BentoCardContentView: NSView {
     /// Height reserved at the TOP of the card for the title row. 0 when
     /// there's no title, in which case the grid fills the whole card.
     var titleAreaHeight: CGFloat = 0
+    /// Optional wash over the glass. Stored as the option, not a resolved
+    /// colour: every other colour in here is resolved inside `draw`, where
+    /// `NSAppearance.current` is this view's, so a light/dark swap needs no
+    /// extra plumbing.
+    var tint: BentoTint = .none
+    /// Optional system hairline around the card (`borderEnabled`).
+    var showBorder: Bool = false
+    /// The card's corner radius. The tint and the border have to follow the
+    /// glass mask's rounding — this view is NOT clipped by that mask, so a
+    /// plain `bounds` fill would poke square corners out of the card.
+    var cornerRadius: CGFloat = 15
 
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
+        if let tintColor = tint.color {
+            tintColor.setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius).fill()
+        }
+
         let gridRect = NSRect(
             x: bounds.minX,
             y: bounds.minY,
@@ -838,6 +979,18 @@ private final class BentoCardContentView: NSView {
 
         if let label, !label.isEmpty {
             drawTitle(label)
+        }
+
+        if showBorder {
+            // `separatorColor` is the system's own hairline colour, so it
+            // tracks light/dark and is a good deal lighter than the
+            // hard-coded black hairline this redesign removed.
+            let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+            let radius = max(0, cornerRadius - 0.5)
+            let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+            NSColor.separatorColor.setStroke()
+            path.lineWidth = 1
+            path.stroke()
         }
     }
 

@@ -81,6 +81,26 @@
 "feature.tileDragOnly.subtitle" = "With \"Tile by direction\", only show the tile panel after you hold the middle button and move the cursor. A plain middle-click stays fully native and never flashes the panel.";
 "feature.overlayEdgeSafe"          = "Keep tile panel on screen";
 "feature.overlayEdgeSafe.subtitle" = "Near a screen edge, keep the whole tile panel visible and move the cursor to its center. Turn off to show the panel at the cursor without moving it.";
+
+/* Settings — Tile panel look */
+"bentoAppearance.section"        = "Tile panel look";
+"feature.bentoBorder"           = "Show border";
+"feature.bentoBorder.subtitle"  = "Outline the tile panel and the app-name label with a thin border, so its edges stay clear on top of another window.";
+"feature.bentoMaterial"          = "Panel material";
+"feature.bentoMaterial.subtitle" = "The panel's frosted glass. The default follows the system and looks a lot like any window; a darker or more solid material separates it from what's behind.";
+"feature.bentoTint"          = "Panel tint";
+"feature.bentoTint.subtitle" = "Add a thin layer of colour over the frosted glass. Still translucent, but no longer blends into the window behind it.";
+"bentoMaterial.popover"      = "Default (follows system)";
+"bentoMaterial.menu"         = "Menu (more solid)";
+"bentoMaterial.toolTip"      = "Tooltip (brighter)";
+"bentoMaterial.hud"          = "Always dark";
+"bentoMaterial.fullScreenUI" = "Dark, more see-through";
+"bentoMaterial.heavyBlur"    = "Heavy blur";
+"bentoMaterial.sidebar"      = "Sidebar (most see-through)";
+"bentoTint.none"    = "None";
+"bentoTint.neutral" = "Neutral (a shade deeper)";
+"bentoTint.accent"  = "System accent colour";
+"bentoTint.brand"   = "AnyDrag orange";
 "Drag window" = "Drag window";
 "Maximize / Restore" = "Maximize / Restore";
 "Window tiling" = "Window tiling";

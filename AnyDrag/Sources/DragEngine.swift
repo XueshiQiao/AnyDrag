@@ -306,6 +306,12 @@ final class DragEngine {
     /// any display × any zone in a single gesture. When false, or with one
     /// display, falls back to the original single-display bento.
     var multiDisplayBentoEnabled: Bool = true
+    /// Bento overlay appearance. The frameless glass blends into neighbouring
+    /// windows by design; these let the user push it forward again — a system
+    /// hairline, a different glass material, and/or a thin colour wash.
+    var bentoBorderEnabled: Bool = false
+    var bentoMaterial: BentoMaterial = .popover
+    var bentoTint: BentoTint = .accent
     /// "Drag-only trigger mode" for the tile-by-direction middle gesture. When
     /// true, the cancel dot / bento panel is withheld on middle-button-down and
     /// revealed only once the cursor moves past a small threshold — so a static
@@ -1496,6 +1502,9 @@ final class DragEngine {
         }
         guard let target else { return }
         tileCancelDot.multiDisplayEnabled = multiDisplayBentoEnabled
+        tileCancelDot.borderEnabled = bentoBorderEnabled
+        tileCancelDot.material = bentoMaterial
+        tileCancelDot.tint = bentoTint
         tileCancelDot.edgeSafeEnabled = overlayEdgeSafeEnabled
         tileCancelDot.setTarget(pid: target.pid, appName: target.app)
         tileCancelDot.show(atCGPoint: origin)

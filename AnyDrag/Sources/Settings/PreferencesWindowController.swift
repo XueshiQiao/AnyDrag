@@ -47,6 +47,9 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var resizeTrigger: ResizeTrigger
     @Published private(set) var cornerBracketEnabled: Bool
     @Published private(set) var multiDisplayBentoEnabled: Bool
+    @Published private(set) var bentoBorderEnabled: Bool
+    @Published private(set) var bentoMaterial: BentoMaterial
+    @Published private(set) var bentoTint: BentoTint
     @Published private(set) var tileByDirectionDragOnly: Bool
     @Published private(set) var linkedResizeEnabled: Bool
     @Published private(set) var overlayEdgeSafeEnabled: Bool
@@ -80,6 +83,9 @@ final class SettingsStore: ObservableObject {
         resizeTrigger = engine.resizeTrigger
         cornerBracketEnabled = engine.cornerBracketEnabled
         multiDisplayBentoEnabled = engine.multiDisplayBentoEnabled
+        bentoBorderEnabled = engine.bentoBorderEnabled
+        bentoMaterial = engine.bentoMaterial
+        bentoTint = engine.bentoTint
         tileByDirectionDragOnly = engine.tileByDirectionDragOnly
         linkedResizeEnabled = engine.linkedResizeEnabled
         overlayEdgeSafeEnabled = engine.overlayEdgeSafeEnabled
@@ -231,6 +237,27 @@ final class SettingsStore: ObservableObject {
     func setTilingEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.tilingEnabled, analytics: "tiling_enabled", current: \.tilingEnabled, write: { self.engine.tilingEnabled = $0 }, mirror: { self.tilingEnabled = $0 }) }
     func setCornerBracketEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.cornerBracketEnabled, analytics: "corner_bracket_enabled", current: \.cornerBracketEnabled, write: { self.engine.cornerBracketEnabled = $0 }, mirror: { self.cornerBracketEnabled = $0 }) }
     func setMultiDisplayBentoEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.multiDisplayBentoEnabled, analytics: "multi_display_bento_enabled", current: \.multiDisplayBentoEnabled, write: { self.engine.multiDisplayBentoEnabled = $0 }, mirror: { self.multiDisplayBentoEnabled = $0 }) }
+    func setBentoBorderEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.bentoBorderEnabled, analytics: "bento_border_enabled", current: \.bentoBorderEnabled, write: { self.engine.bentoBorderEnabled = $0 }, mirror: { self.bentoBorderEnabled = $0 }) }
+
+    func setBentoMaterial(_ value: BentoMaterial) {
+        let previous = engine.bentoMaterial
+        engine.bentoMaterial = value
+        bentoMaterial = value
+        UserDefaults.standard.set(value.rawValue, forKey: Preferences.Key.bentoMaterial)
+        if previous != value {
+            Analytics.trackPreferenceChanged(key: "bento_material", value: value.rawValue)
+        }
+    }
+
+    func setBentoTint(_ value: BentoTint) {
+        let previous = engine.bentoTint
+        engine.bentoTint = value
+        bentoTint = value
+        UserDefaults.standard.set(value.rawValue, forKey: Preferences.Key.bentoTint)
+        if previous != value {
+            Analytics.trackPreferenceChanged(key: "bento_tint", value: value.rawValue)
+        }
+    }
     func setTileDragOnly(_ on: Bool)    { setBool(on, key: Preferences.Key.tileDragOnly, analytics: "tile_drag_only", current: \.tileByDirectionDragOnly, write: { self.engine.tileByDirectionDragOnly = $0 }, mirror: { self.tileByDirectionDragOnly = $0 }) }
     func setLinkedResizeEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.linkedResizeEnabled, analytics: "linked_resize_enabled", current: \.linkedResizeEnabled, write: { self.engine.linkedResizeEnabled = $0 }, mirror: { self.linkedResizeEnabled = $0 }) }
     func setOverlayEdgeSafeEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.overlayEdgeSafeEnabled, analytics: "overlay_edge_safe_enabled", current: \.overlayEdgeSafeEnabled, write: { self.engine.overlayEdgeSafeEnabled = $0 }, mirror: { self.overlayEdgeSafeEnabled = $0 }) }

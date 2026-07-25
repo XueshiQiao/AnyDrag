@@ -40,6 +40,14 @@ enum Preferences {
         static let leftResizeEnabled  = "AnyDragLeftResizeEnabled"
         static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
         static let multiDisplayBentoEnabled = "AnyDragMultiDisplayBentoEnabled"
+        // Bento overlay appearance: absent → the shipping look, i.e. no
+        // border, `.popover` glass, and an accent-colour wash (the wash is
+        // what keeps the frameless panel from blending into the window behind
+        // it). Only a DEBUG build surfaces these in Settings; the keys are
+        // still read in Release so the look stays configurable by hand.
+        static let bentoBorderEnabled = "AnyDragBentoBorderEnabled"
+        static let bentoMaterial      = "AnyDragBentoMaterial"
+        static let bentoTint          = "AnyDragBentoTint"
         static let middleAction    = "AnyDragMiddleAction"
         // "Drag-only trigger mode" for the tile-by-direction middle gesture.
         // Absent = false (panel shows immediately on middle-press, the original
@@ -288,6 +296,13 @@ enum Preferences {
         engine.tilingEnabled    = d.object(forKey: Key.tilingEnabled) as? Bool ?? true
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
         engine.multiDisplayBentoEnabled = d.object(forKey: Key.multiDisplayBentoEnabled) as? Bool ?? true
+        engine.bentoBorderEnabled = d.object(forKey: Key.bentoBorderEnabled) as? Bool ?? false
+        // Unrecognized values (a downgrade, a hand-edited plist) fall back to
+        // the default rather than throwing the stored string away.
+        engine.bentoMaterial = d.string(forKey: Key.bentoMaterial)
+            .flatMap(BentoMaterial.init(rawValue:)) ?? .popover
+        engine.bentoTint = d.string(forKey: Key.bentoTint)
+            .flatMap(BentoTint.init(rawValue:)) ?? .accent
         engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
         engine.linkedResizeEnabled = d.object(forKey: Key.linkedResizeEnabled) as? Bool ?? defaultLinkedResizeEnabled
         engine.overlayEdgeSafeEnabled = d.object(forKey: Key.overlayEdgeSafeEnabled) as? Bool ?? defaultOverlayEdgeSafeEnabled
