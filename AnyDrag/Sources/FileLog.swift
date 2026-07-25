@@ -18,10 +18,10 @@ final class FileLog {
         self.category = category
     }
 
-    func debug(_ message: @autoclosure @escaping () -> String) { write("DEBUG", message) }
-    func info (_ message: @autoclosure @escaping () -> String) { write("INFO",  message) }
-    func warn (_ message: @autoclosure @escaping () -> String) { write("WARN",  message) }
-    func error(_ message: @autoclosure @escaping () -> String) { write("ERROR", message) }
+    func debug(_ message: String) { write("DEBUG", message) }
+    func info (_ message: String) { write("INFO",  message) }
+    func warn (_ message: String) { write("WARN",  message) }
+    func error(_ message: String) { write("ERROR", message) }
 
     /// The on-disk log path. Exposed for diagnostics / About pane "Reveal in Finder".
     static var url: URL { Self.logURL }
@@ -46,11 +46,25 @@ final class FileLog {
         return f
     }()
 
-    private func write(_ level: String, _ messageProducer: @escaping () -> String) {
-        let cat = category
+    /// Formats the whole line on the calling thread, then hands the finished
+    /// bytes to the queue — only the file I/O is deferred.
+    ///
+    /// The message used to be an `@autoclosure` evaluated on the log queue,
+    /// which made a line report whatever the state had become by the time the
+    /// write ran, not what it was at the call. That is how
+    /// `"tap disabled \(tapDisableCount)x"` printed `0x` while the branch that
+    /// logged it only runs at a count of 3 — the counter had already been
+    /// reset. The timestamp had the same problem: it recorded when the write
+    /// happened rather than when the event did, so lines could also be
+    /// stamped out of order relative to the events they describe.
+    ///
+    /// `timeFormatter` is only read (never mutated) after its initializer, and
+    /// `DateFormatter` is documented as thread-safe for that, so formatting
+    /// from arbitrary threads is fine.
+    private func write(_ level: String, _ message: String) {
+        let line = "[\(Self.timeFormatter.string(from: Date()))] [\(level)] [\(category)] \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
         Self.queue.async {
-            let line = "[\(Self.timeFormatter.string(from: Date()))] [\(level)] [\(cat)] \(messageProducer())\n"
-            guard let data = line.data(using: .utf8) else { return }
             let url = Self.logURL
             if FileManager.default.fileExists(atPath: url.path) {
                 if let handle = try? FileHandle(forWritingTo: url) {
