@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>macOS Spaces 私有接口调研 · AnyDrag</title>
+<style>
+  :root {
+    --bg: #faf9f5;
+    --surface: #ffffff;
+    --ink: #1f1e1c;
+    --ink-soft: #5a5751;
+    --ink-faint: #8a857c;
+    --rule: #e6e2d4;
+    --rule-soft: #efece1;
+    --code-bg: #f3f0e6;
+    --accent: #d97757;
+    --accent-soft: #f4e2d6;
+    --good: #4f8a5c;
+    --warn: #b6711c;
+    --bad: #b14338;
+    --serif: "Tiempos", "Source Serif Pro", "Iowan Old Style", Georgia, serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 80px 40px 120px;
+  }
+
+  header.hero { margin-bottom: 56px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 48px;
+    line-height: 1.1;
+    margin: 0 0 20px;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+  }
+  .lede {
+    font-family: var(--serif);
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 640px;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 30px;
+    line-height: 1.2;
+    margin: 64px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 17px;
+    margin: 36px 0 10px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 16px; }
+  p, li { color: var(--ink); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  a:hover { border-bottom-color: var(--accent); }
+
+  ul, ol { padding-left: 24px; margin: 0 0 16px; }
+  li { margin-bottom: 8px; }
+  li code { font-size: 0.92em; }
+
+  code {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  pre {
+    background: #1f1e1c;
+    color: #f6f3eb;
+    padding: 20px 24px;
+    border-radius: 8px;
+    overflow-x: auto;
+    line-height: 1.55;
+    font-size: 13.5px;
+    margin: 20px 0 28px;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+  .tok-comment  { color: #9b9081; font-style: italic; }
+  .tok-keyword  { color: #e89b6f; }
+  .tok-fn       { color: #f0d68a; }
+  .tok-string   { color: #b8d49d; }
+  .tok-num      { color: #d8b9e3; }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 32px;
+    margin: 32px 0 48px;
+    padding: 18px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .meta-row b { color: var(--ink); font-weight: 500; margin-right: 8px; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 18px 22px;
+    margin: 28px 0;
+    border-radius: 0 6px 6px 0;
+    color: var(--ink);
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: block;
+  }
+
+  .figure {
+    margin: 36px 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 28px 24px 18px;
+  }
+  .figure svg { display: block; width: 100%; height: auto; }
+  .figure .caption {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--rule);
+  }
+  .figure .caption b { color: var(--ink-soft); font-weight: 600; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 24px 0 32px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: var(--rule-soft);
+    font-size: 13px;
+    letter-spacing: 0.01em;
+  }
+  td code { font-size: 0.88em; }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .pill.good    { background: #e3f0e2; color: var(--good); }
+  .pill.warn    { background: #f5e7d0; color: var(--warn); }
+  .pill.bad     { background: #f5dad6; color: var(--bad); }
+  .pill.neutral { background: var(--rule-soft); color: var(--ink-soft); }
+
+  .footer {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* SVG defaults */
+  svg text { font-family: var(--sans); font-size: 12.5px; fill: var(--ink); }
+  svg .label-mono  { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-soft); }
+  svg .label-soft  { fill: var(--ink-soft); }
+  svg .label-faint { fill: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="hero">
+  <div class="eyebrow">Research note · AnyDrag · 2026-07-25</div>
+  <h1>macOS Spaces：读得到，写不进</h1>
+  <p class="lede">窗口属于哪个桌面，任何普通 App 都能免费、快速、无需关闭 SIP 地查出来；但把别人的窗口挪到另一个桌面，系统会静默拒绝。这条分界线决定了所有多桌面工具的形态。</p>
+</header>
+
+<div class="meta-row">
+  <span><b>测试机</b><code>macOS 26.4.1 (25E253) · arm64</code></span>
+  <span><b>方法</b><code>自写探测程序实跑</code></span>
+  <span><b>结论</b><span class="pill good">读 · 可用</span> <span class="pill bad">写 · 不可用</span></span>
+</div>
+
+<p>本文所有结论都来自在上述机器上真实运行的探测程序，不是从文档或他人代码推断的。凡是没有实跑验证的推测，都在 §7 单独列出并标注。</p>
+
+<h2>1 · 结论先行：能力边界是一个 2×2</h2>
+
+<p>macOS 没有任何公开接口能告诉你"这个窗口在哪个桌面"。<code>CGWindowListCopyWindowInfo</code> 能列出全部窗口，但返回的字典里根本没有 Space 字段。所有做到这件事的 App，走的都是 SkyLight / CoreGraphics 的私有接口。</p>
+
+<p>这些接口的能力不是"能用 / 不能用"这么简单，而是沿着两个维度切开的：</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg" aria-label="读写能力 2x2 矩阵">
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">私有 Space 接口的能力边界（macOS 26.4.1 实测）</text>
+
+  <!-- column headers -->
+  <text x="330" y="62" text-anchor="middle" class="label-soft" font-weight="600">自己进程的窗口</text>
+  <text x="590" y="62" text-anchor="middle" class="label-soft" font-weight="600">别的 App 的窗口</text>
+
+  <!-- row labels -->
+  <text x="185" y="118" text-anchor="end" class="label-soft" font-weight="600">读</text>
+  <text x="185" y="136" text-anchor="end" class="label-mono">查窗口在哪个 Space</text>
+  <text x="185" y="222" text-anchor="end" class="label-soft" font-weight="600">写</text>
+  <text x="185" y="240" text-anchor="end" class="label-mono">把窗口挪到别的 Space</text>
+
+  <!-- cells: read row -->
+  <rect x="205" y="82" width="250" height="80" rx="8" fill="#e3f0e2" stroke="#4f8a5c" stroke-width="1.5"/>
+  <text x="330" y="115" text-anchor="middle" font-weight="600" fill="#4f8a5c">可用</text>
+  <text x="330" y="138" text-anchor="middle" class="label-mono" fill="#4f8a5c">0.012 ms / 次</text>
+
+  <rect x="465" y="82" width="250" height="80" rx="8" fill="#e3f0e2" stroke="#4f8a5c" stroke-width="1.5"/>
+  <text x="590" y="115" text-anchor="middle" font-weight="600" fill="#4f8a5c">可用</text>
+  <text x="590" y="138" text-anchor="middle" class="label-mono" fill="#4f8a5c">无需任何特殊权限</text>
+
+  <!-- cells: write row -->
+  <rect x="205" y="186" width="250" height="80" rx="8" fill="#e3f0e2" stroke="#4f8a5c" stroke-width="1.5"/>
+  <text x="330" y="219" text-anchor="middle" font-weight="600" fill="#4f8a5c">可用</text>
+  <text x="330" y="242" text-anchor="middle" class="label-mono" fill="#4f8a5c">但没有产品价值</text>
+
+  <rect x="465" y="186" width="250" height="80" rx="8" fill="#f5dad6" stroke="#b14338" stroke-width="1.5"/>
+  <text x="590" y="219" text-anchor="middle" font-weight="600" fill="#b14338">静默失效</text>
+  <text x="590" y="242" text-anchor="middle" class="label-mono" fill="#b14338">不报错，什么也不发生</text>
+</svg>
+<div class="caption"><b>图 1.</b> 唯一被堵死的是右下角这一格——而它恰好是做"多桌面管理工具"唯一真正需要的能力。三条不同的写入路径全部落在这一格里（§5）。</div>
+</div>
+
+<h2>2 · 读：三条路，别人都在用哪条</h2>
+
+<table>
+  <thead>
+    <tr><th>路径</th><th>谁在用</th><th>拿到什么</th><th>实测</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>读 <code>com.apple.spaces</code> 偏好文件</td>
+      <td>Amethyst 早期、spaces-renamer</td>
+      <td>每个 Space 的 UUID，外加一串 window id</td>
+      <td><span class="pill warn">可读但不实时</span></td>
+    </tr>
+    <tr>
+      <td><code>CGSCopyWindowsWithOptionsAndTags</code><br><span class="label-mono">按 Space 查窗口</span></td>
+      <td>yabai、AltTab</td>
+      <td>一个 Space 里有哪些窗口</td>
+      <td><span class="pill warn">快，但会漏</span></td>
+    </tr>
+    <tr>
+      <td><code>CGSCopySpacesForWindows</code><br><span class="label-mono">按窗口查 Space</span></td>
+      <td>Hammerspoon、Phoenix</td>
+      <td>一个窗口在哪些 Space 上</td>
+      <td><span class="pill good">完整，推荐</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>偏好文件那条路是最老的做法（ianyh 在 2013 年前后写过），它读的是 WindowServer 落盘的快照，切换桌面后不会立刻更新，只适合做冷启动时的初始化。真正实时的只有后两条。</p>
+
+<h3>需要的符号声明</h3>
+
+<p>注意一个链接上的坑：<code>CGS*</code> 开头的符号由 <b>CoreGraphics</b> 导出，<code>SLS*</code> 开头的才在 <b>SkyLight</b> 里。两套是同一批函数的两个名字。只链 SkyLight 而不 <code>import CoreGraphics</code>，链接器会报 undefined symbol。</p>
+
+<pre><code><span class="tok-keyword">import</span> CoreGraphics   <span class="tok-comment">// 必需：CGS* 符号从这里来</span>
+
+<span class="tok-keyword">typealias</span> CGSConnectionID = <span class="tok-keyword">UInt32</span>
+<span class="tok-keyword">typealias</span> CGSSpaceID      = <span class="tok-keyword">UInt64</span>
+
+@_silgen_name(<span class="tok-string">"CGSMainConnectionID"</span>)
+<span class="tok-keyword">func</span> <span class="tok-fn">CGSMainConnectionID</span>() -&gt; CGSConnectionID
+
+<span class="tok-comment">// 列出所有显示器上的所有 Space</span>
+@_silgen_name(<span class="tok-string">"CGSCopyManagedDisplaySpaces"</span>)
+<span class="tok-keyword">func</span> <span class="tok-fn">CGSCopyManagedDisplaySpaces</span>(_ cid: CGSConnectionID) -&gt; CFArray
+
+<span class="tok-comment">// 查某个窗口在哪些 Space 上。mask 0x7 = kCGSAllSpacesMask</span>
+@_silgen_name(<span class="tok-string">"CGSCopySpacesForWindows"</span>)
+<span class="tok-keyword">func</span> <span class="tok-fn">CGSCopySpacesForWindows</span>(_ cid: CGSConnectionID,
+                             _ mask: <span class="tok-keyword">Int</span>,
+                             _ wids: CFArray) -&gt; CFArray</code></pre>
+
+<h2>3 · 实测输出</h2>
+
+<p>探测程序在一台外接一块显示器、共 3 个桌面的 Mac 上跑出的真实结果：</p>
+
+<pre><code><span class="tok-comment">== CGSMainConnectionID() -&gt; 1708767</span>
+<span class="tok-comment">== CGWindowListCopyWindowInfo(.optionAll) -&gt; 311 windows（公开接口里没有任何 space 信息）</span>
+
+Display #0  uuid=1F26ABAD-…  spaces=1    current -&gt; 1
+  Space id64=1    type=user  windows=25   &lt;== 当前
+    apps: Control Center×19, Window Server×2, AnyDrag, CCSwitcher, Dock, System Settings
+
+Display #1  uuid=EF9F6A81-…  spaces=2    current -&gt; 142
+  Space id64=142  type=user  windows=29   &lt;== 当前
+    apps: Control Center×19, Window Server×2, Dock, Finder, Flowy-Debug,
+          Google Chrome, HyperCapslock, Otty, Wallpaper, XTools
+  Space id64=148  type=user  windows=3
+    apps: Window Server×2, Dock          <span class="tok-comment">← 空桌面</span></code></pre>
+
+<p><b>"每个桌面上有什么 App"这个需求，技术上完全成立，而且很便宜。</b>全量扫描 300 多个窗口只要几毫秒，做成菜单栏常驻刷新毫无压力。</p>
+
+<h2>4 · 四个只有真跑才知道的坑</h2>
+
+<h3>坑 1：批量调用返回的不是一一对应的结果</h3>
+
+<p>这是最容易写出静默错误的地方。<code>CGSCopySpacesForWindows</code> 接受一个窗口数组，直觉上应该返回一个等长的数组，下标对下标。实际上它返回的是<b>去重后的集合</b>。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 210" xmlns="http://www.w3.org/2000/svg" aria-label="批量调用返回去重集合">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">传 304 个窗口 id 进去，回来 3 个数字</text>
+
+  <!-- input -->
+  <text x="20" y="58" class="label-mono">输入 wids（304 个）</text>
+  <rect x="20" y="68" width="58" height="30" rx="4" fill="#f3f0e6" stroke="#e6e2d4"/>
+  <text x="49" y="88" text-anchor="middle" class="label-mono">4414</text>
+  <rect x="82" y="68" width="58" height="30" rx="4" fill="#f3f0e6" stroke="#e6e2d4"/>
+  <text x="111" y="88" text-anchor="middle" class="label-mono">4405</text>
+  <rect x="144" y="68" width="58" height="30" rx="4" fill="#f3f0e6" stroke="#e6e2d4"/>
+  <text x="173" y="88" text-anchor="middle" class="label-mono">4265</text>
+  <text x="215" y="88" class="label-faint">… 还有 301 个</text>
+
+  <line x1="330" y1="83" x2="420" y2="83" stroke="#5a5751" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <text x="375" y="74" text-anchor="middle" class="label-mono">调用</text>
+
+  <!-- output -->
+  <text x="440" y="58" class="label-mono">返回（只有 3 个）</text>
+  <rect x="440" y="68" width="46" height="30" rx="4" fill="#f4e2d6" stroke="#d97757"/>
+  <text x="463" y="88" text-anchor="middle" class="label-mono" fill="#d97757">1</text>
+  <rect x="492" y="68" width="56" height="30" rx="4" fill="#f4e2d6" stroke="#d97757"/>
+  <text x="520" y="88" text-anchor="middle" class="label-mono" fill="#d97757">142</text>
+  <rect x="554" y="68" width="56" height="30" rx="4" fill="#f4e2d6" stroke="#d97757"/>
+  <text x="582" y="88" text-anchor="middle" class="label-mono" fill="#d97757">148</text>
+
+  <!-- wrong assumption -->
+  <rect x="20" y="126" width="590" height="62" rx="8" fill="#f5dad6" stroke="#b14338" stroke-width="1.5"/>
+  <text x="38" y="150" font-weight="600" fill="#b14338">按下标去对应 → 全错</text>
+  <text x="38" y="172" class="label-mono" fill="#b14338">result[i] 不是 wids[i] 的 space；它是「这批窗口一共涉及哪些 space」的去重集合</text>
+
+  <text x="638" y="152" class="label-mono" fill="#4f8a5c">正确做法：</text>
+  <text x="638" y="172" class="label-mono" fill="#4f8a5c">一个窗口调一次</text>
+</svg>
+<div class="caption"><b>图 2.</b> 这个 API 不会报错，也不会崩溃——它只是返回了一个语义完全不同的数组。逐窗口调用单次只要 0.012 ms，调 300 次也才 4 ms，没有理由为了"优化"去批量传。</div>
+</div>
+
+<h3>坑 2：按 Space 查的那条路会漏掉最小化的窗口</h3>
+
+<p>同一时刻用两种方法查同一批 Space，结果并不一致：按 Space 查（方法 A）拿到的窗口集合，<b>始终是</b>按窗口查（方法 B）的真子集。差额全部是最小化 / 隐藏的窗口。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 240" xmlns="http://www.w3.org/2000/svg" aria-label="两种查法的差异">
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">同一时刻、同一个 Space，两种查法的 layer-0 应用窗口</text>
+
+  <!-- space 142 -->
+  <text x="20" y="58" class="label-mono">space 142</text>
+
+  <text x="120" y="88" text-anchor="end" class="label-soft">方法 A 按 Space 查</text>
+  <rect x="132" y="72" width="200" height="24" rx="4" fill="#4f8a5c"/>
+  <text x="232" y="89" text-anchor="middle" class="label-mono" fill="#ffffff">5 个</text>
+
+  <text x="120" y="126" text-anchor="end" class="label-soft">方法 B 按窗口查</text>
+  <rect x="132" y="110" width="200" height="24" rx="4" fill="#4f8a5c"/>
+  <rect x="332" y="110" width="320" height="24" rx="4" fill="#d97757"/>
+  <text x="232" y="127" text-anchor="middle" class="label-mono" fill="#ffffff">5 个</text>
+  <text x="492" y="127" text-anchor="middle" class="label-mono" fill="#ffffff">+8 个 A 漏掉的</text>
+
+  <text x="672" y="127" class="label-mono" fill="#d97757">= 13 个</text>
+
+  <!-- the missed ones -->
+  <rect x="132" y="152" width="520" height="62" rx="8" fill="#f4e2d6" stroke="#d97757" stroke-width="1.2"/>
+  <text x="150" y="176" class="label-mono" fill="#b6711c" font-weight="600">A 漏掉的 8 个，全是最小化窗口：</text>
+  <text x="150" y="198" class="label-mono" fill="#b6711c">Claude · Surge · WeChat×2 · Google Chrome×2 · Input Source Pro · Rectangle Pro</text>
+</svg>
+<div class="caption"><b>图 3.</b> 方法 A 快 50 倍（3 次调用 0.3 ms vs 306 次调用 15 ms），但它只看得见"已经被渲染出来"的窗口。做桌面总览必须用方法 B，否则用户最小化一个窗口，它就从总览里消失了。</div>
+</div>
+
+<h3>坑 3：大部分窗口根本不属于任何 Space</h3>
+
+<p>公开接口报告 304 个窗口，其中只有 <b>91 个</b>能查到 Space，剩下 213 个查出来是空数组。这 213 个是 WindowServer 内部窗口（94 个）、输入法候选框、菜单、阴影层之类的东西。</p>
+
+<p>必须按 <code>kCGWindowLayer == 0</code> 过滤，否则一个桌面会显示成"有 19 个 Control Center 窗口"。</p>
+
+<h3>坑 4：Space 的数字 id 会变，UUID 才是稳定标识</h3>
+
+<p>这个坑是意外撞见的。两次探测间隔约 20 分钟，同一个桌面的 <code>id64</code> 从 <b>142</b> 变成了 <b>193</b>，而它的 UUID 一个字符都没变。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" aria-label="id64 会变而 uuid 不变">
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">同一个桌面，同一次登录会话内</text>
+
+  <line x1="60" y1="150" x2="740" y2="150" stroke="#e6e2d4" stroke-width="1.5"/>
+
+  <!-- t1 -->
+  <circle cx="200" cy="150" r="6" fill="#d97757"/>
+  <text x="200" y="176" text-anchor="middle" class="label-mono">第一次探测</text>
+  <rect x="90" y="52" width="220" height="76" rx="8" fill="#ffffff" stroke="#e6e2d4" stroke-width="1.2"/>
+  <text x="106" y="76" class="label-mono" fill="#b14338">id64  = 142</text>
+  <text x="106" y="100" class="label-mono" fill="#4f8a5c">uuid  = AE7A4793-8025-…</text>
+  <text x="106" y="120" class="label-faint" style="font-size:11px">桌面上是同一批窗口</text>
+
+  <!-- t2 -->
+  <circle cx="600" cy="150" r="6" fill="#d97757"/>
+  <text x="600" y="176" text-anchor="middle" class="label-mono">约 20 分钟后</text>
+  <rect x="490" y="52" width="220" height="76" rx="8" fill="#ffffff" stroke="#e6e2d4" stroke-width="1.2"/>
+  <text x="506" y="76" class="label-mono" fill="#b14338">id64  = 193  ← 变了</text>
+  <text x="506" y="100" class="label-mono" fill="#4f8a5c">uuid  = AE7A4793-8025-…  ← 没变</text>
+  <text x="506" y="120" class="label-faint" style="font-size:11px">还是同一个桌面</text>
+
+  <line x1="316" y1="90" x2="484" y2="90" stroke="#5a5751" stroke-dasharray="4 3"/>
+</svg>
+<div class="caption"><b>图 4.</b> 任何要落盘的数据——桌面名字、图标、每桌面的时间统计——都必须以 UUID 为键。用 <code>id64</code> 做键，用户开关一次全屏 App，配置就会错位到别的桌面上。</div>
+</div>
+
+<p>顺带确认：<b>macOS 自己不存桌面名字。</b><code>CGSSpaceCopyName</code> 返回的就是那串 UUID，不是人类可读的名字。所以 SpaceJump 那类 App 的"给桌面起名"功能，是自己维护了一张 UUID → 名字的映射表。</p>
+
+<h2>5 · 写：三条路径，全部静默失效</h2>
+
+<p>符号是齐的。用 <code>dlsym</code> 逐个查，写入相关的十几个私有符号在 macOS 26.4.1 上一个不少：<code>CGSMoveWindowsToManagedSpace</code>、<code>CGSAddWindowsToSpaces</code>、<code>CGSRemoveWindowsFromSpaces</code>、<code>CGSSpaceCreate</code>、<code>CGSSpaceDestroy</code>、<code>CGSManagedDisplaySetCurrentSpace</code> 全部 EXISTS。</p>
+
+<div class="callout">
+<span class="label">但符号存在 ≠ 能用</span>
+<p>实测方式：起一个全新的 TextEdit（一个真正的外部进程），拿到它的 window id，依次用三条不同的写入路径尝试把它挪到另一个桌面，每次都用 <code>CGSCopySpacesForWindows</code> 回读验证。</p>
+</div>
+
+<table>
+  <thead>
+    <tr><th>写入路径</th><th>返回</th><th>回读结果</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>CGSMoveWindowsToManagedSpace</code></td>
+      <td>void，无错误</td>
+      <td><span class="pill bad">NO-OP</span> 窗口没动</td>
+    </tr>
+    <tr>
+      <td><code>CGSAddWindowsToSpaces</code></td>
+      <td>void，无错误</td>
+      <td><span class="pill bad">NO-OP</span> 窗口没动</td>
+    </tr>
+    <tr>
+      <td><code>CGSSpaceSetCompatID</code> + <code>CGSSetWindowListWorkspace</code><br><span class="label-mono">yabai 的老路径</span></td>
+      <td><code>1006</code> = <code>kCGErrorNotImplemented</code></td>
+      <td><span class="pill bad">NO-OP</span> 窗口没动</td>
+    </tr>
+    <tr>
+      <td colspan="3" style="background:#e3f0e2">
+        <b>对照组：同样的调用，作用在自己进程的窗口上</b> —
+        <code>CGSMoveWindowsToManagedSpace</code> 把自己的窗口从 space 1 挪到 142，回读确认 <span class="pill good">成功</span>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<p>注意第三条返回的是 <code>kCGErrorNotImplemented</code>——Apple 把这个函数明确地做成了空实现。前两条更"礼貌"：不返回任何错误，安安静静地什么也不做。</p>
+
+<h3>这解释了 yabai 为什么必须关 SIP</h3>
+
+<p>yabai 要移动窗口 / 创建销毁桌面，走的不是"直接调这些函数"，而是往 <b>Dock.app</b> 里注入一个 scripting addition，从 Dock 的进程里去调。因为 Dock 才是持有 Space 管理权限的那个进程。注入需要关闭 SIP，这是它那个恶名昭著的安装步骤的全部原因。</p>
+
+<p>而 AeroSpace 选择了另一条路：<b>完全不碰系统 Spaces</b>，自己造一套虚拟工作区，切换时把不属于当前工作区的窗口挪到屏幕外面去。这样就绕开了整堵墙，代价是它管理的"工作区"和 Mission Control 里看到的"桌面"是两套互不相干的东西。</p>
+
+<h2>6 · 对 AnyDrag 意味着什么</h2>
+
+<table>
+  <thead>
+    <tr><th>能力</th><th>可行性</th><th>说明</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>桌面总览：每个桌面上有哪些 App</td>
+      <td><span class="pill good">可做</span></td>
+      <td>几毫秒扫全量，无需关 SIP。用方法 B + layer 过滤 + UUID 做键。</td>
+    </tr>
+    <tr>
+      <td>菜单栏显示"当前在第几个桌面"</td>
+      <td><span class="pill good">可做</span></td>
+      <td><code>CGSManagedDisplayGetCurrentSpace</code>，支持多显示器分别取。</td>
+    </tr>
+    <tr>
+      <td>给桌面起名字</td>
+      <td><span class="pill good">可做</span></td>
+      <td>系统不存名字，得自己维护 UUID → 名字表。</td>
+    </tr>
+    <tr>
+      <td>用 API 把窗口挪到别的桌面</td>
+      <td><span class="pill bad">做不到</span></td>
+      <td>三条路径全部静默失效，除非关 SIP 往 Dock 注入。</td>
+    </tr>
+    <tr>
+      <td>用模拟拖拽把窗口挪到别的桌面</td>
+      <td><span class="pill warn">未验证</span></td>
+      <td>见下。这是 AnyDrag 唯一有优势的角度。</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+<span class="label">还没走完的那条路</span>
+<p>macOS 原生就支持"拖着窗口撞到屏幕边缘停一下 → 窗口跟着换到下一个桌面"。这是用户级的交互，不受私有接口的限制。AnyDrag 本来就在窗口服务器层面合成原生的标题栏拖拽，理论上有条件把这套动作自动化成一个快捷键或菜单项。<b>这条路我没有实测过</b>，但它是唯一一条不需要关 SIP 又能真正移动窗口的路径，值得单独验一次。</p>
+</div>
+
+<h2>7 · 明确没有验证的部分</h2>
+
+<ul>
+  <li><b>是否真的零权限。</b>探测程序运行时没有弹出任何权限对话框，但它是从一个已经被授予辅助功能权限的终端里启动的，子进程可能继承了归属。要确认"独立 App 零权限可用"，得打包成 .app 单独跑一次。</li>
+  <li><b>SpaceJump / Swish 的"拖窗口到别的桌面"具体怎么实现。</b>基于本文的结论，它们只可能走模拟用户操作那条路，但我没有反编译验证过。</li>
+  <li><b><code>CGSAddWindowsToSpaces</code> 作用在自己窗口上是否有效。</b>对照实验设计有误——目标 Space 恰好就是该窗口已在的 Space，所以这一格结论无效。只有 <code>CGSMoveWindowsToManagedSpace</code> 的自窗口移动是确实验证过的。</li>
+  <li><b><code>CGSSpaceSetCompatID</code> 的返回值。</b>实测返回 <code>1112379</code>，不是任何已知的 CGError。两次调用返回同一个值，推测这个函数实际返回 void，我把它声明成返回 <code>CGError</code> 导致读到了寄存器里的残留值。这个返回值不应被当作错误码解读。</li>
+  <li><b>更早 / 更晚的 macOS 版本。</b>全部结论只在 macOS 26.4.1 (25E253) arm64 上成立。这些是私有接口，Apple 随时可能改。</li>
+</ul>
+
+<h2>8 · 参考</h2>
+
+<ul>
+  <li><a href="https://github.com/Hammerspoon/hammerspoon/blob/master/extensions/spaces/libspaces.m">Hammerspoon <code>libspaces.m</code></a> — 注释最完整的一份，space mask 常量的含义从这里来</li>
+  <li><a href="https://github.com/lwouis/alt-tab-macos/blob/master/src/macos/api-wrappers/SkyLight.framework.swift">AltTab <code>SkyLight.framework.swift</code></a> — Swift 版的符号声明范本；<a href="https://github.com/lwouis/alt-tab-macos/blob/master/src/switcher/state/Spaces.swift"><code>Spaces.swift</code></a> 里能看到它为什么选择反过来按 Space 查</li>
+  <li><a href="https://github.com/NUIKit/CGSInternal/blob/master/CGSSpace.h">CGSInternal <code>CGSSpace.h</code></a> — <code>CGSSpaceMask</code> / <code>CGSSpaceType</code> 枚举定义</li>
+  <li><a href="https://github.com/kasper/phoenix/blob/master/Phoenix/PHSpace.m">Phoenix <code>PHSpace.m</code></a></li>
+  <li><a href="https://ianyh.com/blog/identifying-spaces-in-mac-os-x/">ianyh — Identifying Spaces in Mac OS X</a> — 偏好文件那条老路的出处</li>
+</ul>
+
+<div class="footer">
+  <span>AnyDrag · macOS Spaces 私有接口调研 · 2026-07-25</span>
+  <span>测试机 <code>macOS 26.4.1 (25E253)</code></span>
+</div>
+
+</div>
+</body>
+</html>
