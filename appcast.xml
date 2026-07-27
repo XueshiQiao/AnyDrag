@@ -5,8 +5,22 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.07.112</title>
-      <description><![CDATA[<h3>What's New in 26.07.112</h3>
+      <title>Version 26.07.113</title>
+      <description><![CDATA[<h3>What's New in 26.07.113</h3>
+<ul>
+  <li><b>Send a window to another display, untouched</b> — In the multi-display tile panel (hold the middle button and drag), stopping on the <b>center cell of another display's card</b> now sends the window to that display exactly as it is — same size, same relative position, not tiled. The small rectangle drawn inside that cell previews where it will land. The center cell of the card you started on is still cancel.</li>
+  <li><b>Compatible with BetterMouse</b> — With BetterMouse running, holding Control and dragging a window only popped a context menu; the window never moved. BetterMouse re-applies modifier flags to left-button events from the physical key state, which undid the Control flag AnyDrag has to clear for its title-bar drag — so macOS read every drag as a right-click. AnyDrag now repeats that clear at the very end of the event chain, and creates it at the start of each gesture, so it holds no matter which app launched first or was restarted. Thanks to <a href="https://github.com/Leroy-X">@Leroy-X</a> for reporting it and narrowing it down to BetterMouse in a clean VM (<a href="https://github.com/XueshiQiao/AnyDrag/issues/27">#27</a>). The full investigation is <a href="https://github.com/XueshiQiao/AnyDrag/blob/main/docs/event-tap-conflict-bettermouse.html">written up here</a>.</li>
+  <li><b>Steadier target label</b> — In the multi-display tile panel, the label naming your target now stays anchored over the current display's card.</li>
+</ul>
+
+<h3>26.07.113 更新内容</h3>
+<ul>
+  <li><b>把窗口原封不动地送到另一块屏幕</b> — 多显示器的平铺面板里(按住中键拖动),停在<b>别的屏幕那张卡片的中间格子</b>上,窗口会原封不动地搬到那块屏幕——大小不变、相对位置不变,而不是被平铺。格子里画的小方块就是它落点的预览。手势起始的那张卡片,中间格子仍然是取消。</li>
+  <li><b>兼容 BetterMouse</b> — 开着 BetterMouse 时,按住 Control 拖窗口只会弹出右键菜单,窗口纹丝不动。BetterMouse 会按物理按键的当前状态,把修饰键标记重新盖到左键事件上,于是 AnyDrag 为了实现标题栏拖动而必须抹掉的 Control 标记又被贴了回去——macOS 就把每次拖动都当成了右键。AnyDrag 现在会在事件链的最末端把它再抹一次,并且在每次手势开始时才创建,所以无论两个 App 谁先启动、谁重启过,都能生效。感谢 <a href="https://github.com/Leroy-X">@Leroy-X</a> 反馈,并在干净的虚拟机里把范围缩小到 BetterMouse(<a href="https://github.com/XueshiQiao/AnyDrag/issues/27">#27</a>)。完整的排查过程<a href="https://github.com/XueshiQiao/AnyDrag/blob/main/docs/event-tap-conflict-bettermouse.html">写在这里</a>。</li>
+  <li><b>目标标签不再飘</b> — 多显示器平铺面板里,标注目标的那个标签现在固定显示在当前显示器那张卡片上。</li>
+</ul>
+
+<h3>What's New in 26.07.112</h3>
 <ul>
   <li><b>Center, Restore original size and Minimize in the tiling panel</b> — The panel you get by holding your modifier and right-clicking a window has a third row under <b>Move &amp; Resize</b>: <b>Center</b>, <b>Restore original size</b> and <b>Minimize</b>. Restore puts a window back the way it was before AnyDrag first moved it, and stays greyed out — "Nothing to restore — AnyDrag hasn't moved this window yet" — for windows AnyDrag never touched. The centered size is now yours to choose in <b>Settings → Window Drag → Advanced Tweaks → Centered window size</b> (50%–85%, default 85%), the same value the middle-button drag-down center uses. Thanks to 小红书 user 配音员泽坤 for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/30">#30</a>).</li>
   <li><b>A cleaner panel for tile-by-direction</b> — The panel that appears while you hold the middle button and drag has no borders left at all: every connected display is now its own piece of frosted glass with its name in the top-left corner, and the display you're on is marked with a small coloured dot instead of a blue frame. A faint tint in your system accent colour keeps the glass from disappearing into the window behind it.</li>
@@ -251,11 +265,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Sat, 25 Jul 2026 14:08:12 +0000</pubDate>
-      <sparkle:version>112</sparkle:version>
-      <sparkle:shortVersionString>26.07.112</sparkle:shortVersionString>
+      <pubDate>Mon, 27 Jul 2026 07:34:53 +0000</pubDate>
+      <sparkle:version>113</sparkle:version>
+      <sparkle:shortVersionString>26.07.113</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.07.112/AnyDrag.dmg" length="4019543" type="application/octet-stream" sparkle:edSignature="gjCmHw/9yUM0R8nauOvgBMVsWGR0WvbJgy7gsetagkJF/uYhrlal3UQ3lfSfzkDMHN/kjwJEWvM9UWyPO0FiCQ==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.07.113/AnyDrag.dmg" length="4038543" type="application/octet-stream" sparkle:edSignature="EQXOJGZF4cWon7CGtl9byNv8+1+6vZU9lcfwz39jqb2l5zpVF5ERb0ygYnoLre/1najtYl0v4u1CufDeED0uAw==" />
     </item>
   </channel>
 </rss>
