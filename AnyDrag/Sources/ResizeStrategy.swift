@@ -168,8 +168,10 @@ final class ResizeStrategy {
     /// empty in `reset()`.
     var extraFlagsToStrip: CGEventFlags = []
 
-    /// All flags scrubbed from synthesized events this gesture.
-    private var flagsToStrip: CGEventFlags { Self.modifierFlagsToStrip.union(extraFlagsToStrip) }
+    /// All flags scrubbed from synthesized events this gesture. Also read by the
+    /// engine so `TrailingFlagScrubber` can repeat the same scrub at the tail of
+    /// the tap chain, after any downstream tool has re-asserted them.
+    var flagsToStrip: CGEventFlags { Self.modifierFlagsToStrip.union(extraFlagsToStrip) }
 
     func handleMouseDown(pid: pid_t,
                         windowID: CGWindowID,

@@ -429,6 +429,11 @@ final class DragEngine {
 
     private let strategy = TitleBarDragStrategy()
     private let resizeStrategy = ResizeStrategy()
+
+    /// Repeats the strategies' modifier scrub at the tail of the tap chain, so a
+    /// downstream mouse utility can't re-assert the flags we just cleared. Only
+    /// touched from the event-tap thread — see `TrailingFlagScrubber`.
+    private let flagScrubber = TrailingFlagScrubber()
     /// Frames from before AnyDrag first moved a window, keyed by window id — the
     /// source for both Restore and modifier+double-click.
     ///
@@ -583,6 +588,9 @@ final class DragEngine {
             return
         }
 
+        // Lift the bar a previous `stop()` put up (no-op on a first start).
+        flagScrubber.resume()
+
         cbState.withLock { $0.eventCounter = 0 }
         eventCounterStart = Date()
         tapDisableWindowStart = nil
@@ -596,6 +604,13 @@ final class DragEngine {
     func stop() {
         dispatchPrecondition(condition: .onQueue(.main))
         Self.log.info("stop(): tearing down event tap")
+
+        // Drop the trailing scrubber first, and bar it from making another: its
+        // run loop source lives on the tap thread we're about to stop, and a live
+        // tap nobody services would stall input until the system times it out.
+        // The bar matters because a gesture may be building one right now on that
+        // thread — `resume()` in `start()` lifts it.
+        flagScrubber.shutdown()
 
         // Atomically pull the tap and run loop out of the shared state.
         // After this exits the lock, the cbState reflects "no tap running"
@@ -883,6 +898,33 @@ final class DragEngine {
         }
     }
 
+    // MARK: - Trailing flag scrub
+
+    /// Arm the tail-of-chain scrubber for a gesture that is about to start.
+    ///
+    /// Only the flags actually held on the triggering event are scrubbed: with
+    /// no conflicting modifier down there is nothing for a downstream tool to
+    /// re-assert, and `TrailingFlagScrubber` then skips creating a tap at all —
+    /// so users without such a tool pay nothing.
+    private func beginFlagScrub(candidates: CGEventFlags, heldOn event: CGEvent) {
+        flagScrubber.begin(stripping: candidates.intersection(event.flags))
+    }
+
+    /// Retire the trailing scrubber for a gesture that just ended.
+    ///
+    /// A release the strategy suppressed (no-drag middle click, no-drag
+    /// right-click resize) never reaches the tail of the chain, so there is
+    /// nothing left to scrub and the tap goes now. Otherwise we wait for exactly
+    /// that event — `event.type` is read after the strategy ran, so it reflects
+    /// any rewrite (a middle-button drag ends as a `leftMouseUp`).
+    private func endFlagScrub(release: Unmanaged<CGEvent>?, event: CGEvent) {
+        if release == nil {
+            flagScrubber.end()
+        } else {
+            flagScrubber.finish(terminator: event.type)
+        }
+    }
+
     // MARK: - Event Handling
 
     fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -933,6 +975,9 @@ final class DragEngine {
             // gesture is now stranded. Drop it so we don't apply a stale
             // tile on the next mouse-up.
             abortTileGesture()
+            // Same for the trailing scrubber: its gesture can no longer deliver
+            // a mouse-up through us, so nothing would ever retire it.
+            flagScrubber.end()
             // Same reasoning for the right-button resize gesture: a missed
             // rightUp would leave `resizeStrategy.isActive` stuck true,
             // intercepting the next right-click. Drop it so the next gesture
@@ -1025,6 +1070,11 @@ final class DragEngine {
         // be hijacked into a resize. The move path re-arms its own strategy.
         if resizeStrategy.isActive {
             resizeStrategy.reset()
+            // Retire that gesture's scrubber too. This press may not start an
+            // AnyDrag gesture at all (wrong modifier, no window), and a scrubber
+            // left armed would keep stripping flags from unrelated input until
+            // its watchdog expires.
+            flagScrubber.end()
             cbState.withLock { state in
                 state.rightTarget = nil
                 state.rightOrigin = nil
@@ -1091,6 +1141,7 @@ final class DragEngine {
         // (the stale-`resizeStrategy` guard), so nothing to clear here.
         strategy.reset()
         Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+        beginFlagScrub(candidates: TitleBarDragStrategy.modifierFlagsToStrip, heldOn: event)
         return strategy.handleMouseDown(
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
@@ -1142,6 +1193,7 @@ final class DragEngine {
         resizeStrategy.extraFlagsToStrip = leftResizeModifier.eventFlags
 
         Self.log.info("left-resize start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) keys=\(self.leftResizeModifier.symbol)")
+        beginFlagScrub(candidates: resizeStrategy.flagsToStrip, heldOn: event)
         return resizeStrategy.handleMouseDown(
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
@@ -1172,7 +1224,9 @@ final class DragEngine {
         // or quietly swallow the press (no drag). Unlike the right-click path
         // there's no TilingPanel fallback — a bare base+extra click is a no-op.
         if resizeStrategy.isActive {
-            return resizeStrategy.handleMouseUp(event: event)
+            let result = resizeStrategy.handleMouseUp(event: event)
+            endFlagScrub(release: result, event: event)
+            return result
         }
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
@@ -1180,6 +1234,7 @@ final class DragEngine {
         let didDrag = strategy.didDrag
         let modsForAnalytics = self.modifiers
         let result = strategy.handleMouseUp(event: event)
+        endFlagScrub(release: result, event: event)
         if didDrag {
             DispatchQueue.main.async {
                 Analytics.trackDrag(trigger: .modifier, modifier: modsForAnalytics)
@@ -1265,6 +1320,7 @@ final class DragEngine {
         // Suppress the down; the strategy will replay it as a leftMouseDown
         // on the first drag (resize) — or `handleRightMouseUp` will open the
         // panel if no drag arrives.
+        beginFlagScrub(candidates: resizeStrategy.flagsToStrip, heldOn: event)
         return resizeStrategy.handleMouseDown(
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
@@ -1287,6 +1343,7 @@ final class DragEngine {
 
         let didDrag = resizeStrategy.didDrag
         let result = resizeStrategy.handleMouseUp(event: event)
+        endFlagScrub(release: result, event: event)
 
         if didDrag {
             // Resize committed natively via the rewritten event stream.
@@ -1378,6 +1435,7 @@ final class DragEngine {
             cbState.withLock { $0.middleClickOrigin = screenPoint }
             strategy.reset()
             Self.log.info("middle drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+            beginFlagScrub(candidates: TitleBarDragStrategy.modifierFlagsToStrip, heldOn: event)
             return strategy.handleMouseDown(
                 pid: windowInfo.pid,
                 windowID: windowInfo.windowID,
@@ -1579,6 +1637,7 @@ final class DragEngine {
         let origin = dragOrigin
 
         let result = strategy.handleMouseUp(event: event)
+        endFlagScrub(release: result, event: event)
 
         // Click without drag: replay a synthesized middle-click at the original
         // location so apps still see the click (browsers, IDEs, etc). Dispatch

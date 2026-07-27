@@ -43,7 +43,10 @@ final class TitleBarDragStrategy {
     /// is left intact. To fully suppress, we'd have to synthesize an Option
     /// keyUp into the system before the drag (with side effects on other
     /// apps' keyboard listeners) — not worth it.
-    private static let modifierFlagsToStrip: CGEventFlags = [.maskControl]
+    /// Also read by the engine so `TrailingFlagScrubber` can repeat the same
+    /// scrub at the tail of the tap chain, after any downstream tool has
+    /// re-asserted the flags we cleared here.
+    static let modifierFlagsToStrip: CGEventFlags = [.maskControl]
 
     private let debugDot = DebugDotOverlay()
 
