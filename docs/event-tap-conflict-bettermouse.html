@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CGEvent Tap 冲突排查：BetterMouse 如何让 AnyDrag 的 Ctrl 拖动失效</title>
+<style>
+  :root {
+    --bg: #faf9f5;
+    --surface: #ffffff;
+    --ink: #1f1e1c;
+    --ink-soft: #5a5751;
+    --ink-faint: #8a857c;
+    --rule: #e6e2d4;
+    --rule-soft: #efece1;
+    --code-bg: #f3f0e6;
+    --accent: #d97757;
+    --accent-soft: #f4e2d6;
+    --good: #4f8a5c;
+    --warn: #b6711c;
+    --bad: #b14338;
+    --serif: "Tiempos", "Source Serif Pro", "Iowan Old Style", Georgia, serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 80px 40px 120px;
+  }
+
+  header.hero { margin-bottom: 56px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 48px;
+    line-height: 1.1;
+    margin: 0 0 20px;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+  }
+  .lede {
+    font-family: var(--serif);
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 640px;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 30px;
+    line-height: 1.2;
+    margin: 64px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 17px;
+    margin: 36px 0 10px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 16px; }
+  p, li { color: var(--ink); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  a:hover { border-bottom-color: var(--accent); }
+
+  ul, ol { padding-left: 24px; margin: 0 0 16px; }
+  li { margin-bottom: 8px; }
+  li code { font-size: 0.92em; }
+
+  code {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  pre {
+    background: #1f1e1c;
+    color: #f6f3eb;
+    padding: 20px 24px;
+    border-radius: 8px;
+    overflow-x: auto;
+    line-height: 1.55;
+    font-size: 13.5px;
+    margin: 20px 0 28px;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+  .tok-comment  { color: #9b9081; font-style: italic; }
+  .tok-keyword  { color: #e89b6f; }
+  .tok-fn       { color: #f0d68a; }
+  .tok-string   { color: #b8d49d; }
+  .tok-num      { color: #d8b9e3; }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 32px;
+    margin: 32px 0 48px;
+    padding: 18px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .meta-row b { color: var(--ink); font-weight: 500; margin-right: 8px; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 18px 22px;
+    margin: 28px 0;
+    border-radius: 0 6px 6px 0;
+    color: var(--ink);
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: block;
+  }
+
+  .figure {
+    margin: 36px 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 28px 24px 18px;
+  }
+  .figure svg { display: block; width: 100%; height: auto; }
+  .figure .caption {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--rule);
+  }
+  .figure .caption b { color: var(--ink-soft); font-weight: 600; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 24px 0 32px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: var(--rule-soft);
+    font-size: 13px;
+    letter-spacing: 0.01em;
+  }
+  td code { font-size: 0.88em; }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .pill.good    { background: #e3f0e2; color: var(--good); }
+  .pill.warn    { background: #f5e7d0; color: var(--warn); }
+  .pill.bad     { background: #f5dad6; color: var(--bad); }
+  .pill.neutral { background: var(--rule-soft); color: var(--ink-soft); }
+
+  .footer {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* SVG defaults */
+  svg text { font-family: var(--sans); font-size: 12.5px; fill: var(--ink); }
+  svg .label-mono  { font-family: var(--mono); font-size: 11.5px; fill: var(--ink-soft); }
+  svg .label-soft  { fill: var(--ink-soft); }
+  svg .label-faint { fill: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ╔══ HERO ══════════════════════════════════════════════════════════╗ -->
+<header class="hero">
+  <div class="eyebrow">Engineering note · AnyDrag · 2026-07-27</div>
+  <h1>当另一个 App 把你抹掉的 modifier flag 又贴了回去</h1>
+  <p class="lede">AnyDrag 的 Ctrl + 左键拖动在 BetterMouse 运行时全面失效。真正的原因不在按键映射，而在 CGEvent tap chain 的执行顺序——以及一个只能在 gesture 开始那一刻才能赢下的竞争。</p>
+</header>
+
+<!-- ╔══ META ROW ══════════════════════════════════════════════════════╗ -->
+<div class="meta-row">
+  <span><b>Issue</b><code>#27</code></span>
+  <span><b>Fix</b><code>TrailingFlagScrubber.swift</code></span>
+  <span><b>环境</b><code>macOS 26.x</code></span>
+  <span><b>Status</b><span class="pill good">已验证</span></span>
+</div>
+
+<p>这份文档记录一次完整的排查：从错误的假设，到实测推翻它，再到最终的修复。核心机制（CGEvent tap 的分层与排序）对任何使用 event tap 的 macOS App 都适用——同一台机器上 HyperCapslock 的 Hyper 键也被 BetterMouse 打断，成因完全相同。</p>
+
+<!-- ╔══ §1 ════════════════════════════════════════════════════════════╗ -->
+<h2>1 · 现象</h2>
+
+<p>用户报告：把 Control 设为 primary modifier 后，Ctrl + 左键拖不动窗口，按下去反而弹出 context menu。他自己在干净的虚拟机里定位到了 BetterMouse，并且——这一点后来被证明是关键线索——<b>把 BetterMouse 里的功能逐个关掉，问题依旧</b>。</p>
+
+<p>AnyDrag 的窗口拖动不走 Accessibility API。它把 gesture 伪装成「按住 title bar」：拦截 mouse event，把坐标改写到目标窗口的 title bar 区域，让 window server 自己执行 native drag，全程零 per-frame IPC。这个伪装有一个前提——</p>
+
+<div class="callout">
+<span class="label">前提</span>
+<p>macOS 的 AppKit 会把 <code>Control + leftMouseDown</code> 在 NSResponder 层解释成 <b>secondary click</b>（等同右键）。所以 AnyDrag 必须从它合成的 title bar click 上抹掉 <code>.maskControl</code>，否则那一下点击会被当成右键，native drag 根本不会开始。</p>
+</div>
+
+<p>这段抹除逻辑早就存在，也一直有效。问题是：有人在下游把它撤销了。</p>
+
+<!-- ╔══ §2 ════════════════════════════════════════════════════════════╗ -->
+<h2>2 · CGEvent tap 的排队机制</h2>
+
+<p>要理解冲突，先要理解 event 在被 App 收到之前经过了什么。<code>CGEvent.tapCreate</code> 有两个决定位置的参数：<code>tap</code>（tap location，事件管线的哪一段）和 <code>place</code>（tap placement，在这一段的队列里插哪儿）。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 250" xmlns="http://www.w3.org/2000/svg" aria-label="CGEvent 三层 tap location 与串行 tap chain">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">Event pipeline：三个 tap location 是固定的先后，不是抢来的</text>
+
+  <rect x="0" y="52" width="88" height="46" rx="8" fill="#efece0" stroke="#e6e2d4"/>
+  <text x="44" y="80" text-anchor="middle" class="label-mono">硬件</text>
+
+  <rect x="112" y="42" width="176" height="66" rx="8" fill="#fff" stroke="#d97757" stroke-width="1.5"/>
+  <text x="200" y="66" text-anchor="middle" font-weight="600" fill="#d97757">kCGHIDEventTap</text>
+  <text x="200" y="88" text-anchor="middle" class="label-soft">最上游 · 看到原始事件</text>
+
+  <rect x="312" y="42" width="176" height="66" rx="8" fill="#fff" stroke="#d97757" stroke-width="1.5"/>
+  <text x="400" y="66" text-anchor="middle" font-weight="600" fill="#d97757">kCGSessionEventTap</text>
+  <text x="400" y="88" text-anchor="middle" class="label-soft" font-size="11">AnyDrag / BetterMouse 都在这层</text>
+
+  <rect x="512" y="42" width="176" height="66" rx="8" fill="#fff" stroke="#e6e2d4"/>
+  <text x="600" y="66" text-anchor="middle" font-weight="600" font-size="10.5">kCGAnnotatedSessionEventTap</text>
+  <text x="600" y="88" text-anchor="middle" class="label-soft">最下游</text>
+
+  <rect x="712" y="52" width="88" height="46" rx="8" fill="#efece0" stroke="#e6e2d4"/>
+  <text x="756" y="80" text-anchor="middle" class="label-mono">App</text>
+
+  <line x1="90" y1="75" x2="108" y2="75" stroke="#5a5751" marker-end="url(#arr)"/>
+  <line x1="290" y1="75" x2="308" y2="75" stroke="#5a5751" marker-end="url(#arr)"/>
+  <line x1="490" y1="75" x2="508" y2="75" stroke="#5a5751" marker-end="url(#arr)"/>
+  <line x1="690" y1="75" x2="710" y2="75" stroke="#5a5751" marker-end="url(#arr)"/>
+
+  <text x="0" y="152" font-weight="600" fill="#1f1e1c">每一层内部，多个 tap 串行接力——不是优先级，是队列</text>
+
+  <rect x="0" y="172" width="800" height="58" rx="8" fill="#faf9f5" stroke="#e6e2d4"/>
+  <rect x="18" y="187" width="132" height="28" rx="5" fill="#fff" stroke="#e6e2d4"/>
+  <text x="84" y="205" text-anchor="middle" class="label-mono">tap A</text>
+  <rect x="176" y="187" width="132" height="28" rx="5" fill="#fff" stroke="#e6e2d4"/>
+  <text x="242" y="205" text-anchor="middle" class="label-mono">tap B</text>
+  <rect x="334" y="187" width="132" height="28" rx="5" fill="#fff" stroke="#e6e2d4"/>
+  <text x="400" y="205" text-anchor="middle" class="label-mono">tap C</text>
+  <text x="500" y="199" class="label-soft">每个 tap 拿到的是上一个交出来的版本</text>
+  <text x="500" y="215" class="label-soft">任何一个 return nil 就吞掉事件，后面全看不到</text>
+  <line x1="152" y1="201" x2="172" y2="201" stroke="#5a5751" marker-end="url(#arr)"/>
+  <line x1="310" y1="201" x2="330" y2="201" stroke="#5a5751" marker-end="url(#arr)"/>
+  <line x1="468" y1="201" x2="488" y2="201" stroke="#5a5751" marker-end="url(#arr)"/>
+</svg>
+<div class="caption"><b>Figure 1.</b> tap location 之间的先后是架构决定的；同一 location 内部则是一条可以被任意成员改写或截断的串行链路。冲突只可能发生在链路内部。</div>
+</div>
+
+<p>同一个 tap location 内部的排序由 <code>place</code> 决定，规则有两条，都经过实测确认（见 §6 的 <code>ordertest</code>）：</p>
+
+<ul>
+  <li><code>kCGHeadInsertEventTap</code>（插到队首）——<b>后创建的排在更前面</b>，因为它被插到了队首。</li>
+  <li><code>kCGTailAppendEventTap</code>（追加队尾）——<b>后创建的排在更后面</b>。</li>
+  <li>所有 head-inserted 的 tap 一律排在所有 tail-appended 的 tap 前面。</li>
+</ul>
+
+<div class="figure">
+<svg viewBox="0 0 800 210" xmlns="http://www.w3.org/2000/svg" aria-label="head insert 与 tail append 的创建顺序与执行顺序对比">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">创建顺序 ≠ 执行顺序（实测：4 个 tap 各自在事件经过时报到）</text>
+
+  <text x="0" y="52" class="label-soft">创建顺序</text>
+  <rect x="96" y="36" width="150" height="26" rx="4" fill="#fff" stroke="#e6e2d4"/>
+  <text x="171" y="53" text-anchor="middle" class="label-mono">H1 · head</text>
+  <rect x="260" y="36" width="150" height="26" rx="4" fill="#fff" stroke="#e6e2d4"/>
+  <text x="335" y="53" text-anchor="middle" class="label-mono">H2 · head</text>
+  <rect x="424" y="36" width="150" height="26" rx="4" fill="#fff" stroke="#e6e2d4"/>
+  <text x="499" y="53" text-anchor="middle" class="label-mono">T1 · tail</text>
+  <rect x="588" y="36" width="150" height="26" rx="4" fill="#fff" stroke="#e6e2d4"/>
+  <text x="663" y="53" text-anchor="middle" class="label-mono">T2 · tail</text>
+
+  <text x="0" y="112" class="label-soft">执行顺序</text>
+  <rect x="96" y="96" width="150" height="26" rx="4" fill="#fdf2ee" stroke="#d97757" stroke-width="1.5"/>
+  <text x="171" y="113" text-anchor="middle" class="label-mono" fill="#d97757">H2</text>
+  <rect x="260" y="96" width="150" height="26" rx="4" fill="#fdf2ee" stroke="#d97757" stroke-width="1.5"/>
+  <text x="335" y="113" text-anchor="middle" class="label-mono" fill="#d97757">H1</text>
+  <rect x="424" y="96" width="150" height="26" rx="4" fill="#fff" stroke="#e6e2d4"/>
+  <text x="499" y="113" text-anchor="middle" class="label-mono">T1</text>
+  <rect x="588" y="96" width="150" height="26" rx="4" fill="#fff" stroke="#e6e2d4"/>
+  <text x="663" y="113" text-anchor="middle" class="label-mono">T2</text>
+
+  <line x1="246" y1="109" x2="256" y2="109" stroke="#5a5751" marker-end="url(#arr2)"/>
+  <line x1="410" y1="109" x2="420" y2="109" stroke="#5a5751" marker-end="url(#arr2)"/>
+  <line x1="574" y1="109" x2="584" y2="109" stroke="#5a5751" marker-end="url(#arr2)"/>
+
+  <path d="M171 66 C 171 82, 335 82, 335 92" fill="none" stroke="#d97757" stroke-dasharray="3 3"/>
+  <path d="M335 66 C 335 82, 171 82, 171 92" fill="none" stroke="#d97757" stroke-dasharray="3 3"/>
+
+  <rect x="0" y="146" width="800" height="52" rx="8" fill="#faf9f5" stroke="#e6e2d4"/>
+  <text x="16" y="168" class="label-soft">两个 head-inserted 的 tap 顺序被<tspan font-weight="600" fill="#1f1e1c">对调</tspan>了：H2 后创建，却先执行。</text>
+  <text x="16" y="186" class="label-soft">两个 tail-appended 的保持原序：T1 先创建，就先执行——所以<tspan font-weight="600" fill="#d97757">最后追加的那个说了算</tspan>。</text>
+</svg>
+<div class="caption"><b>Figure 2.</b> 这条规则是整个修复的支点。「最后追加到队尾的 tap 拥有最终发言权」直接决定了修复方案必须在什么时机创建 tap。</div>
+</div>
+
+<p>还有一个容易踩的坑：<code>CGGetEventTapList</code> 返回的顺序<b>不是</b>执行顺序。实测中它把 HID 层的 tap 排在了 session 层之后，而 HID 层明明先执行——那个列表看起来是按创建时间倒序排的，不能用来判断谁先谁后。</p>
+
+<!-- ╔══ §3 ════════════════════════════════════════════════════════════╗ -->
+<h2>3 · 排查过程，包括两次错误结论</h2>
+
+<p>如实记录走过的弯路，因为它们比结论更能说明该怎么排查这类问题。</p>
+
+<h3>错误结论一：「BetterMouse 把 Ctrl + 左键改写成了右键」</h3>
+
+<p>这是用户和我最初共同的假设，听起来完全合理。做法是在 HID 层和 session 链尾部各挂一个 listen-only tap，对比同一次手势在两处的样子。结果：<b>整个 log 里没有出现过一个 rightMouseDown</b>。没有任何 button 被改写。假设当场作废。</p>
+
+<h3>错误结论二：「是『左键点击穿透』这个功能干的」</h3>
+
+<p>实测数据显示，一次拖动里只有首尾两个事件的 flag 被改了，中间几百个 <code>leftMouseDragged</code> 完好无损。而 BetterMouse 那个管左键的 tap，监听范围恰好是 <code>LDown, LUp</code> 而<b>不含</b> <code>LDrag</code>。据此我推断是 click-through 功能在「重新发出点击」时重置了 flag。</p>
+
+<p>用户一句话推翻：那个开关本来就是关着的。<b>猜功能是错的方法——应该直接测机制。</b></p>
+
+<h3>决定性的 controlled experiment</h3>
+
+<p>不再猜是哪个 feature，改为直接验证机制：自己插一个 head-inserted 的 modify tap 强行抹掉 Control，再在链尾观察它有没有被贴回来。唯一的变量是 BetterMouse 在不在运行。</p>
+
+<pre><code><span class="tok-comment">// BetterMouse 运行中</span>
+[96.775] STRIP-IN  leftMouseDown was=ctrl now=-    BM=running
+[96.776]   CHAIN-END leftMouseDown flags=<span class="tok-keyword">ctrl</span>    <span class="tok-comment">← 被贴回来了</span>
+[96.873] STRIP-IN  leftMouseUp   was=ctrl now=-    BM=running
+[96.877]   CHAIN-END leftMouseUp   flags=<span class="tok-keyword">ctrl</span>    <span class="tok-comment">← 被贴回来了</span>
+
+<span class="tok-comment">// BetterMouse 退出后，同一段程序、同一个动作</span>
+[108.704] STRIP-IN  leftMouseDown was=ctrl now=-   BM=QUIT
+[108.704]   CHAIN-END leftMouseDown flags=<span class="tok-string">-</span>      <span class="tok-comment">← 保持抹掉</span>
+[108.799] STRIP-IN  leftMouseUp   was=ctrl now=-   BM=QUIT
+[108.800]   CHAIN-END leftMouseUp   flags=<span class="tok-string">-</span>      <span class="tok-comment">← 保持抹掉</span></code></pre>
+
+<div class="callout">
+<span class="label">Root cause</span>
+<p>BetterMouse 在处理 left mouse down / up 时，会<b>按 physical modifier key 的当前状态重新盖一遍 event flags</b>。用户手指还按着 Control，于是 AnyDrag 刚抹掉的 <code>.maskControl</code> 被原样贴回。它<b>不</b>处理 <code>leftMouseDragged</code>——这个不对称正是定位到它的线索。</p>
+</div>
+
+<p>后果链条完整闭合：AnyDrag 合成的 title bar click 带着 Control 抵达目标 App → AppKit 判定为 secondary click → 弹出 context menu，native drag 从未开始。</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 230" xmlns="http://www.w3.org/2000/svg" aria-label="Control flag 在 tap chain 上被抹掉又被贴回的时序">
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5a5751"/>
+    </marker>
+  </defs>
+
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">一次 Ctrl + 左键拖动，flag 在链路上的命运</text>
+
+  <line x1="20" y1="120" x2="780" y2="120" stroke="#e6e2d4" stroke-width="1.5"/>
+
+  <circle cx="70" cy="120" r="6" fill="#5a5751"/>
+  <text x="70" y="100" text-anchor="middle" class="label-mono">硬件</text>
+  <text x="70" y="146" text-anchor="middle" class="label-mono" fill="#d97757">ctrl</text>
+
+  <rect x="150" y="96" width="170" height="48" rx="8" fill="#fff" stroke="#d97757" stroke-width="1.5"/>
+  <text x="235" y="116" text-anchor="middle" font-weight="600" fill="#d97757">AnyDrag</text>
+  <text x="235" y="134" text-anchor="middle" class="label-soft">改写坐标 · 抹掉 ctrl</text>
+  <text x="235" y="170" text-anchor="middle" class="label-mono">flags = —</text>
+
+  <rect x="380" y="96" width="170" height="48" rx="8" fill="#fff" stroke="#5a5751" stroke-width="1.5"/>
+  <text x="465" y="116" text-anchor="middle" font-weight="600">BetterMouse</text>
+  <text x="465" y="134" text-anchor="middle" class="label-soft">按物理按键重新盖章</text>
+  <text x="465" y="170" text-anchor="middle" class="label-mono" fill="#d97757">flags = ctrl</text>
+
+  <rect x="610" y="96" width="150" height="48" rx="8" fill="#efece0" stroke="#e6e2d4"/>
+  <text x="685" y="116" text-anchor="middle" font-weight="600">目标 App</text>
+  <text x="685" y="134" text-anchor="middle" class="label-soft">AppKit</text>
+  <text x="685" y="176" text-anchor="middle" class="label-mono" fill="#d97757">secondary click</text>
+  <text x="685" y="194" text-anchor="middle" class="label-soft">弹 context menu，不拖动</text>
+
+  <line x1="78" y1="120" x2="146" y2="120" stroke="#5a5751" marker-end="url(#arr3)"/>
+  <line x1="322" y1="120" x2="376" y2="120" stroke="#5a5751" marker-end="url(#arr3)"/>
+  <line x1="552" y1="120" x2="606" y2="120" stroke="#5a5751" marker-end="url(#arr3)"/>
+
+  <text x="20" y="216" class="label-faint">注：中间的 leftMouseDragged 不在 BetterMouse 的监听范围内，flags 全程保持 — ，这个不对称是定位线索。</text>
+</svg>
+<div class="caption"><b>Figure 3.</b> AnyDrag 的抹除并没有失败，它只是不是最后一手。链路上任何下游成员都能推翻上游的修改。</div>
+</div>
+
+<!-- ╔══ §4 ════════════════════════════════════════════════════════════╗ -->
+<h2>4 · 修复：为什么时机比位置更重要</h2>
+
+<p>既然「最后动手的说了算」，直觉方案就是：AnyDrag 再挂一个 tail-appended 的 tap，在事件离开 chain 之前把 Control 再抹一次。实测确实立刻见效——但这是<b>运气</b>。</p>
+
+<p>tail-appended 的 tap 按创建顺序排列，所以「谁最后创建谁在最后」。那次实测里 BetterMouse 先启动、验证程序后启动，恰好赢了。把顺序倒过来——让用户重启一次 BetterMouse——修复立刻失效：</p>
+
+<div class="figure">
+<svg viewBox="0 0 800 260" xmlns="http://www.w3.org/2000/svg" aria-label="静态 tail tap 在两种启动顺序下的不同结果">
+  <text x="0" y="18" font-weight="600" fill="#1f1e1c">同一份代码，两种启动顺序，两种结果</text>
+
+  <rect x="0" y="38" width="800" height="94" rx="8" fill="#f4f8f4" stroke="#dfe8df"/>
+  <text x="16" y="60" font-weight="600" fill="#2f7d4f">情形 A · BetterMouse 先启动</text>
+  <rect x="16" y="76" width="150" height="30" rx="5" fill="#fff" stroke="#e6e2d4"/>
+  <text x="91" y="95" text-anchor="middle" class="label-mono">AnyDrag 主 tap</text>
+  <rect x="188" y="76" width="150" height="30" rx="5" fill="#fff" stroke="#e6e2d4"/>
+  <text x="263" y="95" text-anchor="middle" class="label-mono">BetterMouse</text>
+  <rect x="360" y="76" width="170" height="30" rx="5" fill="#fdf2ee" stroke="#d97757" stroke-width="1.5"/>
+  <text x="445" y="95" text-anchor="middle" class="label-mono" fill="#d97757">AnyDrag 收尾 tap</text>
+  <text x="556" y="95" fill="#2f7d4f" font-weight="600">✓ 我们最后抹 → 能拖动</text>
+  <text x="16" y="124" class="label-faint">收尾 tap 创建得比 BetterMouse 晚，所以排在它后面。</text>
+
+  <rect x="0" y="146" width="800" height="94" rx="8" fill="#fbf4f4" stroke="#eddcdc"/>
+  <text x="16" y="168" font-weight="600" fill="#b0483a">情形 B · 用户之后重启了 BetterMouse</text>
+  <rect x="16" y="184" width="150" height="30" rx="5" fill="#fff" stroke="#e6e2d4"/>
+  <text x="91" y="203" text-anchor="middle" class="label-mono">AnyDrag 主 tap</text>
+  <rect x="188" y="184" width="170" height="30" rx="5" fill="#fdf2ee" stroke="#d97757" stroke-width="1.5"/>
+  <text x="273" y="203" text-anchor="middle" class="label-mono" fill="#d97757">AnyDrag 收尾 tap</text>
+  <rect x="380" y="184" width="150" height="30" rx="5" fill="#fff" stroke="#e6e2d4"/>
+  <text x="455" y="203" text-anchor="middle" class="label-mono">BetterMouse</text>
+  <text x="556" y="203" fill="#b0483a" font-weight="600">✗ 它最后贴回 → 拖不动</text>
+  <text x="16" y="232" class="label-faint">重启后它被追加到我们之后，收尾 tap 白做工。</text>
+</svg>
+<div class="caption"><b>Figure 4.</b> 一个在 App 启动时创建的 tail tap，其正确性取决于用户何时启动别的软件——这不是修复，是赌博。</div>
+</div>
+
+<div class="callout">
+<span class="label">修复的核心</span>
+<p>tail append 的语义是「排到<b>创建那一刻</b>已存在的所有 tap 之后」。所以只要把收尾 tap 的创建推迟到 <b>gesture 开始的那一刻</b>，无论对方何时启动，它的 tap 都已经存在，我们必然排在它后面。竞争条件被时机消灭了。</p>
+</div>
+
+<p>实现就是 <code>TrailingFlagScrubber</code>：mouse down 触发 gesture 时 tail-append 一个 tap，gesture 结束就销毁。几个必要的细节：</p>
+
+<ul>
+  <li><b>只抹按下那一刻真正持有的 flag。</b>取 <code>candidates ∩ event.flags</code>，为空就完全不创建 tap——没装这类工具的用户零开销。</li>
+  <li><b>等 gesture 自己的 release 事件穿过去再销毁。</b>收尾 tap 位于整条链路的最下游，手一松就拆，会把仍带着 Control 的 <code>leftMouseUp</code> 直接交给 App。</li>
+  <li><b>只有指定 type 的 release 才被继续处理。</b>无拖动的中键点击、无拖动的右键 resize 会把 release 事件<b>吞掉</b>，它永远不会到达队尾；若不加限定，紧接着一次无关的 Ctrl + click 就会被误抹。</li>
+  <li><b>三重兜底</b>：watchdog timer、tap 被系统 disable 时自毁、<code>stop()</code> 时主动清理并<b>阻止</b>正在创建中的 tap 挂上来（否则会留下一个没人 service 的 tap，卡住整个鼠标输入直到系统超时）。</li>
+</ul>
+
+<pre><code><span class="tok-comment">// gesture 开始：此刻 tail append，必然排在所有既存 tap 之后</span>
+<span class="tok-keyword">guard</span> <span class="tok-keyword">let</span> tap = CGEvent.<span class="tok-fn">tapCreate</span>(
+    tap: .cgSessionEventTap,
+    place: .tailAppendEventTap,   <span class="tok-comment">// ← 关键</span>
+    options: .defaultTap,
+    eventsOfInterest: mask,
+    callback: trailingFlagScrubberCallback,
+    userInfo: selfRef
+) <span class="tok-keyword">else</span> { <span class="tok-keyword">return</span> }
+
+<span class="tok-comment">// callback：gesture 进行中无条件抹；gesture 结束后只认自己的 release</span>
+<span class="tok-keyword">if</span> <span class="tok-keyword">let</span> terminator {
+    <span class="tok-keyword">guard</span> type == terminator <span class="tok-keyword">else</span> { <span class="tok-keyword">return</span> passthrough }
+    event.flags = event.flags.<span class="tok-fn">subtracting</span>(flags)
+    <span class="tok-fn">end</span>()
+}</code></pre>
+
+<!-- ╔══ §5 ════════════════════════════════════════════════════════════╗ -->
+<h2>5 · 给其他 App 作者</h2>
+
+<p>这个坑不是 AnyDrag 独有的。同一台机器上 <b>HyperCapslock 的 Hyper 键在 BetterMouse 运行时同样失效</b>——它也依赖对 modifier flags 的改写，也在 session 层，也会被下游重新盖章。判断你是否中招，只需要三个问题：</p>
+
+<table>
+  <thead>
+    <tr><th>问题</th><th>中招的信号</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>你的功能是否依赖「从 event 上<b>移除</b>某个 modifier flag」？</td>
+      <td>是 → 高风险。下游任何一个按物理按键状态重新盖章的 tap 都能撤销它。</td>
+    </tr>
+    <tr>
+      <td>你的 tap 是不是 <code>headInsertEventTap</code>？</td>
+      <td>是 → 你在最前面，意味着你的修改<b>最容易</b>被后面的人推翻。</td>
+    </tr>
+    <tr>
+      <td>症状是否只在某些 App 上出现？</td>
+      <td>是 → 很可能 flag 确实传到了 App 层，只是各家 App 对它的反应不同。</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>通用的修法就是本文的方案：<b>在 gesture / 生效窗口开始的那一刻</b> tail-append 一个短命的 tap，把同一套 flag 再抹一次，窗口结束就销毁。不要在 App 启动时创建它——那会输给任何一次对方的重启。</p>
+
+<p>另一条值得记住的经验：<b>不要猜是对方的哪个 feature 干的。</b>本文两次错误结论都源于猜 feature。直接做 controlled experiment——自己插一个 tap 改点什么，在链尾观察它有没有被改回去，唯一变量是对方进程在不在——十分钟就能得到确定答案。</p>
+
+<!-- ╔══ §6 ════════════════════════════════════════════════════════════╗ -->
+<h2>6 · 排查工具</h2>
+
+<p>四个一次性的小程序，加起来不到 400 行，是整个排查的全部依据。放在这里供复用：</p>
+
+<table>
+  <thead>
+    <tr><th>工具</th><th>做什么</th><th>回答了什么</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>taplist</code></td>
+      <td><code>CGGetEventTapList</code> 枚举全部活跃 tap：进程、tap location、placement、监听范围</td>
+      <td>谁在场、各自监听什么</td>
+    </tr>
+    <tr>
+      <td><code>probe</code></td>
+      <td>同时在 HID 层和 session 链尾挂 listen-only tap，对比同一事件在两处的样子</td>
+      <td>事件在链路上被改成了什么</td>
+    </tr>
+    <tr>
+      <td><code>stripprobe</code></td>
+      <td>head 层强行抹掉 flag，链尾观察是否被贴回；每行标注对方进程是否在运行</td>
+      <td><b>是谁改的</b>（决定性实验）</td>
+    </tr>
+    <tr>
+      <td><code>ordertest</code></td>
+      <td>一个进程挂 4 个 tap（2 head + 2 tail，创建顺序已知），各自在事件经过时报到</td>
+      <td>执行顺序的真实规则</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ╔══ §7 ════════════════════════════════════════════════════════════╗ -->
+<h2>7 · 拆掉任何一块会怎样</h2>
+
+<table>
+  <thead>
+    <tr><th>去掉…</th><th>症状</th><th>严重度</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>place: .tailAppendEventTap</code></td>
+      <td>改成 head insert 就排到了 BetterMouse 前面，抹除依旧被撤销，修复完全无效</td>
+      <td><span class="pill bad">HIGH</span></td>
+    </tr>
+    <tr>
+      <td>gesture 开始时才创建（改为启动时创建一次）</td>
+      <td>用户重启一次 BetterMouse 就失效，且无任何提示——最隐蔽的失败模式</td>
+      <td><span class="pill bad">HIGH</span></td>
+    </tr>
+    <tr>
+      <td><code>shutdown()</code> 的 <code>acceptingNewTaps</code> 闸门</td>
+      <td><code>stop()</code> 与 gesture 创建 tap 撞车时，会留下一个没人 service 的 session tap，卡住鼠标输入直到系统超时</td>
+      <td><span class="pill bad">HIGH</span></td>
+    </tr>
+    <tr>
+      <td>只认指定 type 的 release（<code>pendingTerminator</code>）</td>
+      <td>release 被吞掉的手势之后，下一个无关点击会被误抹 modifier，例如 Ctrl + click 不弹菜单</td>
+      <td><span class="pill warn">MEDIUM</span></td>
+    </tr>
+    <tr>
+      <td>watchdog timer</td>
+      <td>手势中途被打断（tap 被 disable、鼠标 up 丢失）会留下长期存活的 tap，持续影响无关输入</td>
+      <td><span class="pill warn">MEDIUM</span></td>
+    </tr>
+    <tr>
+      <td><code>candidates ∩ event.flags</code> 的过滤</td>
+      <td>功能不受影响，但每次手势都会多创建一个 tap——没有冲突工具的用户白付开销</td>
+      <td><span class="pill neutral">LOW</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>8 · 已知的剩余边界</h2>
+
+<p>如实记录一处没有覆盖的场景：如果 gesture 由 CapsLock hold（Hyper）触发、按下时并未持有 Control，而用户<b>在按下之后、拖动之前</b>才补按 Control，则收尾 tap 不会被创建，问题依旧。堵住它需要每次手势都无条件创建 tap，代价是牺牲「无冲突工具的用户零开销」。当前选择保留这个边界，因为它需要一个相当刻意的操作序列才能触发。</p>
+
+<!-- ╔══ FOOTER ═══════════════════════════════════════════════════════╗ -->
+<div class="footer">
+  <span>AnyDrag · CGEvent tap 冲突排查 · 2026-07-27</span>
+  <span>issue <code>#27</code> · <code>AnyDrag/Sources/TrailingFlagScrubber.swift</code></span>
+</div>
+
+</div>
+</body>
+</html>
