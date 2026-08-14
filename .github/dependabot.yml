@@ -11,3 +11,9 @@ updates:
     commit-message:
       prefix: "ci"
     open-pull-requests-limit: 3
+    # One PR for all action bumps instead of one each -- every extra PR costs a
+    # full CodeQL run plus a build.
+    groups:
+      actions:
+        patterns:
+          - "*"
