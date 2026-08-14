@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Only GitHub Actions is covered here. Dependabot's `swift` ecosystem needs
+  # a Package.swift / Package.resolved to read, and AnyDrag declares Sparkle
+  # and Aptabase inside project.yml (XcodeGen) instead -- Dependabot cannot
+  # see those. Bumping them stays a manual edit of project.yml.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    open-pull-requests-limit: 3
