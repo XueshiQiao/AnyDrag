@@ -67,10 +67,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Kept identical to build.yml so CodeQL analyzes the same toolchain that
-      # actually ships.
+      # Xcode selection kept identical to build.yml so CodeQL analyzes the
+      # same toolchain that actually ships.
+      #
+      # Pinned to a commit SHA rather than the mutable `v1` tag: this job holds
+      # `security-events: write`, the one permission that could be used to
+      # suppress alerts, so a hijacked tag here would be worth something to an
+      # attacker. CodeQL's own actions/unpinned-tag query flagged this line.
+      # build.yml still uses `@v1` -- tracked separately, see issue.
       - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
