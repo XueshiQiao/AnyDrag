@@ -1,0 +1,139 @@
+name: CodeQL
+
+# Static security analysis, in two independent jobs:
+#
+#   analyze-swift   -- the app's own Swift sources. Needs `build-mode: manual`
+#                      because AnyDrag's .xcodeproj is XcodeGen-generated and
+#                      gitignored, so GitHub's one-click "Default setup" has no
+#                      project to build. Swift analysis is macOS-only.
+#   analyze-actions -- the workflow files themselves (script injection,
+#                      over-broad permissions, unpinned actions). Buildless,
+#                      runs on Linux in ~1 minute. Worth having: build.yml
+#                      handles signing certificates, the Sparkle EdDSA key and
+#                      a cross-repo PAT.
+
+on:
+  push:
+    branches: [ main ]
+    # Releases push a regenerated appcast.xml straight to main, and doc edits
+    # land there too. Neither changes a line of Swift, so skip the 24-minute
+    # traced build for them. (GitHub Actions does not support YAML anchors,
+    # hence the duplicated list.)
+    #
+    # NOTE: if CodeQL is ever made a *required* status check, delete these
+    # paths-ignore blocks first -- a skipped required check never reports and
+    # the PR waits forever.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'screenshots/**'
+      - '**/*.png'
+      - 'appcast.xml'
+      - 'RELEASE_NOTES.html'
+      - 'LICENSE'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'screenshots/**'
+      - '**/*.png'
+      - 'appcast.xml'
+      - 'RELEASE_NOTES.html'
+      - 'LICENSE'
+  schedule:
+    # Weekly re-scan so newly published CodeQL queries get applied to code that
+    # hasn't changed. Off the top of the hour to dodge the scheduler rush.
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  # Superseding a PR push is fine. Cancelling the main-branch or scheduled run
+  # is not -- that one is the alert baseline.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze-swift:
+    name: Analyze Swift
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Xcode selection kept identical to build.yml so CodeQL analyzes the
+      # same toolchain that actually ships.
+      #
+      # Pinned to a commit SHA rather than the mutable `v1` tag: this job holds
+      # `security-events: write`, the one permission that could be used to
+      # suppress alerts, so a hijacked tag here would be worth something to an
+      # attacker. CodeQL's own actions/unpinned-tag query flagged this line.
+      # build.yml still uses `@v1` -- tracked separately, see issue.
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: swift
+          build-mode: manual
+          queries: security-extended
+
+      # Deliberately leaner than build.yml's release build: single arch, Debug,
+      # no signing / notarization / DMG. CodeQL only needs to observe the
+      # compiler, and none of that requires the Apple secrets.
+      #
+      # `clean` is load-bearing: manual build mode builds the database from
+      # observed compiler invocations, so an incremental build that compiles
+      # nothing yields an empty database.
+      - name: Build for analysis
+        run: |
+          xcodebuild -project AnyDrag.xcodeproj \
+            -scheme AnyDrag \
+            -configuration Debug \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:swift
+
+  analyze-actions:
+    name: Analyze Actions workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: actions
+          build-mode: none
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:actions
