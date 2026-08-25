@@ -160,7 +160,15 @@ enum WorkspaceStore {
                     guard let p = WindowHider.position(of: w),
                           abs(p.x - record.parkedAtCG.x) <= 6,
                           abs(p.y - record.parkedAtCG.y) <= 200 else { continue }
-                    if WindowHider.restore(w, pid: pid, toCG: record.restoreFrameCG) {
+                    // Same rule as the live path: the recorded home may predate
+                    // a display change, so it is validated before being written.
+                    let safe = WSCoord.reachableFrame(record.restoreFrameCG)
+                    if safe != record.restoreFrameCG {
+                        WSDebug.log("store", "\(record.appName): recorded home "
+                            + "\(WSDebug.rect(record.restoreFrameCG)) is off every display now — "
+                            + "restoring to \(WSDebug.rect(safe)) instead")
+                    }
+                    if WindowHider.restore(w, pid: pid, toCG: safe) {
                         consumed[pid, default: []].insert(i)
                         restored += 1
                         didRestore = true

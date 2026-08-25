@@ -49,6 +49,73 @@ enum WSCoord {
         screen(containingCG: cg) ?? NSScreen.screens.first
     }
 
+    /// The attached display nearest to a CG point, measured as the distance
+    /// from the point to that display's frame (zero when inside).
+    ///
+    /// Borrowed from AeroSpace's `monitorApproximation`. The value of asking
+    /// "which is nearest" instead of "which contains it" is that it still has
+    /// an answer when the point is on no display at all — which is the normal
+    /// case for a parked window, and the ONLY case after a display is unplugged.
+    static func nearestScreen(toCG point: CGPoint) -> NSScreen? {
+        NSScreen.screens.min { a, b in
+            distance(fromCG: point, toCG: visibleFrameCG(of: a))
+                < distance(fromCG: point, toCG: visibleFrameCG(of: b))
+        }
+    }
+
+    private static func distance(fromCG p: CGPoint, toCG r: CGRect) -> CGFloat {
+        let dx = max(r.minX - p.x, 0, p.x - r.maxX)
+        let dy = max(r.minY - p.y, 0, p.y - r.maxY)
+        return (dx * dx + dy * dy).squareRoot()
+    }
+
+    /// A frame that is definitely reachable, derived from one that may not be.
+    ///
+    /// Restoring a window means writing absolute coordinates that were recorded
+    /// earlier — possibly before a display was unplugged, before the
+    /// arrangement changed, or before a resolution change. Writing them back
+    /// blind is how a window gets "restored" to somewhere that no longer
+    /// exists, which strands it exactly like the bug we were trying to prevent.
+    ///
+    /// The rule, taken from how AeroSpace handles its termination path: when
+    /// reality does not match what was recorded, stop trying to be precise.
+    /// Put the window somewhere unambiguously visible instead.
+    ///
+    /// - Returns: `desired` untouched when it still lands on an attached
+    ///   display; otherwise the same size centred on the nearest display,
+    ///   shrunk if it no longer fits.
+    static func reachableFrame(_ desired: CGRect) -> CGRect {
+        if isReachable(desired) { return desired }
+        let centre = CGPoint(x: desired.midX, y: desired.midY)
+        guard let screen = nearestScreen(toCG: centre) ?? NSScreen.main else { return desired }
+        let v = visibleFrameCG(of: screen)
+        let w = min(desired.width, v.width)
+        let h = min(desired.height, v.height)
+        return CGRect(x: v.minX + (v.width - w) / 2,
+                      y: v.minY + (v.height - h) / 2,
+                      width: w, height: h)
+    }
+
+    /// Does enough of this frame land on an attached display to be usable?
+    static func isReachable(_ frameCG: CGRect, minimumFraction: CGFloat = 0.4) -> Bool {
+        guard frameCG.width > 0, frameCG.height > 0 else { return false }
+        let area = frameCG.width * frameCG.height
+        return NSScreen.screens.contains { screen in
+            let i = visibleFrameCG(of: screen).intersection(frameCG)
+            guard !i.isNull else { return false }
+            return (i.width * i.height) / area >= minimumFraction
+        }
+    }
+
+    /// The bounding box of every attached display's visible area. Parking
+    /// against this rather than one display's own edges is what lets a display
+    /// with neighbours on both sides still hide a window.
+    static func topologyBoundsCG() -> CGRect {
+        NSScreen.screens
+            .map { visibleFrameCG(of: $0) }
+            .reduce(CGRect.null) { $0.union($1) }
+    }
+
     /// A screen's visible area (menu bar and Dock excluded) in CG coords.
     static func visibleFrameCG(of screen: NSScreen) -> CGRect {
         cgRect(fromNS: screen.visibleFrame)
@@ -150,14 +217,32 @@ enum HideCorner: String, Codable, CaseIterable {
         case (false, true): return .bottomLeft
         case (true, false): return .bottomRight
         case (true, true):
-            // Boxed in on both sides (three monitors in a row, middle one).
-            // Neither side truly hides the window; pick the side with the
-            // larger gap so at least part of it lands in dead space.
-            let leftGap = me.minX - (others.map(\.maxX).filter { $0 <= me.minX }.max() ?? me.minX)
-            let rightGap = (others.map(\.minX).filter { $0 >= me.maxX }.min() ?? me.maxX) - me.maxX
-            return leftGap >= rightGap ? .bottomLeft : .bottomRight
+            // Boxed in on both sides — the middle display of three in a row.
+            // NEITHER side of this display hides anything: park left and the
+            // window lands on the left monitor in full view. The caller has to
+            // park against the whole topology instead, so just pick the closer
+            // outer edge and let `needsOuterBounds` tell it to do that.
+            let toLeftEdge = me.minX - (others.map(\.minX).min() ?? me.minX)
+            let toRightEdge = (others.map(\.maxX).max() ?? me.maxX) - me.maxX
+            return toLeftEdge <= toRightEdge ? .bottomLeft : .bottomRight
         case (false, false):
             return .bottomLeft
         }
+    }
+
+    /// True when this display has another display on BOTH sides, so parking
+    /// against its own edges would drop the window onto a neighbour in plain
+    /// sight. The caller must park against `WSCoord.topologyBoundsCG` instead.
+    static func needsOuterBounds(for screen: NSScreen,
+                                 among screens: [NSScreen] = NSScreen.screens) -> Bool {
+        let me = WSCoord.visibleFrameCG(of: screen)
+        let others = screens.filter { $0 != screen }.map { WSCoord.visibleFrameCG(of: $0) }
+        func occupied(towardLeft: Bool) -> Bool {
+            others.contains { other in
+                guard other.maxY > me.minY && other.minY < me.maxY else { return false }
+                return towardLeft ? other.minX < me.minX : other.maxX > me.maxX
+            }
+        }
+        return occupied(towardLeft: true) && occupied(towardLeft: false)
     }
 }

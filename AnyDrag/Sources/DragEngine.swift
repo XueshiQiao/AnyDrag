@@ -1557,7 +1557,11 @@ final class DragEngine {
     /// target and no tiles are drawn.
     private func presentWorkspaceSwitcher(at origin: CGPoint) {
         guard cbState.withLock({ $0.switcherActive }) else { return }
-        workspaces.refresh()
+        // Deliberately NOT refreshing here. This runs while the panel is being
+        // built, and a refresh means a synchronous window-server enumeration —
+        // the exact thing the panel is contracted never to do. The registry is
+        // kept current by activation, app launch, display change and a slow
+        // timer instead.
         tileCancelDot.multiDisplayEnabled = true   // workspace cards need the multi path
         tileCancelDot.borderEnabled = bentoBorderEnabled
         tileCancelDot.material = bentoMaterial

@@ -355,12 +355,13 @@ final class WindowRegistry {
     /// The Accessibility API exposes no window id, so frame matching is the
     /// only bridge from `CGWindowID` to `AXUIElement`. Same approach the rest
     /// of AnyDrag already uses (`DragEngine.findAXWindow`).
-    static func axWindow(pid: pid_t, matchingCG frame: CGRect, tolerance: CGFloat = 8) -> AXUIElement? {
+    static func axWindow(pid: pid_t, matchingCG frame: CGRect, tolerance: CGFloat = 8,
+                         excluding claimed: Set<CGPoint> = []) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid)
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &ref) == .success,
               let windows = ref as? [AXUIElement] else { return nil }
-        if windows.count == 1 { return windows[0] }
+        if windows.count == 1, claimed.count == 0 { return windows[0] }
 
         // Score every candidate instead of taking the first one within
         // tolerance, and weigh the SIZE as well as the origin.
@@ -374,6 +375,9 @@ final class WindowRegistry {
         var best: (element: AXUIElement, score: CGFloat)?
         for w in windows {
             guard let f = WindowHider.frameCG(of: w) else { continue }
+            // Already handed to an earlier entry in this batch.
+            guard !claimed.contains(where: { abs($0.x - f.origin.x) < 2 && abs($0.y - f.origin.y) < 2 })
+            else { continue }
             let dOrigin = abs(f.origin.x - frame.origin.x) + abs(f.origin.y - frame.origin.y)
             // A zero-size probe frame means "match on position only" (used when
             // looking a window up by where it was parked).

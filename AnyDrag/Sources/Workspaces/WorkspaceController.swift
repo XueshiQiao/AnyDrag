@@ -142,6 +142,7 @@ final class WorkspaceController {
         let parkCorner = corner(for: screen)
         WSDebug.log(run, "screen=\(screen.localizedName) visible=\(WSDebug.rect(visibleCG)) corner=\(parkCorner.rawValue)")
 
+        claimedThisBatch.removeAll()
         let incoming = registry.windows(in: ws)
         let leaving = registry.windows(in: outgoing)
         WSDebug.log(run, "incoming ws\(ws.index) has \(incoming.count): "
@@ -163,7 +164,8 @@ final class WorkspaceController {
                 WSDebug.log(run, "skip park \(WSDebug.win(w)) — already parked")
                 continue
             }
-            park(w, visibleFrameCG: visibleCG, parkCorner: parkCorner, run: run)
+            park(w, visibleFrameCG: visibleCG, parkCorner: parkCorner,
+                 screenForPark: screen, run: run)
         }
 
         visibleIndex[ws.display] = ws.index
@@ -208,9 +210,56 @@ final class WorkspaceController {
             return WSDebug.bail(run, "window vanished from registry between assign and park")
         }
         park(w, visibleFrameCG: WSCoord.visibleFrameCG(of: screen),
-             parkCorner: corner(for: screen), landingFrameCG: landingFrameCG, run: run)
+             parkCorner: corner(for: screen), screenForPark: screen,
+             landingFrameCG: landingFrameCG, run: run)
         Self.log.info("moved \(w.appName)#\(windowID) → ws\(ws.index) (parked)")
         logRegistrySnapshot(reason: run)
+    }
+
+    // MARK: - Display changes
+
+    /// A display was attached, detached, rearranged or had its resolution
+    /// changed.
+    ///
+    /// The response is deliberately blunt: **bring every parked window back**.
+    ///
+    /// A parked window's whole identity is a pair of absolute coordinates — the
+    /// corner it sits in and the frame it returns to — and a display change
+    /// invalidates both at once. Trying to work out which windows are still
+    /// fine and which are not means reasoning about a topology that has already
+    /// changed underneath the data. Restoring everything is boring, always
+    /// correct, and leaves the user looking at their windows rather than
+    /// wondering where they went.
+    ///
+    /// Workspace membership survives; only the hiding is undone. The next
+    /// switch re-parks whatever needs parking, using the new topology.
+    func handleScreenParametersChanged() {
+        let run = WSDebug.newRun("displays")
+        DisplayKey.invalidateCache()   // CG display IDs get recycled
+
+        let attached = NSScreen.screens.compactMap { screen -> String? in
+            guard let k = DisplayKey.from(screen) else { return nil }
+            return "\(screen.localizedName)=\(k.uuid.prefix(8)) \(WSDebug.rect(WSCoord.visibleFrameCG(of: screen)))"
+        }
+        WSDebug.log(run, "display topology changed; now attached: \(attached.joined(separator: " | "))")
+
+        guard isEnabled else { return WSDebug.bail(run, "feature disabled") }
+
+        let parked = registry.hiddenWindows
+        if !parked.isEmpty {
+            WSDebug.log(run, "un-parking \(parked.count) window(s) — their coordinates predate this change")
+            for w in parked { unpark(w, run: run) }
+        }
+
+        // Any workspace whose display is gone can no longer be shown; forget
+        // which one was visible there so a later re-attach starts clean.
+        let live = Set(NSScreen.screens.compactMap(DisplayKey.from))
+        for key in visibleIndex.keys where !live.contains(key) {
+            WSDebug.log(run, "display \(key.uuid.prefix(8)) is gone — dropping its visible-workspace state")
+            visibleIndex[key] = nil
+        }
+        logRegistrySnapshot(reason: run)
+        onChange?()
     }
 
     // MARK: - Escape hatch
@@ -219,6 +268,7 @@ final class WorkspaceController {
     /// Always available, whatever the master switch says.
     func restoreAllWindows() {
         let run = WSDebug.newRun("restoreall")
+        claimedThisBatch.removeAll()
         let parked = registry.hiddenWindows
         WSDebug.log(run, "restore-all: \(parked.count) tracked as parked, "
             + "\(WorkspaceStore.all.count) durable record(s) on disk")
@@ -243,7 +293,7 @@ final class WorkspaceController {
     /// the user just chose a destination (a bento drop); pass nil for a plain
     /// workspace switch, where "where it is now" is the right answer.
     private func park(_ w: ManagedWindow, visibleFrameCG: CGRect, parkCorner: HideCorner,
-                      landingFrameCG: CGRect? = nil, run: String) {
+                      screenForPark: NSScreen, landingFrameCG: CGRect? = nil, run: String) {
         WSDebug.log(run, "park \(WSDebug.win(w)): stored restoreFrame=\(WSDebug.rect(w.restoreFrameCG))")
 
         guard let ax = WindowRegistry.axWindow(pid: w.pid, matchingCG: w.restoreFrameCG) else {
@@ -276,17 +326,38 @@ final class WorkspaceController {
                 + "refusing to hide a window we could not promise to bring back")
         }
 
-        guard let parked = WindowHider.hide(ax, pid: w.pid, windowSize: live.size,
-                                            visibleFrameCG: visibleFrameCG, corner: parkCorner) else {
+        // A display with neighbours on both sides cannot hide anything against
+        // its own edges — park against the whole arrangement instead.
+        let outer = HideCorner.needsOuterBounds(for: screenForPark)
+            ? WSCoord.topologyBoundsCG() : nil
+
+        switch WindowHider.hide(ax, pid: w.pid, windowSize: live.size,
+                                visibleFrameCG: visibleFrameCG, corner: parkCorner,
+                                outerBoundsCG: outer) {
+        case .parked(let parked):
+            registry.setHidden(w.windowID, parkedAtCG: parked, recordID: record.id)
+            WorkspaceStore.confirmParked(id: record.id, actualCG: parked)
+            WSDebug.log(run, "park \(WSDebug.win(w)): OK, now at \(WSDebug.point(parked))")
+
+        case .unchanged:
+            // Proven still on screen and where it started: nothing was moved,
+            // so the reservation is genuinely spurious and safe to drop.
             WorkspaceStore.discard(id: record.id)
             return WSDebug.bail(run, "park \(WSDebug.win(w)) — app refused the move; stays VISIBLE")
+
+        case .indeterminate:
+            // We could not establish where it ended up. Assume the worst — that
+            // it IS off-screen — and keep both the record and the hidden flag.
+            // A record for a window that turns out to be fine costs one failed
+            // match on the next sweep; dropping it costs the window.
+            let assumed = WindowHider.position(of: ax) ?? WindowHider.hidePoint(
+                windowSize: live.size, visibleFrameCG: outer ?? visibleFrameCG, corner: parkCorner)
+            registry.setHidden(w.windowID, parkedAtCG: assumed, recordID: record.id)
+            WorkspaceStore.confirmParked(id: record.id, actualCG: assumed)
+            WSDebug.log(run, "park \(WSDebug.win(w)): outcome UNKNOWN — kept as parked with its "
+                + "record at \(WSDebug.point(assumed)) so it can still be recovered")
         }
-        registry.setHidden(w.windowID, parkedAtCG: parked, recordID: record.id)
-        // Correct the write-ahead record to where it really landed.
-        WorkspaceStore.confirmParked(id: record.id, actualCG: parked)
-        WSDebug.log(run, "park \(WSDebug.win(w)): OK, now at \(WSDebug.point(parked))")
-        Self.log.info("parked \(w.appName)#\(w.windowID) at \(WSDebug.point(parked)) "
-            + "(returns to \(WSDebug.rect(restoreTo)))")
+        Self.log.info("parked \(w.appName)#\(w.windowID) (returns to \(WSDebug.rect(restoreTo)))")
     }
 
     /// Is a meaningful part of this frame inside some display's visible area?
@@ -306,6 +377,11 @@ final class WorkspaceController {
     /// Returns false when the window could not be verified back on screen — it
     /// is then LEFT marked hidden and its durable record LEFT in place, so a
     /// later restore-all or the next launch tries again.
+    /// AX elements already claimed during the current un-park batch, so two
+    /// registry entries can never both restore the same window. Reset at the
+    /// start of every switch.
+    private var claimedThisBatch: [pid_t: Set<CGPoint>] = [:]
+
     @discardableResult
     private func unpark(_ w: ManagedWindow, run: String) -> Bool {
         WSDebug.log(run, "unpark \(WSDebug.win(w)): parkedAt=\(w.parkedAtCG.map(WSDebug.point) ?? "nil") "
@@ -315,10 +391,20 @@ final class WorkspaceController {
             WSDebug.bail(run, "unpark \(WSDebug.win(w)) — no parked position recorded")
             return false
         }
-        let byParked = WindowRegistry.axWindow(pid: w.pid,
-                                               matchingCG: CGRect(origin: parked, size: .zero),
-                                               tolerance: 12)
-        let ax = byParked ?? WindowRegistry.axWindow(pid: w.pid, matchingCG: w.restoreFrameCG)
+        // Probe with the SIZE as well as the position. Parking only ever moves
+        // a window, never resizes it, so its size is still the one recorded —
+        // and at a shared parking corner the size is often the only thing that
+        // tells two windows of the same app apart. A zero-size probe disabled
+        // that comparison entirely and left the choice to iteration order.
+        let probe = CGRect(origin: parked, size: w.restoreFrameCG.size)
+        let claimed = claimedThisBatch[w.pid] ?? []
+        let byParked = WindowRegistry.axWindow(pid: w.pid, matchingCG: probe,
+                                               tolerance: 12, excluding: claimed)
+        let ax = byParked ?? WindowRegistry.axWindow(pid: w.pid, matchingCG: w.restoreFrameCG,
+                                                     excluding: claimed)
+        if let ax, let p = WindowHider.position(of: ax) {
+            claimedThisBatch[w.pid, default: []].insert(p)
+        }
         guard let ax else {
             WSDebug.bail(run, "unpark \(WSDebug.win(w)) — no AX window matched either the parked spot "
                 + "or the restore frame; KEPT marked hidden so it can be retried")
@@ -326,7 +412,16 @@ final class WorkspaceController {
         }
         WSDebug.log(run, "unpark \(WSDebug.win(w)): matched by \(byParked != nil ? "parked spot" : "restore frame")")
 
-        guard WindowHider.restore(ax, pid: w.pid, toCG: w.restoreFrameCG) else {
+        // Never write coordinates that no longer land on a display. The frame
+        // was recorded before whatever happened in between — an unplugged
+        // monitor, a rearrangement, a resolution change — and writing it back
+        // blind would strand the window all over again.
+        let safeFrame = WSCoord.reachableFrame(w.restoreFrameCG)
+        if safeFrame != w.restoreFrameCG {
+            WSDebug.log(run, "unpark \(WSDebug.win(w)): recorded home \(WSDebug.rect(w.restoreFrameCG)) "
+                + "is no longer on any display — falling back to \(WSDebug.rect(safeFrame))")
+        }
+        guard WindowHider.restore(ax, pid: w.pid, toCG: safeFrame) else {
             WSDebug.bail(run, "unpark \(WSDebug.win(w)) — write refused / read-back failed; "
                 + "KEPT marked hidden for retry")
             return false
@@ -334,7 +429,7 @@ final class WorkspaceController {
         if let id = w.recordID { WorkspaceStore.retire(id: id) }
         registry.setHidden(w.windowID, parkedAtCG: nil, recordID: nil)
         WSDebug.log(run, "unpark \(WSDebug.win(w)): OK")
-        Self.log.info("unparked \(w.appName)#\(w.windowID) → \(WSDebug.rect(w.restoreFrameCG))")
+        Self.log.info("unparked \(w.appName)#\(w.windowID) → \(WSDebug.rect(safeFrame))")
         return true
     }
 

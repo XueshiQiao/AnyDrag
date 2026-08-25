@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updateController = UpdateController()
     private var dragEngine: DragEngine?
     private var menuBarController: MenuBarController?
+    private var registryTicker: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -48,6 +49,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startApp() {
         Preferences.migrateLegacyKeysIfNeeded()
 
+        // BEFORE Preferences.apply, which is what switches workspaces on.
+        //
+        // Enabling immediately refreshes the registry, and a window a crash
+        // left parked still has its one-point sliver on screen — so the refresh
+        // adopts it as a stray with a made-up home. Recovery would then restore
+        // the window correctly but the registry would go on believing it is
+        // parked, and later switches would skip it. Recovering first means the
+        // refresh sees windows already back where they belong.
+        let recovered = WorkspaceStore.recoverOnLaunch()
+        if recovered.restored > 0 || recovered.kept > 0 {
+            Self.log.info("launch recovery: restored \(recovered.restored), kept \(recovered.kept)")
+        }
+
         let engine = DragEngine()
         Preferences.apply(to: engine)
         engine.start()
@@ -55,11 +69,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBarController = MenuBarController(dragEngine: engine, updateController: updateController)
 
-        // Put back anything a previous run left parked off-screen. Runs after
-        // Accessibility is granted (we are inside `ensurePermissions`), and is
-        // a no-op when the last run exited cleanly.
-        WorkspaceStore.recoverOnLaunch()
         engine.workspaces.refresh()
+
+        // Display attached / detached / rearranged / resolution changed. Every
+        // parked window's coordinates are relative to a topology that just
+        // stopped being true, so this is a data-safety path, not a cosmetic one.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { [weak engine] _ in
+            engine?.workspaces.handleScreenParametersChanged()
+        }
+
+        #if DEBUG
+        // Debug-only trigger so the display-change path can actually be
+        // exercised without physically unplugging a monitor. Temporary
+        // scaffolding — goes when the prototype does.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("me.xueshi.anydrag.debug.simulateDisplayChange"),
+            object: nil, queue: .main
+        ) { [weak engine] _ in
+            Self.log.info("DEBUG: simulating a display-parameters change")
+            engine?.workspaces.handleScreenParametersChanged()
+        }
+        #endif
+
+        // Keep the registry warm on a slow timer so the bento panel never has
+        // to enumerate anything while it is being built.
+        let ticker = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak engine] _ in
+            engine?.workspaces.refresh()
+        }
+        RunLoop.main.add(ticker, forMode: .common)
+        registryTicker = ticker
 
         // Keep the registry roughly in step with reality. The prototype
         // refreshes on app activation rather than wiring up AXObservers —

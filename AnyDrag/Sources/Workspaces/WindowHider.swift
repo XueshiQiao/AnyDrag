@@ -92,40 +92,63 @@ enum WindowHider {
     /// Returns where it actually landed, or nil if the app refused to move
     /// (some apps clamp their own position). The caller persists the returned
     /// point so a crash-recovery pass can recognise the window later.
-    @discardableResult
+    /// What actually happened to a window we tried to park.
+    ///
+    /// Three outcomes, not two, and the third one is the point. "The read-back
+    /// failed" and "the window did not move" are completely different
+    /// situations: one means we do not know where the window is, the other
+    /// means we know it is fine. Collapsing them into a single failure made the
+    /// caller throw away the recovery record in both cases — including the case
+    /// where the window had in fact been moved off-screen.
+    enum ParkOutcome {
+        /// Verified off-screen at this position.
+        case parked(CGPoint)
+        /// Verified still on screen and essentially where it started. Nothing
+        /// happened; it is safe to forget about it.
+        case unchanged
+        /// Could not establish either. Treat as parked and KEEP the record —
+        /// an unnecessary record costs nothing, a missing one costs a window.
+        case indeterminate
+    }
+
     static func hide(_ ax: AXUIElement,
                      pid: pid_t,
                      windowSize: CGSize,
                      visibleFrameCG: CGRect,
-                     corner: HideCorner) -> CGPoint? {
-        let target = hidePoint(windowSize: windowSize, visibleFrameCG: visibleFrameCG, corner: corner)
-        WSDebug.log("axwrite", "HIDE pid=\(pid) size=\(WSDebug.rect(CGRect(origin: .zero, size: windowSize))) "
-            + "visible=\(WSDebug.rect(visibleFrameCG)) corner=\(corner.rawValue) → \(WSDebug.point(target))")
+                     corner: HideCorner,
+                     outerBoundsCG: CGRect? = nil) -> ParkOutcome {
+        let before = position(of: ax)
+        let target = hidePoint(windowSize: windowSize,
+                               visibleFrameCG: outerBoundsCG ?? visibleFrameCG,
+                               corner: corner)
+        WSDebug.log("axwrite", "HIDE pid=\(pid) size=\(Int(windowSize.width))x\(Int(windowSize.height)) "
+            + "against=\(WSDebug.rect(outerBoundsCG ?? visibleFrameCG))"
+            + "\(outerBoundsCG != nil ? " [whole topology — this display is boxed in]" : "") "
+            + "corner=\(corner.rawValue) → \(WSDebug.point(target))")
         withoutAnimation(pid: pid) { setPosition(ax, target) }
 
-        // Read back rather than trusting the write.
-        //
-        // Only the X axis is checked, and that is not laziness. macOS refuses
-        // to let a window's title bar sink below the bottom of the screen, so
-        // the Y we ask for is routinely clamped upward by ~90-120pt. That
-        // clamp is harmless: it is the HORIZONTAL push of a full window width
-        // that takes the window out of sight. Checking Y as well made every
-        // single park report failure while the window had in fact moved
-        // off-screen — leaving it invisible AND untracked, which is the worst
-        // of both worlds.
         guard let actual = position(of: ax) else {
-            WSDebug.bail("axwrite", "HIDE pid=\(pid) — could not read the position back")
-            return nil
+            WSDebug.bail("axwrite", "HIDE pid=\(pid) — position read-back failed; "
+                + "treating as parked so the recovery record is kept")
+            return .indeterminate
         }
-        guard abs(actual.x - target.x) <= 8 else {
-            WSDebug.bail("axwrite", "HIDE pid=\(pid) refused on X: wanted \(Int(target.x)) "
-                + "but settled at \(Int(actual.x)) — window is still where it was")
-            log.warn("park refused on X: wanted \(target.x) but settled at \(actual.x)")
-            return nil
+
+        // Judge the result by the question that actually matters — is the
+        // window out of sight? — rather than by whether one coordinate matched.
+        // macOS clamps Y on every park, so an exact-match test can only ever
+        // report failure.
+        let resulting = CGRect(origin: actual, size: windowSize)
+        if !WSCoord.isReachable(resulting, minimumFraction: 0.02) {
+            WSDebug.log("axwrite", "HIDE pid=\(pid) OK — now at \(WSDebug.point(actual)), off every display")
+            return .parked(actual)
         }
-        WSDebug.log("axwrite", "HIDE pid=\(pid) OK at \(WSDebug.point(actual)) "
-            + "(Y asked \(Int(target.y)) got \(Int(actual.y)) — macOS clamps Y, harmless)")
-        return actual
+        if let before, isNear(actual, before, tolerance: 4) {
+            WSDebug.log("axwrite", "HIDE pid=\(pid) — app refused, window did not move; stays visible")
+            return .unchanged
+        }
+        WSDebug.bail("axwrite", "HIDE pid=\(pid) — window moved to \(WSDebug.point(actual)) "
+            + "but is still partly on screen; treating as parked so the record is kept")
+        return .indeterminate
     }
 
     /// Put it back — position AND size.
