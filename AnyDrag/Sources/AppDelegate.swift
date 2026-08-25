@@ -71,6 +71,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak engine] _ in
             engine?.workspaces.refresh()
         }
+
+        // Retry recovery whenever an app finishes launching.
+        //
+        // The launch sweep above can only rescue windows whose app is already
+        // running. At login that is frequently false — AnyDrag starts early and
+        // the app owning a parked window may still be coming up — and the
+        // record is then correctly kept but nothing would ever act on it again
+        // until the next launch. A window would sit off-screen for the rest of
+        // the session with no sign anything was wrong.
+        //
+        // Cheap: it does nothing at all unless records are pending.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil, queue: .main
+        ) { [weak engine] note in
+            guard !WorkspaceStore.all.isEmpty else { return }
+            let name = (note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication)?.localizedName ?? "?"
+            let result = WorkspaceStore.recoverOnLaunch()
+            if result.restored > 0 {
+                Self.log.info("recovered \(result.restored) parked window(s) after \(name) launched")
+                engine?.workspaces.refresh()
+            }
+        }
     }
 
     /// Fires `permission_granted` once on the launch where the trust state
