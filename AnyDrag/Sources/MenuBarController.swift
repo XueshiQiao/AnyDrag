@@ -50,6 +50,61 @@ final class MenuBarController: NSObject {
         statusItem.menu = buildMenu()
     }
 
+    /// Upper bound on the workspace rows the menu reserves: 4 displays x the
+    /// 4-workspace maximum. Rows beyond what's in use stay hidden.
+    private static let maxWorkspaceMenuItems = 16
+
+    /// Repopulate the workspace rows for the displays attached right now.
+    private func refreshWorkspaceItems(in menu: NSMenu) {
+        let engine = dragEngine
+        let header = menu.items.first { $0.tag == 900 }
+        let restore = menu.items.first { $0.tag == 950 }
+        let rows = (0..<Self.maxWorkspaceMenuItems).compactMap { i in
+            menu.items.first { $0.tag == 901 + i }
+        }
+
+        guard engine.workspacesEnabled, engine.workspacesPerDisplay > 1 else {
+            header?.isHidden = true
+            rows.forEach { $0.isHidden = true }
+            // Still offer the escape hatch — windows may be parked from a
+            // session where the feature *was* on.
+            restore?.isHidden = false
+            return
+        }
+
+        header?.isHidden = false
+        header?.title = NSLocalizedString("Workspaces", comment: "menu section header")
+        header?.isEnabled = false
+
+        var row = 0
+        for screen in NSScreen.screens {
+            guard let key = DisplayKey.from(screen) else { continue }
+            let visible = engine.workspaces.visibleWorkspaceIndex(on: key)
+            for ws in 0..<engine.workspacesPerDisplay where row < rows.count {
+                let item = rows[row]
+                let name = engine.workspaceNames["\(key.uuid)/\(ws)"]
+                    ?? Workspace.displayName(index: ws)
+                item.isHidden = false
+                item.title = "\(screen.localizedName) · \(name)"
+                item.state = (ws == visible) ? .on : .off
+                item.representedObject = WorkspaceID(display: key, index: ws)
+                row += 1
+            }
+        }
+        for i in row..<rows.count { rows[i].isHidden = true }
+        restore?.isHidden = false
+    }
+
+    @objc private func switchWorkspace(_ sender: NSMenuItem) {
+        guard let ws = sender.representedObject as? WorkspaceID else { return }
+        dragEngine.workspaces.refresh()
+        dragEngine.workspaces.switchTo(ws)
+    }
+
+    @objc private func restoreAllWindows(_ sender: NSMenuItem) {
+        dragEngine.workspaces.restoreAllWindows()
+    }
+
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
@@ -58,6 +113,32 @@ final class MenuBarController: NSObject {
         let aboutItem = NSMenuItem(title: "AnyDrag v\(version)", action: nil, keyEquivalent: "")
         aboutItem.isEnabled = false
         menu.addItem(aboutItem)
+
+        menu.addItem(.separator())
+
+        // ── Virtual workspaces (prototype) ────────────────────────────
+        // Rebuilt on every open (`menuWillOpen`) because the workspace list
+        // depends on which displays are attached right now.
+        let wsHeader = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        wsHeader.tag = 900
+        wsHeader.isHidden = true
+        menu.addItem(wsHeader)
+        for i in 0..<Self.maxWorkspaceMenuItems {
+            let item = NSMenuItem(title: "", action: #selector(switchWorkspace(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = 901 + i
+            item.isHidden = true
+            menu.addItem(item)
+        }
+        // Always present, whatever the feature's state: it is the one control
+        // that undoes everything, and someone reaching for it is by definition
+        // in a situation where the rest of the UI has not helped.
+        let restoreAll = NSMenuItem(
+            title: NSLocalizedString("Bring All Windows Back", comment: "workspace escape hatch"),
+            action: #selector(restoreAllWindows(_:)), keyEquivalent: "")
+        restoreAll.target = self
+        restoreAll.tag = 950
+        menu.addItem(restoreAll)
 
         menu.addItem(.separator())
 
@@ -145,6 +226,11 @@ final class MenuBarController: NSObject {
 extension MenuBarController: NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
+        // The workspace rows depend on the displays attached right now, so
+        // they are rebuilt every time the menu opens rather than at startup.
+        dragEngine.workspaces.refresh()
+        refreshWorkspaceItems(in: menu)
+
         // Update usage tips with current modifier symbol; hide tips whose
         // feature is currently disabled, and hide all tips when no modifier is
         // selected (otherwise we'd render "Hold — and drag" with a placeholder).

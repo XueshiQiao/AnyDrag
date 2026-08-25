@@ -61,6 +61,14 @@ enum Preferences {
         // glides to its center; when off, the overlay centers on the cursor
         // with no edge clamping and no cursor warp. Absent = default (on).
         static let overlayEdgeSafeEnabled = "AnyDragOverlayEdgeSafeEnabled"
+
+        // Virtual workspaces (prototype). No Settings UI yet — these are set
+        // with `defaults write me.xueshi.anydrag[.debug] <key> …` while the
+        // feature is being evaluated.
+        static let workspacesEnabled    = "AnyDragWorkspacesEnabled"
+        static let workspacesPerDisplay = "AnyDragWorkspacesPerDisplay"
+        static let workspaceHideCorner  = "AnyDragWorkspaceHideCorner"
+        static let workspaceNames       = "AnyDragWorkspaceNames"
         // Centered-window size, as an Int percent of the screen's visible frame
         // (50…85, step 5). Stored as a percent rather than a fraction so the
         // persisted value can't drift through float rounding. Absent = 85, the
@@ -306,6 +314,21 @@ enum Preferences {
         engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
         engine.linkedResizeEnabled = d.object(forKey: Key.linkedResizeEnabled) as? Bool ?? defaultLinkedResizeEnabled
         engine.overlayEdgeSafeEnabled = d.object(forKey: Key.overlayEdgeSafeEnabled) as? Bool ?? defaultOverlayEdgeSafeEnabled
+
+        // Virtual workspaces. Off unless explicitly switched on: this one
+        // changes where windows are, so it must never turn itself on.
+        engine.workspacesPerDisplay = min(max(
+            (d.object(forKey: Key.workspacesPerDisplay) as? Int) ?? 2,
+            Workspace.countRange.lowerBound), Workspace.countRange.upperBound)
+        // Absent (the normal case) = decide per display. Setting it forces
+        // every display to the same corner, which is only right on a
+        // single-monitor Mac.
+        engine.workspaceHideCorner = d.string(forKey: Key.workspaceHideCorner)
+            .flatMap(HideCorner.init(rawValue:))
+        engine.workspaceNames = (d.dictionary(forKey: Key.workspaceNames) as? [String: String]) ?? [:]
+        // Assigned LAST: its didSet spins the controller up, and the settings
+        // above have to already be in place when it does.
+        engine.workspacesEnabled = d.object(forKey: Key.workspacesEnabled) as? Bool ?? false
         engine.centeredSizePercent = normalizedCenteredPercent(
             (d.object(forKey: Key.centeredSizePercent) as? Int) ?? defaultCenteredPercent
         )

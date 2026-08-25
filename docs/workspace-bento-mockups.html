@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-bg="wall" data-zoom="1" data-state="drop">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AnyDrag · 虚拟工作区 × Bento 面板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   页面外壳 —— 沿用 bento-panel-chrome-mockups.html 的编辑风格
+   ============================================================ */
+:root{
+  --page-bg:#0b0c10; --ink:#f4f1ea; --ink-dim:#a7a39a; --ink-faint:#6f6c64;
+  --line:rgba(255,255,255,.09); --card:#131419; --card-2:#0f1015;
+  --hot:#ff7a3d; --hot-2:#ffd0a8; --good:#7fd6a3; --watch:#e8b765; --bad:#ff8a7a;
+  --display:"Bricolage Grotesque","Helvetica Neue",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",system-ui,sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  background:
+    radial-gradient(120% 80% at 85% -10%, rgba(255,122,61,.10), transparent 55%),
+    radial-gradient(90% 70% at -10% 0%, rgba(90,120,255,.08), transparent 50%),
+    var(--page-bg);
+  color:var(--ink); font-family:var(--body);
+  -webkit-font-smoothing:antialiased; line-height:1.55; min-height:100vh;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:64px 36px 140px;}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--hot);display:flex;align-items:center;gap:14px;margin:0 0 24px;}
+.eyebrow::after{content:"";height:1px;flex:1;background:linear-gradient(90deg,var(--hot),transparent);}
+h1{font-family:var(--display);font-weight:700;letter-spacing:-.02em;line-height:1.04;
+   font-size:clamp(34px,5.2vw,58px);margin:0 0 20px;}
+h1 em{font-style:italic;color:var(--hot-2);}
+.lede{font-size:17px;color:var(--ink-dim);max-width:74ch;margin:0 0 12px;}
+.lede b{color:var(--ink);font-weight:600;}
+h2{font-family:var(--display);font-weight:600;letter-spacing:-.01em;font-size:30px;
+   margin:78px 0 8px;padding-top:26px;border-top:1px solid var(--line);}
+h2 .num{font-family:var(--mono);font-size:14px;color:var(--hot);margin-right:12px;
+        font-weight:500;letter-spacing:.1em;vertical-align:3px;}
+h3{font-family:var(--display);font-weight:600;font-size:19px;margin:38px 0 8px;}
+p{font-size:15.5px;color:var(--ink-dim);max-width:80ch;}
+p b,li b{color:var(--ink);font-weight:600;}
+code{font-family:var(--mono);font-size:.88em;background:rgba(255,255,255,.06);
+     padding:2px 6px;border-radius:5px;color:var(--hot-2);}
+ul{font-size:15.5px;color:var(--ink-dim);max-width:80ch;padding-left:22px;}
+li{margin:7px 0;}
+.tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  border-radius:999px;padding:2px 9px;display:inline-block;vertical-align:2px;font-weight:600;}
+.tag.new{background:rgba(255,122,61,.16);color:var(--hot-2);}
+.tag.same{background:rgba(255,255,255,.07);color:var(--ink-faint);}
+.tag.risk{background:rgba(255,138,122,.15);color:var(--bad);}
+.tag.ok{background:rgba(127,214,163,.14);color:var(--good);}
+
+/* ---- 控制条 ---- */
+.ctl{position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  padding:12px 0;margin:22px 0 0;background:linear-gradient(180deg,var(--page-bg) 72%,transparent);}
+.seg{display:inline-flex;background:rgba(255,255,255,.05);border:1px solid var(--line);
+     border-radius:11px;padding:3px;gap:2px;}
+.seg button{appearance:none;border:0;background:transparent;color:var(--ink-dim);
+  font:600 12.5px/1 var(--body);padding:7px 13px;border-radius:8px;cursor:pointer;transition:.16s;}
+.seg button[aria-pressed="true"]{background:var(--hot);color:#1a0f08;}
+.ctl .lab{font-family:var(--mono);font-size:11px;color:var(--ink-faint);
+  letter-spacing:.1em;text-transform:uppercase;margin-right:2px;}
+
+/* ---- 舞台 ---- */
+.stage{position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;padding:70px 30px;min-height:300px;margin:22px 0 6px;}
+.bd{position:absolute;inset:0;z-index:0;}
+:root[data-bg="wall"] .bd{background:
+    radial-gradient(90% 70% at 15% 10%, #ff9a6b 0%, transparent 55%),
+    radial-gradient(80% 80% at 85% 20%, #6a7bff 0%, transparent 60%),
+    radial-gradient(120% 90% at 50% 110%, #14203f 0%, transparent 60%),
+    linear-gradient(160deg,#2b1a3d,#101a33 60%,#07101f);}
+:root[data-bg="doc"] .bd{background:#f2f2f5;
+  background-image:linear-gradient(#e9e9ee 1px, transparent 1px),linear-gradient(90deg,#fff 0 42%,#f6f6f9 42%);
+  background-size:100% 46px, 100% 100%;}
+:root[data-bg="dark"] .bd{background:#17181c;
+  background-image:linear-gradient(#1d1e23 1px, transparent 1px);background-size:100% 46px;}
+.zoomer{position:relative;z-index:1;transform-origin:center;transition:transform .18s;}
+:root[data-zoom="15"] .zoomer{transform:scale(1.5);}
+:root[data-zoom="2"] .zoomer{transform:scale(2);}
+.cap{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin:0 0 30px;}
+.cap b{color:var(--ink-dim);font-weight:600;}
+
+/* ============================================================
+   覆盖层本体 —— 数值全部来自 TileCancelDot.swift（已上线版）
+     卡片宽 290 · 网格盒高 185 · 卡内边距 12 · 格子间隙 5
+     标题行：上 10 / 高 13 / 下 2 = 25 · 左 14 · 圆点 6 · 点后 7
+     卡片圆角 15 · 卡片间隙 12 · 非当前卡内容 alpha .82
+     格子尺寸 = (290-24-10)/3 = 85.33 × (185-24-10)/3 = 50.33
+   ============================================================ */
+:root[data-theme="dark"]{
+  --accent:#0a84ff; --pop-bg:rgba(44,44,46,.62);
+  --tile-bg:rgba(255,255,255,.10); --tile-border:rgba(255,255,255,.14);
+  --prev:rgba(255,255,255,.70); --ring:rgba(255,255,255,.42);
+  --cardlabel:rgba(255,255,255,.55); --txt:rgba(255,255,255,.94); --txt2:rgba(235,235,245,.6);
+  --shadow:0 26px 74px rgba(0,0,0,.62), 0 5px 16px rgba(0,0,0,.44);
+  --shadow-sm:0 12px 30px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.36);
+  --ghost:rgba(255,255,255,.13); --ghost-line:rgba(255,255,255,.30); --ghost-bar:rgba(255,255,255,.22);
+  --colhead:rgba(255,255,255,.5);
+}
+:root[data-theme="light"]{
+  --accent:#007aff; --pop-bg:rgba(246,246,248,.72);
+  --tile-bg:rgba(0,0,0,.06); --tile-border:rgba(0,0,0,.10);
+  --prev:rgba(0,0,0,.62); --ring:rgba(0,0,0,.42);
+  --cardlabel:rgba(0,0,0,.55); --txt:rgba(0,0,0,.86); --txt2:rgba(60,60,67,.6);
+  --shadow:0 22px 60px rgba(0,0,0,.26), 0 4px 14px rgba(0,0,0,.16);
+  --shadow-sm:0 10px 26px rgba(0,0,0,.20), 0 2px 7px rgba(0,0,0,.12);
+  --ghost:rgba(0,0,0,.10); --ghost-line:rgba(0,0,0,.24); --ghost-bar:rgba(0,0,0,.17);
+  --colhead:rgba(0,0,0,.5);
+}
+
+/* 一块玻璃岛 = 一个投放目标（显示器 或 工作区） */
+.card{
+  position:relative;width:290px;border-radius:15px;color:var(--txt);
+  background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:var(--shadow);
+}
+.card .inner{transition:opacity .18s;}
+.card:not(.current) .inner{opacity:.82;}         /* dimmedContentAlpha */
+
+.ctitle{height:25px;padding:10px 0 2px 14px;display:flex;align-items:center;gap:7px;}
+.ctitle .dot{width:6px;height:6px;border-radius:50%;background:var(--cardlabel);flex:none;}
+.card.current .ctitle .dot{background:var(--accent);}
+.ctitle .nm{font:600 11px/13px var(--body);color:var(--cardlabel);letter-spacing:.2px;}
+.card.current .ctitle .nm{color:var(--accent);}
+.ctitle .cnt{font:500 10px/13px var(--mono);color:var(--txt2);margin-left:auto;margin-right:13px;}
+
+.cgrid{position:relative;height:185px;padding:12px;}
+
+/* — 图层 1：工作区总览（这个工作区里现在真有什么） — */
+.ovw{position:absolute;inset:12px;transition:opacity .18s;}
+.ow{position:absolute;background:var(--ghost);border-radius:3.5px;overflow:hidden;
+    box-shadow:inset 0 0 0 1px var(--ghost-line);}
+.ow::before{content:"";position:absolute;left:0;right:0;top:0;height:9px;
+    background:var(--ghost-bar);border-bottom:1px solid var(--ghost-line);}
+.ow .ic{position:absolute;left:3px;top:1.5px;width:6px;height:6px;border-radius:1.8px;
+    box-shadow:inset 0 .4px 0 rgba(255,255,255,.5);}
+.ow .nm2{position:absolute;left:12px;top:2px;height:5px;width:38%;max-width:34px;border-radius:1px;
+    background:var(--ghost-line);}
+.ic.xcode{background:linear-gradient(170deg,#7fb3ff,#2a6fd6);}
+.ic.term{background:linear-gradient(170deg,#3a3f47,#15181d);}
+.ic.chrome{background:conic-gradient(from 200deg,#ea4335,#fbbc05,#34a853,#4285f4,#ea4335);}
+.ic.figma{background:linear-gradient(170deg,#ff7262,#a259ff);}
+.ic.wechat{background:linear-gradient(170deg,#7ee07e,#1aad19);}
+.ic.claude{background:linear-gradient(170deg,#ffb765,#d97757);}
+.ic.mail{background:linear-gradient(170deg,#8fd0ff,#1d7ef0);}
+.ic.music{background:linear-gradient(170deg,#ff7a9c,#fa2d48);}
+.empty-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font:500 11px/1 var(--body);color:var(--txt2);}
+
+/* — 图层 2：九宫格投放格（只在光标所在的卡上显形） — */
+.dgrid{position:absolute;inset:12px;display:grid;
+  grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:5px;
+  opacity:0;transition:opacity .18s;}
+.card.hot .dgrid{opacity:1;}
+.card.hot .ovw{opacity:.25;}
+.tile{position:relative;border-radius:5px;background:var(--tile-bg);
+      box-shadow:inset 0 0 0 1px var(--tile-border);}
+.tile.active{background:color-mix(in srgb, var(--accent) 42%, transparent);
+             box-shadow:inset 0 0 0 1.2px color-mix(in srgb, var(--accent) 95%, transparent);}
+.mini{position:absolute;inset:5px;}
+.win{position:absolute;background:var(--prev);border-radius:1.5px;}
+.tile.active .win{background:#fff;}
+.win-full{inset:0;}
+.win-centered{inset:7.5%;}
+.win-left{left:0;top:0;bottom:0;width:calc(50% - 1.5px);}
+.win-right{right:0;top:0;bottom:0;width:calc(50% - 1.5px);}
+.win-topLeft{left:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.win-topRight{right:0;top:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.win-bottomLeft{left:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.win-bottomRight{right:0;bottom:0;width:calc(50% - 1.5px);height:calc(50% - 1.5px);}
+.tile.cancel{background:transparent;box-shadow:none;display:flex;align-items:center;justify-content:center;}
+.tile.cancel .ring{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 1.4px var(--ring);}
+
+/* — 图层 3：跳转框（外层区域）— */
+.jump{position:absolute;inset:0;border-radius:15px;pointer-events:none;
+      opacity:0;transition:opacity .18s;
+      box-shadow:inset 0 0 0 2px var(--accent);}
+.card.jumping .jump{opacity:1;}
+.card.jumping .ovw{opacity:1;}
+.card.jumping .dgrid{opacity:0;}
+.ctitle.jumphead .arrow{font:700 11px/13px var(--body);color:var(--accent);width:6px;text-align:center;}
+.ctitle.jumphead .nm{color:var(--accent);font-weight:700;}
+
+.mode-badge{display:inline-flex;align-items:center;gap:6px;margin:0 auto 14px;
+  padding:5px 13px;border-radius:9px;background:var(--accent);color:#fff;
+  font:600 11px/1.4 var(--body);box-shadow:var(--shadow-sm);}
+.modewrap{display:flex;justify-content:center;}
+
+/* — 布局：列 = 显示器，行 = 工作区 — */
+.wsboard{display:flex;gap:12px;align-items:flex-start;}
+.wscol{display:flex;flex-direction:column;gap:12px;}
+.colhead{font:600 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--colhead);margin:0 0 9px;padding:6px 11px;display:inline-flex;align-items:center;gap:7px;
+  align-self:flex-start;border-radius:8px;background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:var(--shadow-sm);}
+.colhead .sq{width:9px;height:6.5px;border-radius:1.5px;box-shadow:inset 0 0 0 1px var(--colhead);}
+.colhead.cur{color:var(--accent);}
+.colhead.cur .sq{box-shadow:inset 0 0 0 1px var(--accent);background:color-mix(in srgb,var(--accent) 28%,transparent);}
+
+/* 目标窗口药丸 */
+.chip{display:inline-flex;align-items:center;gap:9px;white-space:nowrap;
+  padding:8px 14px 8px 9px;border-radius:13px;color:var(--txt);background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:var(--shadow-sm);margin:0 auto 12px;}
+.chip .nm{font:600 14px/1 var(--body);}
+.chip .ic{width:18px;height:18px;border-radius:5px;flex:none;}
+.chipwrap{display:flex;justify-content:center;}
+
+/* ---- 对照表 ---- */
+table{border-collapse:collapse;width:100%;margin:22px 0 8px;font-size:14.5px;}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink-dim);}
+th{font:600 12.5px/1.4 var(--body);color:var(--ink);background:rgba(255,255,255,.035);
+   letter-spacing:.02em;text-transform:none;}
+td b{color:var(--ink);}
+tr.sec td{background:rgba(255,255,255,.03);color:var(--ink);font-weight:600;font-size:13px;}
+
+.box{border:1px solid var(--line);border-radius:14px;padding:18px 20px;background:var(--card-2);margin:22px 0;}
+.box .bl{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--hot);margin:0 0 9px;}
+.box p{margin:0 0 10px;} .box p:last-child{margin:0;}
+
+.foot{margin-top:96px;padding-top:22px;border-top:1px solid var(--line);
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="eyebrow">AnyDrag · 设计稿 · 2026-08-25</div>
+<h1>把<em>虚拟工作区</em><br>装进 Bento 面板</h1>
+<p class="lede">手势不变，面板换一个维度：<b>一张卡从「一台显示器」变成「一个工作区」</b>。一次中键拖拽同时决定两件事——丢到哪个工作区、到了那儿摆在哪儿。这是 AeroSpace 结构上做不到的，因为它的工作区是纯键盘的、没有面板。</p>
+
+<div class="ctl">
+  <span class="lab">主题</span>
+  <div class="seg" data-k="theme">
+    <button data-v="light" aria-pressed="true">浅色</button>
+    <button data-v="dark" aria-pressed="false">深色</button>
+  </div>
+  <span class="lab">桌面</span>
+  <div class="seg" data-k="bg">
+    <button data-v="wall" aria-pressed="true">壁纸</button>
+    <button data-v="doc" aria-pressed="false">文档</button>
+    <button data-v="dark" aria-pressed="false">深底</button>
+  </div>
+  <span class="lab">缩放</span>
+  <div class="seg" data-k="zoom">
+    <button data-v="1" aria-pressed="true">1× 实际</button>
+    <button data-v="15" aria-pressed="false">1.5×</button>
+    <button data-v="2" aria-pressed="false">2×</button>
+  </div>
+</div>
+<p style="font-size:13.5px;margin-top:2px;">「1× 实际」= 屏幕上的真实大小。卡片 290×210pt、格子 85.33×50.33pt、间隙 5/12pt、圆角 15pt，全部照 <code>TileCancelDot.swift</code> 的常量。</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2><span class="num">01</span>关掉开关：今天线上的样子</h2>
+<p>先立基线。虚拟工作区是<b>一个可以关掉的独立功能</b>，关掉时面板必须和今天一模一样——一台显示器一张玻璃岛，按你显示器的真实左右位置排开，当前那台有强调点，其他的内容压到 82% 不透明度。</p>
+
+<div class="stage"><div class="bd"></div><div class="zoomer">
+  <div class="chipwrap"><div class="chip"><span class="ic xcode"></span><span class="nm">Xcode</span></div></div>
+  <div data-render="off"></div>
+</div></div>
+<p class="cap"><b>基线。</b>开关关闭 = 现在的多显示器 Bento。这张图不是新设计，是拿真实常量重画的今天。</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2><span class="num">02</span>打开开关：一张卡 = 一个工作区</h2>
+<p>卡片数从「显示器数」变成「显示器数 × 每台的工作区数」。按你定的 <b>2 个/显示器</b>，两台屏就是 4 张卡。</p>
+<p><b>排法：列 = 显示器，行 = 工作区。</b>横轴继续是你桌面的真实小地图（左边那列就是左边那块屏），纵轴是新增的工作区维度。显示器名字提到列头上，不再每张卡重复一遍——卡片的标题行让给工作区名。</p>
+
+<div class="stage"><div class="bd"></div><div class="zoomer">
+  <div class="chipwrap"><div class="chip"><span class="ic xcode"></span><span class="nm">Xcode</span></div></div>
+  <div data-render="drop"></div>
+</div></div>
+<p class="cap"><b>投放态。</b>光标停在「副屏 · 参考」这张卡的右中格 —— 松手 = Xcode 移到副屏的「参考」工作区，占右半屏。九宫格只在光标所在的那张卡上显形，其余三张卡显示的是各自工作区的<b>真实内容</b>。</p>
+
+<h3>2.1 跳转：外层框</h3>
+<p>每张卡的<b>标题行 + 网格四周那圈内边距</b>合起来是一个连续的「跳转框」。光标进这一圈，九宫格收起、整张卡描上强调色，松手 = <b>只把你带到那个工作区，手上拖的窗口留在原地不动</b>。</p>
+<p>这个语义的好处是它和「手上有没有窗口」无关——外层框永远只有一个意思：<b>带我过去</b>。</p>
+
+<div class="stage"><div class="bd"></div><div class="zoomer">
+  <div class="chipwrap"><div class="chip"><span class="ic xcode"></span><span class="nm">Xcode</span></div></div>
+  <div data-render="jump"></div>
+</div></div>
+<p class="cap"><b>跳转态。</b>光标在「主屏 · 沟通」的外层框上。九宫格让位，工作区总览恢复满亮度——因为此刻你要看的是「那边现在长什么样」，不是「往哪个格子放」。</p>
+
+<h3>2.2 纯切换：中键按在桌面空白处</h3>
+<p>光标底下没有窗口时按中键，面板照样弹出，但<b>没有要搬的东西</b>。这时候整张卡都是跳转目标，九宫格根本不出现，目标窗口药丸也不显示——换成一行模式提示。</p>
+
+<div class="stage"><div class="bd"></div><div class="zoomer">
+  <div data-render="switch"></div>
+</div></div>
+<p class="cap"><b>纯切换态。</b>没有九宫格、没有窗口药丸。整张卡 = 一个跳转按钮。这是唯一不需要手上先抓着窗口的入口。</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2><span class="num">03</span>卡片里画什么：两层，不打架</h2>
+<p>你选了「画真实布局 + app 图标」。难点在于它会和九宫格的选择提示抢视觉——同一块 266×161 的地方，既要画「现在有什么」，又要画「你可以放哪儿」。</p>
+<p>解法是<b>把它们做成两层，靠光标位置切换谁在前面</b>：</p>
+
+<table>
+  <tr><th style="width:22%">光标在哪</th><th style="width:39%">总览层（真实窗口）</th><th>九宫格层（投放格）</th></tr>
+  <tr><td><b>不在这张卡上</b></td><td>100% 显示。这是一张「那边现在长什么样」的缩略图</td><td>完全不画</td></tr>
+  <tr><td><b>在这张卡的网格里</b></td><td>压到 25%，退成背景纹理</td><td>浮上来，九个格子可选</td></tr>
+  <tr><td><b>在这张卡的外层框上</b></td><td>恢复 100%</td><td>收起</td></tr>
+</table>
+
+<p>这样任何时刻画面里只有一个焦点。而且它顺带解决了一个体验问题：<b>你在决定「切去哪个工作区」的时候，看到的正好是各个工作区的真实内容，不用靠脑子记编号。</b></p>
+
+<div class="box">
+  <div class="bl">这是一个真实的性能问题</div>
+  <p>今天面板弹出的成本几乎为零——画九个圆角方块而已。要画「真实窗口布局 + app 图标」，就得去枚举窗口、取每个 app 的图标。<b>而面板弹出是在中键按下的那一瞬间，属于拖拽热路径。</b></p>
+  <p>不能等按下去才算。得在后台维护一份「每个工作区里有哪些窗口、什么位置、什么图标」的缓存，窗口增删改的时候增量更新，面板弹出时只读缓存。图标也要预先缩放好存着，不能每次现取。</p>
+  <p>这条我列在第 5 节的遗漏清单里，因为它足以决定这个功能能不能做得跟手。</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2><span class="num">04</span>设置页：它是一个能整个关掉的功能</h2>
+<p>侧栏新增一页「虚拟工作区」，排在「中键」后面——因为它挂在中键手势上。整页由最上面一个总开关统治，<b>关掉时下面全部变灰，面板退回第 1 节那个样子</b>。</p>
+
+<div class="stage" style="padding:44px 30px;"><div class="bd"></div><div class="zoomer">
+  <div data-render="settings"></div>
+</div></div>
+<p class="cap"><b>设置页。</b>总开关关掉时，下面整块变灰但不消失——让人看得见「这儿有个功能没开」，比藏起来好。</p>
+
+<div class="box">
+  <div class="bl">关开关的那一刻必须做一件事</div>
+  <p><b>把所有藏在屏幕外的窗口全部放回来。</b>否则用户关掉功能之后，那些窗口就永远留在屏幕外了——而且他已经没有任何界面能把它们找回来。</p>
+  <p>同理，菜单栏里要常驻一个「把所有窗口放回来」，不管开关是什么状态都能点。用户不需要理解发生了什么，只需要有一个让一切复原的按钮。</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2><span class="num">05</span>你还没考虑到的东西</h2>
+<p>按「不处理会出什么事」排序。前三条我认为是<b>会毁掉这个功能</b>的级别，不是打磨项。</p>
+
+<table>
+  <tr><th style="width:4%">#</th><th style="width:26%">问题</th><th>不处理会怎样 / 怎么办</th><th style="width:11%">级别</th></tr>
+
+  <tr class="sec"><td colspan="4">会毁掉功能的</td></tr>
+  <tr>
+    <td><b>1</b></td>
+    <td><b>Cmd+Tab 切到一个藏起来的窗口</b></td>
+    <td>用户按 Cmd+Tab 选中一个在隐藏工作区里的窗口，macOS 会老老实实把它激活——但它的坐标在屏幕外。<b>用户看到的是「app 亮了，窗口没了」。</b>这不是小瑕疵，是会让人当场卸载的那种。<br>办法：监听焦点变化，发现被激活的窗口属于某个隐藏工作区，就自动切过去。AeroSpace 也是这么干的。这条几乎不可省。</td>
+    <td><span class="tag risk">致命</span></td>
+  </tr>
+  <tr>
+    <td><b>2</b></td>
+    <td><b>副屏被拔掉</b></td>
+    <td>你合上盖子出门，副屏那两个工作区里的窗口在哪？它们的坐标属于一块已经不存在的屏。<b>不处理 = 窗口永久消失</b>，而且落盘的位置信息也指向一块不存在的显示器。<br>办法：显示器拔出时，把它名下所有工作区（连同窗口）迁移到剩下的屏上，并且立刻把藏起来的窗口拉回可见区域。插回来时不用自动还原——那会更吓人。</td>
+    <td><span class="tag risk">致命</span></td>
+  </tr>
+  <tr>
+    <td><b>3</b></td>
+    <td><b>面板弹出的性能</b></td>
+    <td>今天面板弹出接近零成本。加了「真实窗口布局 + app 图标」之后要枚举窗口、取图标，<b>而这发生在中键按下的那一瞬间，是拖拽热路径</b>。卡一下，整个 AnyDrag 的「跟手」卖点就没了。<br>办法：后台常驻一份工作区内容缓存，增量更新；图标预缩放存好。面板弹出时只读内存，不做任何系统调用。</td>
+    <td><span class="tag risk">致命</span></td>
+  </tr>
+
+  <tr class="sec"><td colspan="4">会让人困惑的</td></tr>
+  <tr>
+    <td><b>4</b></td>
+    <td><b>窗口送走之后没有任何反馈</b></td>
+    <td>你把 Xcode 丢进「副屏 · 参考」，然后它就<b>消失了</b>。没有动画、没有提示。第一次用的人会以为窗口关掉了。<br>办法：松手后目标卡片上那个位置短暂亮一下，并且把这个 app 的图标画进去——让人看见「它去那儿了」。面板本来就还在屏幕上，这个反馈是免费的。</td>
+    <td><span class="tag risk">高</span></td>
+  </tr>
+  <tr>
+    <td><b>5</b></td>
+    <td><b>「当前」现在是两个维度</b></td>
+    <td>今天「当前」只有一个意思：光标所在的显示器。加了工作区之后是一对（显示器, 工作区）。<b>「当前显示器的另一个工作区」这张卡该长什么样？</b>它既不是当前，也不该和另一块屏的卡一样远。<br>办法：三档而不是两档——当前卡（强调点 + 强调色名字）、同屏的另一个工作区（正常亮度，圆点是空心的）、别的屏（压到 82%）。列头也要标出当前在哪一列。</td>
+    <td><span class="tag risk">高</span></td>
+  </tr>
+  <tr>
+    <td><b>6</b></td>
+    <td><b>跳转框底边只有 12pt</b></td>
+    <td>标题行 25pt 是好打的，但网格四周只有 12pt 内边距。<b>底边 12pt 在快速拖拽时几乎不可能瞄准</b>，会变成「想跳转结果放进了底排格子」。<br>办法：跳转框的<b>命中区</b>比画出来的宽——往里再吃 6pt，往外吃到卡片外 8pt。视觉上还是那一圈，判定上宽一倍。AnyDrag 在死区判定上已经有这套「画的和判的不一样」的做法。</td>
+    <td><span class="tag risk">中</span></td>
+  </tr>
+
+  <tr class="sec"><td colspan="4">边界情况</td></tr>
+  <tr>
+    <td><b>7</b></td>
+    <td><b>原生全屏的 app</b></td>
+    <td>用户点绿灯把 Xcode 全屏了，它自己占一个 macOS Space，AnyDrag 的工作区管不着它。硬去挪只会打架。<br>办法：识别出来直接排除，面板上不显示，也不允许被丢进工作区。</td>
+    <td><span class="tag same">要定</span></td>
+  </tr>
+  <tr>
+    <td><b>8</b></td>
+    <td><b>最小化的窗口算谁的</b></td>
+    <td>窗口收进 Dock 之后既不在屏幕上也不在屏幕外。切工作区时要不要连带处理？<br>建议：<b>不碰</b>。最小化是用户自己的动作，工作区不该覆盖它。从 Dock 点回来时按第 1 条的逻辑自动跟随切换。</td>
+    <td><span class="tag same">要定</span></td>
+  </tr>
+  <tr>
+    <td><b>9</b></td>
+    <td><b>新开的窗口落在哪</b></td>
+    <td>默认当前工作区，这个没争议。有争议的是：某个 app 的窗口已经在「沟通」里，它新开的窗口是跟过去还是留在当前？<br>建议：<b>留在当前</b>。跟过去意味着窗口会凭空出现在你看不见的地方。</td>
+    <td><span class="tag same">要定</span></td>
+  </tr>
+  <tr>
+    <td><b>10</b></td>
+    <td><b>单显示器的时候</b></td>
+    <td>今天的多显示器面板需要至少两块屏才出现。但虚拟工作区在单屏下<b>反而更有价值</b>——那正是屏幕不够用的场景。<br>办法：单屏 + 开工作区 = 一列两张卡，逻辑完全一样。不要沿用「必须 ≥2 屏」那条限制。</td>
+    <td><span class="tag new">别漏</span></td>
+  </tr>
+  <tr>
+    <td><b>11</b></td>
+    <td><b>和 AeroSpace 同时开着</b></td>
+    <td>你现在两个都装着，而且两个都靠「把窗口挪到屏幕外」实现工作区。同时开 = <b>互相藏对方的窗口</b>，结果不可预测。<br>办法：检测到 AeroSpace 在跑就提示一句，别静默打架。</td>
+    <td><span class="tag new">别漏</span></td>
+  </tr>
+  <tr>
+    <td><b>12</b></td>
+    <td><b>面板会不会太大</b></td>
+    <td>两屏 × 两工作区 = 592 × 432pt。5K 屏上占 23% × 30%，可以接受。但三屏就是 892pt 宽，每屏三个工作区就是 654pt 高。<b>没有上限策略的话总有一天会爆屏。</b><br>办法：定一个卡片总数上限（比如 8），超了就按比例缩小卡片，或者只画当前显示器那一列 + 其他显示器折叠。这个可以以后再说，但要先知道有这么回事。</td>
+    <td><span class="tag same">以后</span></td>
+  </tr>
+  <tr>
+    <td><b>13</b></td>
+    <td><b>面板弹出时按数字键</b></td>
+    <td>面板已经在屏幕上了，此时按 <code>1</code>/<code>2</code> 直接选中对应工作区，几乎是白送的加速器——不需要做完整的全局快捷键系统。<br>顺带说：<b>之前那份调研里我写「必须先做快捷键系统，虚拟工作区才有入口」，在你这个方案下不成立了</b>，入口是鼠标面板。快捷键仍然值得做，但不再是阻塞项。</td>
+    <td><span class="tag ok">白送</span></td>
+  </tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2><span class="num">06</span>这份稿子里没有答案的</h2>
+<ul>
+  <li><b>工作区数量能不能每台屏不一样。</b>现在假设两台屏都是 2 个。允许「主屏 3 个、副屏 1 个」会让排布逻辑复杂不少（列高不齐），但确实更贴真实用法。没做进这一稿。</li>
+  <li><b>工作区之间怎么直接搬窗口。</b>现在只能「从当前工作区丢出去」。如果窗口已经在「沟通」里，想把它挪到「参考」，得先切过去再丢。可能需要在总览层上直接拖。</li>
+  <li><b>切换工作区有没有动画。</b>AeroSpace 是硬切，零动画，这是它的卖点之一。AnyDrag 要不要一样硬切，还是给个极短的淡出，没定。</li>
+  <li><b>这一稿的所有数值都是纸上的。</b>卡片、格子、间隙照抄了线上常量，但「4 张卡 + 总览层 + 图标」这套画出来在真机上是不是还清爽，<b>没有验证过</b>——需要先做一个能跑的原型看一眼。</li>
+</ul>
+
+<div class="foot">
+  <span>docs/workspace-bento-mockups.html · 2026-08-25</span>
+  <span>数值源：TileCancelDot.swift · AnyDrag 26.07.113</span>
+</div>
+
+</div>
+
+<style>
+/* ---- 设置页 mockup ---- */
+.prefs{width:600px;border-radius:12px;overflow:hidden;background:var(--pop-bg);
+  backdrop-filter:blur(42px) saturate(180%);-webkit-backdrop-filter:blur(42px) saturate(180%);
+  box-shadow:var(--shadow);color:var(--txt);font-family:var(--body);}
+.prefs .hd{padding:14px 18px 12px;font:600 15px/1 var(--body);
+  border-bottom:1px solid color-mix(in srgb,var(--txt) 10%,transparent);display:flex;align-items:center;gap:9px;}
+.prefs .hd .gi{width:19px;height:19px;border-radius:5px;background:linear-gradient(170deg,#7fb3ff,#2a6fd6);flex:none;}
+.prefs .bd2{padding:6px 18px 16px;}
+.row{display:flex;align-items:center;gap:14px;padding:12px 0;
+  border-bottom:1px solid color-mix(in srgb,var(--txt) 7%,transparent);}
+.row:last-child{border-bottom:0;}
+.row .t{font:500 13.5px/1.35 var(--body);}
+.row .s{font:400 11.5px/1.4 var(--body);color:var(--txt2);margin-top:2px;}
+.row .r{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none;}
+.sw{width:38px;height:22px;border-radius:999px;background:var(--accent);position:relative;flex:none;}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+.sw.off{background:color-mix(in srgb,var(--txt) 18%,transparent);}
+.sw.off::after{right:auto;left:2px;}
+.pseg{display:inline-flex;border-radius:7px;overflow:hidden;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--txt) 16%,transparent);}
+.pseg span{font:500 12px/1 var(--body);padding:6px 11px;color:var(--txt);}
+.pseg span.on{background:var(--accent);color:#fff;}
+.tf{font:500 12px/1 var(--body);padding:6px 9px;border-radius:6px;width:76px;
+  background:color-mix(in srgb,var(--txt) 7%,transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--txt) 13%,transparent);}
+.wsrow{display:flex;align-items:center;gap:8px;padding:7px 0 7px 16px;}
+.wsrow .k{font:500 11px/1 var(--mono);color:var(--txt2);width:64px;}
+.btn{font:600 12.5px/1 var(--body);padding:8px 14px;border-radius:7px;
+  background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--txt) 14%,transparent);}
+.disabled{opacity:.38;}
+.hint{font:400 11.5px/1.5 var(--body);color:var(--txt2);padding:10px 0 0;}
+</style>
+
+<script>
+(function(){
+  // ---- 数据：两台显示器，每台两个工作区 ----
+  // 窗口矩形是相对卡片网格内容区（266×161）的百分比
+  const DISPLAYS = [
+    { name:'主屏 · LG ULTRAGEAR', cur:true, ws:[
+      { name:'编码', cur:true, wins:[
+          {ic:'xcode', l:0,  t:0, w:61, h:100},
+          {ic:'term',  l:63, t:0, w:37, h:100} ]},
+      { name:'沟通', cur:false, wins:[
+          {ic:'wechat',l:0,  t:0, w:49, h:100},
+          {ic:'mail',  l:51, t:0, w:49, h:100} ]},
+    ]},
+    { name:'副屏 · P275MV PLUS', cur:false, ws:[
+      { name:'参考', cur:false, wins:[
+          {ic:'chrome',l:0, t:0,  w:100, h:57},
+          {ic:'figma', l:0, t:60, w:100, h:40} ]},
+      { name:'挂机', cur:false, wins:[
+          {ic:'music', l:0,  t:0, w:46, h:100},
+          {ic:'claude',l:48, t:0, w:52, h:100} ]},
+    ]},
+  ];
+
+  // 3×3 投放格（对应 TileZone.bentoZone 的矩阵）
+  const GRID = [
+    ['topLeft','full','topRight'],
+    ['left','CANCEL','right'],
+    ['bottomLeft','centered','bottomRight'],
+  ];
+
+  function tiles(activeZone, centerMode){
+    let h = '';
+    for (let r=0;r<3;r++) for (let c=0;c<3;c++){
+      const z = GRID[r][c];
+      if (z === 'CANCEL'){
+        h += centerMode === 'cancel'
+          ? '<div class="tile cancel"><span class="ring"></span></div>'
+          : '<div class="tile'+(activeZone==='asis'?' active':'')+'"><div class="mini"><div class="win win-centered"></div></div></div>';
+      } else {
+        h += '<div class="tile'+(z===activeZone?' active':'')+'"><div class="mini"><div class="win win-'+z+'"></div></div></div>';
+      }
+    }
+    return h;
+  }
+
+  function overview(wins, note){
+    if (!wins || !wins.length) return '<div class="ovw"><div class="empty-note">'+(note||'空')+'</div></div>';
+    return '<div class="ovw">' + wins.map(w =>
+      '<div class="ow" style="left:'+w.l+'%;top:'+w.t+'%;width:'+w.w+'%;height:'+w.h+'%">'
+      + '<span class="ic '+w.ic+'"></span><span class="nm2"></span></div>').join('') + '</div>';
+  }
+
+  // mode: 'off' | 'drop' | 'jump' | 'switch'
+  function card(o){
+    const cls = ['card'];
+    if (o.cur) cls.push('current');
+    if (o.hot) cls.push('hot');
+    if (o.jumping) cls.push('jumping');
+    let h = '<div class="'+cls.join(' ')+'">';
+    if (o.jumping) h += '<div class="jump"></div>';
+    h += '<div class="inner">';
+    h += o.jumping
+      ? '<div class="ctitle jumphead"><span class="arrow">↳</span><span class="nm">跳到「'+o.title+'」</span></div>'
+      : '<div class="ctitle"><span class="dot"></span><span class="nm">'+o.title+'</span>'
+        + (o.count!=null ? '<span class="cnt">'+o.count+' 个窗口</span>' : '') + '</div>';
+    h += '<div class="cgrid">';
+    if (o.showOverview) h += overview(o.wins, o.note);
+    if (o.showGrid)     h += '<div class="dgrid">'+tiles(o.active, o.centerMode)+'</div>';
+    h += '</div></div></div>';
+    return h;
+  }
+
+  function renderOff(){
+    // 今天：一台显示器一张卡，九宫格常驻，无总览层
+    return '<div class="wsboard">' + DISPLAYS.map(d =>
+      '<div class="wscol">' + card({
+        title: d.name, cur: d.cur, hot: true, showGrid: true, showOverview: false,
+        active: d.cur ? null : 'right',
+        centerMode: d.cur ? 'cancel' : 'asis',
+      }) + '</div>').join('') + '</div>';
+  }
+
+  function renderWs(mode){
+    return '<div class="wsboard">' + DISPLAYS.map((d,di) =>
+      '<div class="wscol">'
+      + '<div class="colhead'+(d.cur?' cur':'')+'"><span class="sq"></span>'+d.name+'</div>'
+      + d.ws.map((w,wi) => {
+          const isHot     = mode==='drop'   && di===1 && wi===0;
+          const isJumping = mode==='jump'   && di===0 && wi===1;
+          return card({
+            title: w.name, cur: w.cur, hot: isHot, jumping: isJumping,
+            count: w.wins.length,
+            showOverview: true, wins: w.wins,
+            showGrid: mode!=='switch',
+            active: isHot ? 'right' : null,
+            centerMode: w.cur ? 'cancel' : 'asis',
+          });
+        }).join('')
+      + '</div>').join('') + '</div>';
+  }
+
+  function renderSettings(){
+    return '<div class="prefs">'
+    + '<div class="hd"><span class="gi"></span>虚拟工作区</div>'
+    + '<div class="bd2">'
+    + row('虚拟工作区','把窗口分到几组，一次只显示一组。关掉时中键面板退回按显示器分卡。', '<span class="sw"></span>')
+    + '<div class="grp">'
+    + row('每台显示器几个工作区', null, seg(['1','2','3','4'],1))
+    + rowPlain('工作区名字','<div>'
+        + wsline('主屏 1','编码') + wsline('主屏 2','沟通')
+        + wsline('副屏 1','参考') + wsline('副屏 2','挂机') + '</div>')
+    + row('卡片里显示','画出每个工作区里现在有哪些窗口，方便你不靠记忆就知道切去哪。', seg(['真实布局','仅数量','不显示'],0))
+    + row('焦点跟随','用 Cmd+Tab 切到一个藏起来的窗口时，自动切到它所在的工作区。<b>建议保持开启</b>——关掉的话那个窗口会激活但看不见。', '<span class="sw"></span>')
+    + row('窗口藏在哪个角','屏幕外的停放角落。选一个你显示器排布上是空的角。', seg(['左下','右下'],0))
+    + '</div>'
+    + '<div class="row"><div><div class="t">把所有窗口放回来</div>'
+    + '<div class="s">立刻把所有藏起来的窗口挪回可见区域。菜单栏里也有同样一项，任何时候都能点。</div></div>'
+    + '<div class="r"><span class="btn">全部放回</span></div></div>'
+    + '<div class="hint">关掉上面的总开关时，会自动执行一次「全部放回」。</div>'
+    + '</div></div>';
+  }
+  function row(t,s,r){ return '<div class="row"><div><div class="t">'+t+'</div>'
+      + (s?'<div class="s">'+s+'</div>':'') + '</div><div class="r">'+r+'</div></div>'; }
+  function rowPlain(t,body){ return '<div class="row" style="align-items:flex-start"><div class="t" style="padding-top:6px">'+t+'</div><div class="r" style="margin-left:auto">'+body+'</div></div>'; }
+  function seg(items,on){ return '<span class="pseg">'+items.map((x,i)=>'<span class="'+(i===on?'on':'')+'">'+x+'</span>').join('')+'</span>'; }
+  function wsline(k,v){ return '<div class="wsrow"><span class="k">'+k+'</span><span class="tf">'+v+'</span></div>'; }
+
+  document.querySelectorAll('[data-render]').forEach(el => {
+    const m = el.dataset.render;
+    if (m === 'off')            el.innerHTML = renderOff();
+    else if (m === 'settings')  el.innerHTML = renderSettings();
+    else {
+      el.innerHTML = (m === 'switch'
+        ? '<div class="modewrap"><span class="mode-badge">切换工作区 · 手上没有窗口</span></div>'+renderWs(m)
+        : renderWs(m));
+    }
+  });
+
+  // 控制条
+  document.querySelectorAll('.seg[data-k]').forEach(seg => {
+    seg.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      document.documentElement.dataset[seg.dataset.k] = b.dataset.v;
+    });
+  });
+})();
+</script>
+</body>
+</html>

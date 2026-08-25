@@ -15,6 +15,12 @@ enum TileZone {
     /// every other one. The size is preserved verbatim; the position is the
     /// same relative spot on the destination screen.
     case moveToDisplay
+    /// Not a placement at all: "take me to this workspace, leave the window
+    /// where it is". Produced by the jump frame around a workspace card —
+    /// the ring of padding plus the title row. Deliberately means the same
+    /// thing whether or not a window is being dragged, so the frame has one
+    /// meaning the user can learn once.
+    case jump
 
     /// The window a tile gesture is acting on. `.moveToDisplay` is the only
     /// zone whose target rect depends on where the window ALREADY is, so that
@@ -130,6 +136,10 @@ enum TileZone {
             return NSRect(x: v.midX, y: v.minY, width: v.width / 2, height: v.height / 2)
         case .moveToDisplay:
             return Self.sameSpotRect(source, in: v)
+        case .jump:
+            // The window does not move. Returning its current frame keeps
+            // every caller's arithmetic valid without a special case.
+            return source.frame
         }
     }
 }

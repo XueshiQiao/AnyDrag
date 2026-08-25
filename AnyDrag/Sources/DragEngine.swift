@@ -339,6 +339,16 @@ final class DragEngine {
         /// target display — it isn't always the cursor's current display. nil
         /// when no zone is active.
         var tileTargetScreen: NSScreen? = nil
+        /// Which workspace on `tileTargetScreen` the cursor is over. nil when
+        /// virtual workspaces are off.
+        var tileTargetWorkspace: Int? = nil
+        /// A middle-press that landed on empty desktop with virtual workspaces
+        /// on: the panel is up purely as a workspace switcher, with no window
+        /// to move and no tiles drawn.
+        var switcherActive: Bool = false
+        /// The switcher panel is actually on screen. False between the press
+        /// and the first drag.
+        var switcherShown: Bool = false
         var middleClickOrigin: CGPoint? = nil
         // Sticky: set true the first drag event that resolves to a non-nil
         // zone. Releasing in the deadzone with this true means the user
@@ -365,6 +375,34 @@ final class DragEngine {
         var lastDiagMissAt: CFAbsoluteTime = 0
     }
     private let cbState = OSAllocatedUnfairLock<CallbackState>(initialState: CallbackState())
+
+    // MARK: - Virtual workspaces
+    //
+    // Owned here because the bento gesture is its only entry point. All of it
+    // is inert until `workspacesEnabled` is turned on.
+
+    let workspaces = WorkspaceController()
+
+    var workspacesEnabled: Bool = false {
+        didSet {
+            guard oldValue != workspacesEnabled else { return }
+            workspaces.isEnabled = workspacesEnabled
+        }
+    }
+    var workspacesPerDisplay: Int = 2 {
+        didSet { workspaces.workspacesPerDisplay = workspacesPerDisplay }
+    }
+    /// nil = decide per display (the default and almost always right).
+    var workspaceHideCorner: HideCorner? {
+        didSet { workspaces.hideCornerOverride = workspaceHideCorner }
+    }
+    /// User-chosen names, keyed "<display uuid>/<index>". Missing = the number.
+    var workspaceNames: [String: String] = [:]
+
+    private func workspaceLabel(_ screen: NSScreen, _ index: Int) -> String {
+        guard let key = DisplayKey.from(screen) else { return Workspace.displayName(index: index) }
+        return workspaceNames["\(key.uuid)/\(index)"] ?? Workspace.displayName(index: index)
+    }
 
     /// User-excluded apps ("blacklist"). The authoritative list (bundle
     /// identifiers) is held on the main thread; the derived set of the
@@ -888,9 +926,15 @@ final class DragEngine {
             state.tileTarget = nil
             state.tileZone = nil
             state.tileTargetScreen = nil
+            state.tileTargetWorkspace = nil
             state.middleClickOrigin = nil
             state.tileSawDirection = false
             state.tileDotShown = false
+            // Must be cleared here too: a lost mouse-up during switcher mode
+            // would otherwise route the NEXT window gesture into the switcher
+            // branch, swallowing its events.
+            state.switcherActive = false
+            state.switcherShown = false
         }
         DispatchQueue.main.async { [weak self] in
             self?.tileOverlay.hide()
@@ -1420,6 +1464,27 @@ final class DragEngine {
         }
 
         guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            // Nothing under the cursor. With virtual workspaces on, that is
+            // the switcher gesture: middle-press bare desktop, move onto a
+            // card, release. It reuses the panel the tile gesture already
+            // shows, so there is no new gesture to learn.
+            if workspacesEnabled, workspacesPerDisplay > 1, middleAction == .tileByDirection {
+                // Arm it, but do NOT show the panel yet. Showing on the press
+                // meant every stray middle click that happened to land on
+                // something `windowUnderCursor` doesn't recognise threw a
+                // four-card panel in the user's face. The panel now appears
+                // only once the cursor actually moves, matching how the tile
+                // gesture behaves in drag-only mode; a press with no movement
+                // is replayed as an ordinary middle click on mouse-up.
+                cbState.withLock { state in
+                    state.switcherActive = true
+                    state.switcherShown = false
+                    state.middleClickOrigin = screenPoint
+                    state.tileTargetScreen = nil
+                    state.tileTargetWorkspace = nil
+                }
+                return nil
+            }
             logNoWindowMiss(button: "middle", at: screenPoint)
             return Unmanaged.passUnretained(event)
         }
@@ -1482,9 +1547,71 @@ final class DragEngine {
         tileCancelDot.material = bentoMaterial
         tileCancelDot.tint = bentoTint
         tileCancelDot.edgeSafeEnabled = overlayEdgeSafeEnabled
+        configureWorkspacePanel(switcherOnly: false)
         tileCancelDot.setTarget(pid: target.pid, appName: target.app,
                                 source: tileSource(forWindowCGFrame: target.frame))
         tileCancelDot.show(atCGPoint: origin)
+    }
+
+    /// Show the bento panel with no window in hand — every card is a jump
+    /// target and no tiles are drawn.
+    private func presentWorkspaceSwitcher(at origin: CGPoint) {
+        guard cbState.withLock({ $0.switcherActive }) else { return }
+        workspaces.refresh()
+        tileCancelDot.multiDisplayEnabled = true   // workspace cards need the multi path
+        tileCancelDot.borderEnabled = bentoBorderEnabled
+        tileCancelDot.material = bentoMaterial
+        tileCancelDot.tint = bentoTint
+        tileCancelDot.edgeSafeEnabled = overlayEdgeSafeEnabled
+        configureWorkspacePanel(switcherOnly: true)
+        tileCancelDot.clearTarget()
+        tileCancelDot.show(atCGPoint: origin)
+    }
+
+    /// Hand the overlay everything it needs to draw workspace cards.
+    ///
+    /// `overviewProvider` closes over `WindowRegistry`, whose reads are pure
+    /// dictionary lookups. That matters: this runs on middle-button-down, and
+    /// anything that talks to the window server here would be felt as lag.
+    private func configureWorkspacePanel(switcherOnly: Bool) {
+        guard workspacesEnabled, workspacesPerDisplay > 1 else {
+            tileCancelDot.workspacesPerDisplay = 0
+            tileCancelDot.currentWorkspaceIndex = nil
+            tileCancelDot.workspaceName = nil
+            tileCancelDot.overviewProvider = nil
+            tileCancelDot.switcherOnly = false
+            return
+        }
+        tileCancelDot.workspacesPerDisplay = workspacesPerDisplay
+        tileCancelDot.switcherOnly = switcherOnly
+        tileCancelDot.currentWorkspaceIndex = { [weak self] screen in
+            guard let self, let key = DisplayKey.from(screen) else { return 0 }
+            return self.workspaces.visibleWorkspaceIndex(on: key)
+        }
+        tileCancelDot.workspaceName = { [weak self] screen, index in
+            self?.workspaceLabel(screen, index) ?? Workspace.displayName(index: index)
+        }
+        tileCancelDot.overviewProvider = { [weak self] screen, index in
+            guard let self, let key = DisplayKey.from(screen) else { return [] }
+            let visible = screen.visibleFrame
+            guard visible.width > 0, visible.height > 0 else { return [] }
+            return self.workspaces
+                .windows(in: WorkspaceID(display: key, index: index))
+                .map { w in
+                    // The stored restore frame is where the window belongs when
+                    // this workspace is on screen — for a parked window that is
+                    // NOT where it currently sits, which is exactly why the
+                    // overview can show hidden workspaces truthfully.
+                    let ns = WSCoord.nsRect(fromCG: w.restoreFrameCG)
+                    return WSOverviewWindow(
+                        unitRect: NSRect(
+                            x: (ns.minX - visible.minX) / visible.width,
+                            y: (ns.minY - visible.minY) / visible.height,
+                            width: ns.width / visible.width,
+                            height: ns.height / visible.height),
+                        icon: w.icon)
+                }
+        }
     }
 
     private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -1496,6 +1623,35 @@ final class DragEngine {
         // main so the bento panel can resolve (cursor → display + zone)
         // using its current layout. Storing the result back under the lock
         // makes the update visible to abort/mouseUp paths.
+        // Switcher mode: no window, so only the card highlight needs updating.
+        let switcher: (active: Bool, shown: Bool, origin: CGPoint)? = cbState.withLock { state in
+            guard state.switcherActive, let o = state.middleClickOrigin else { return nil }
+            return (true, state.switcherShown, o)
+        }
+        if let switcher {
+            let p = event.location
+            // Same threshold the tile gesture uses to tell a click from a drag.
+            let moved = abs(p.x - switcher.origin.x) > 4 || abs(p.y - switcher.origin.y) > 4
+            guard switcher.shown || moved else { return nil }
+            if !switcher.shown {
+                cbState.withLock { $0.switcherShown = true }
+                DispatchQueue.main.async { [weak self] in
+                    self?.presentWorkspaceSwitcher(at: switcher.origin)
+                    Self.log.info("workspace switcher shown")
+                }
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let hit = self.tileCancelDot.resolve(cursorAtCGPoint: p)
+                self.cbState.withLock { state in
+                    state.tileTargetScreen = hit?.screen
+                    state.tileTargetWorkspace = hit?.workspaceIndex
+                }
+                self.tileCancelDot.setActive(hit)
+            }
+            return nil
+        }
+
         let tileState: (active: Bool, dotShown: Bool, origin: CGPoint) = cbState.withLock { state in
             guard state.tileTarget != nil, let origin = state.middleClickOrigin else {
                 return (false, false, .zero)
@@ -1550,11 +1706,17 @@ final class DragEngine {
             guard let target = state.tileTarget else { return nil }
             state.tileZone = hit?.zone
             state.tileTargetScreen = hit?.screen
+            state.tileTargetWorkspace = hit?.workspaceIndex
             if hit != nil { state.tileSawDirection = true }
             return target.frame
         }
         guard let windowCGFrame else { return }
-        if let hit {
+        if let hit, hit.zone == .jump {
+            // Jumping doesn't move the window, so there is nothing to outline
+            // on screen. The card's own accent ring is the whole feedback.
+            tileOverlay.hide()
+            tileCancelDot.setActive(hit)
+        } else if let hit {
             // Same `centeredFraction` and source the commit uses (`applyTile`)
             // — the preview must show where the window will actually land.
             let target = hit.zone.rect(in: hit.screen.visibleFrame,
@@ -1577,6 +1739,47 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
+        // Switcher mode finishes first — it has no window and no tile to apply.
+        struct SwitcherFinish {
+            let shown: Bool
+            let origin: CGPoint
+            let target: (screen: NSScreen, ws: Int)?
+        }
+        let switcherFinish: SwitcherFinish? = cbState.withLock { state in
+            guard state.switcherActive, let origin = state.middleClickOrigin else { return nil }
+            let shown = state.switcherShown
+            let target: (screen: NSScreen, ws: Int)?
+            if let screen = state.tileTargetScreen, let ws = state.tileTargetWorkspace {
+                target = (screen, ws)
+            } else {
+                target = nil
+            }
+            state.switcherActive = false
+            state.switcherShown = false
+            state.middleClickOrigin = nil
+            state.tileTargetScreen = nil
+            state.tileTargetWorkspace = nil
+            return SwitcherFinish(shown: shown, origin: origin, target: target)
+        }
+        if let finish = switcherFinish {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.tileCancelDot.hide()
+                guard finish.shown else {
+                    // Pressed and released without moving: the user meant an
+                    // ordinary middle click, so give them one.
+                    self.replayMiddleClick(at: finish.origin)
+                    return
+                }
+                guard let target = finish.target, let key = DisplayKey.from(target.screen) else {
+                    return  // released outside every card: cancel
+                }
+                self.workspaces.switchTo(WorkspaceID(display: key, index: target.ws))
+                self.workspaces.refresh()
+            }
+            return nil
+        }
+
         // Tile-by-direction path. Pull all gesture state out under one
         // lock so the read+clear pair is atomic with a concurrent
         // `abortTileGesture` from main.
@@ -1585,34 +1788,56 @@ final class DragEngine {
             let origin: CGPoint
             let zone: TileZone?
             let targetScreen: NSScreen?
+            let targetWorkspace: Int?
             let sawDirection: Bool
         }
         let tileFinish: TileFinish? = cbState.withLock { state -> TileFinish? in
             guard let target = state.tileTarget, let origin = state.middleClickOrigin else { return nil }
             let zone = state.tileZone
             let targetScreen = state.tileTargetScreen
+            let targetWorkspace = state.tileTargetWorkspace
             let sawDirection = state.tileSawDirection
             state.tileTarget = nil
             state.middleClickOrigin = nil
             state.tileZone = nil
             state.tileTargetScreen = nil
+            state.tileTargetWorkspace = nil
             state.tileSawDirection = false
             state.tileDotShown = false
             return TileFinish(target: target, origin: origin, zone: zone,
-                              targetScreen: targetScreen, sawDirection: sawDirection)
+                              targetScreen: targetScreen, targetWorkspace: targetWorkspace,
+                              sawDirection: sawDirection)
         }
         if let finish = tileFinish {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.tileCancelDot.hide()
-                if let zone = finish.zone, let screen = finish.targetScreen {
-                    self.applyTile(zone: zone, target: finish.target, screen: screen)
+                let run = WSDebug.newRun("commit")
+                WSDebug.log(run, "gesture end: app=\"\(finish.target.app)\" wid=\(finish.target.windowID) "
+                    + "zone=\(finish.zone.map { "\($0)" } ?? "nil") "
+                    + "screen=\(finish.targetScreen?.localizedName ?? "nil") "
+                    + "ws=\(finish.targetWorkspace.map(String.init) ?? "nil") "
+                    + "sawDirection=\(finish.sawDirection)")
+                if finish.zone == .jump, let screen = finish.targetScreen,
+                   let ws = finish.targetWorkspace, let key = DisplayKey.from(screen) {
+                    WSDebug.log(run, "→ JUMP to \(WSDebug.ws(WorkspaceID(display: key, index: ws))); window not moved")
+                    // Jump: take the user there, leave the dragged window alone.
+                    self.tileOverlay.hide()
+                    self.workspaces.switchTo(WorkspaceID(display: key, index: ws))
+                    self.workspaces.refresh()
+                } else if let zone = finish.zone, let screen = finish.targetScreen {
+                    WSDebug.log(run, "→ TILE zone=\(zone) on \(screen.localizedName) "
+                        + "ws=\(finish.targetWorkspace.map(String.init) ?? "none")")
+                    self.applyTile(zone: zone, target: finish.target, screen: screen,
+                                   workspace: finish.targetWorkspace, run: run)
                 } else if finish.sawDirection {
+                    WSDebug.log(run, "→ CANCEL (cursor returned to the deadzone)")
                     self.tileOverlay.hide()
                     // User actively chose a direction and then moved back into
                     // the cancel cell — clean cancel, don't replay the click.
                     Self.log.info("tile gesture cancelled by user (returned to deadzone)")
                 } else {
+                    WSDebug.log(run, "→ REPLAY plain middle click (never left the centre cell)")
                     self.tileOverlay.hide()
                     // Cursor never left the center cell — treat as a plain
                     // middle-click so apps still see it (browser tab close, etc.).
@@ -1662,7 +1887,9 @@ final class DragEngine {
     /// Saves the original frame in savedFrames so the existing double-click-restore works.
     private func applyTile(zone: TileZone,
                            target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
-                           screen: NSScreen) {
+                           screen: NSScreen,
+                           workspace: Int? = nil,
+                           run: String = "applyTile") {
         guard axGuardOrAbort("applyTile") else {
             tileOverlay.hide()
             return
@@ -1685,6 +1912,36 @@ final class DragEngine {
 
         // Remember the pre-AnyDrag frame so restore / double-click can go back.
         rememberOriginalFrame(windowID: target.windowID, pid: target.pid, currentFrame: currentFrame)
+
+        // Dropping into a workspace that is NOT on screen: never touch the
+        // window's live frame — record where it belongs over there and park it
+        // straight away. Placing it first and hiding it after would make it
+        // flash across the screen on its way out.
+        if workspacesEnabled, let ws = workspace, let key = DisplayKey.from(screen) {
+            let target_ws = WorkspaceID(display: key, index: ws)
+            let visible = workspaces.isVisible(target_ws)
+            WSDebug.log(run, "target \(WSDebug.ws(target_ws)) isVisible=\(visible) "
+                + "landing=\(WSDebug.rect(cgRect))")
+            if !visible {
+                workspaces.refresh()
+                workspaces.move(windowID: target.windowID, pid: target.pid,
+                                to: target_ws, landingFrameCG: cgRect)
+                tileOverlay.hide()
+                Self.log.info("tile→workspace: app=\"\(target.app)\" wid=\(target.windowID) ws=\(ws)")
+                return
+            }
+            // Target workspace is already on screen: place the window normally
+            // (below), but record the membership NOW. Without this the registry
+            // still believes the window lives in whatever workspace it came
+            // from, and the next switch parks or un-parks it according to that
+            // stale answer — which looks exactly like "the window followed me".
+            WSDebug.log(run, "target workspace is on screen — placing normally; recording membership")
+            workspaces.move(windowID: target.windowID, pid: target.pid,
+                            to: target_ws, landingFrameCG: cgRect)
+        } else if workspacesEnabled {
+            WSDebug.log(run, "no workspace on this hit (workspace=\(workspace.map(String.init) ?? "nil")) "
+                + "— plain tile")
+        }
 
         let sourceCenter = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
         let destinationCenter = CGPoint(x: cgRect.midX, y: cgRect.midY)

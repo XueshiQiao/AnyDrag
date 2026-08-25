@@ -167,3 +167,8 @@
 /* About — analytics opt-out (co-located with the disclosure line) */
 "about.analytics.toggle" = "发送匿名使用数据";
 "about.analytics.subtitle" = "帮助我们了解哪些功能被使用。不会收集任何个人信息、应用名称或窗口内容。";
+
+/* Virtual workspaces (prototype — no Settings UI yet) */
+"Workspaces" = "工作区";
+"Bring All Windows Back" = "把所有窗口放回来";
+"Empty" = "空";

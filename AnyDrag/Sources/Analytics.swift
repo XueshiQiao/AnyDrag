@@ -206,6 +206,7 @@ extension TileZone {
         case .bottomLeft:  return "bottom_left"
         case .bottomRight: return "bottom_right"
         case .moveToDisplay: return "move_to_display"
+        case .jump: return "jump_to_workspace"
         }
     }
 }

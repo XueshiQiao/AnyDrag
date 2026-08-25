@@ -167,3 +167,8 @@
 /* About — analytics opt-out (co-located with the disclosure line) */
 "about.analytics.toggle" = "Send anonymous usage data";
 "about.analytics.subtitle" = "Helps us understand which features are used. No personal data, app names, or window contents are collected.";
+
+/* Virtual workspaces (prototype — no Settings UI yet) */
+"Workspaces" = "Workspaces";
+"Bring All Windows Back" = "Bring All Windows Back";
+"Empty" = "Empty";

@@ -39,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Never leave windows parked off-screen across a quit — the user would
+        // have no way left to reach them.
+        dragEngine?.workspaces.restoreAllWindows()
         Analytics.flush()
     }
 
@@ -51,6 +54,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dragEngine = engine
 
         menuBarController = MenuBarController(dragEngine: engine, updateController: updateController)
+
+        // Put back anything a previous run left parked off-screen. Runs after
+        // Accessibility is granted (we are inside `ensurePermissions`), and is
+        // a no-op when the last run exited cleanly.
+        WorkspaceStore.recoverOnLaunch()
+        engine.workspaces.refresh()
+
+        // Keep the registry roughly in step with reality. The prototype
+        // refreshes on app activation rather than wiring up AXObservers —
+        // crude, but it never runs on the drag path, which is the property
+        // that actually matters.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main
+        ) { [weak engine] _ in
+            engine?.workspaces.refresh()
+        }
     }
 
     /// Fires `permission_granted` once on the launch where the trust state

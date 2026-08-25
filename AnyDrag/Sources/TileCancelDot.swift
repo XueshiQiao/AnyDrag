@@ -97,6 +97,33 @@ func bentoDynamicColor(dark: NSColor, light: NSColor) -> NSColor {
     }
 }
 
+// MARK: - Bento hit
+
+/// What the cursor is currently over inside the bento overlay.
+///
+/// `workspaceIndex` is nil whenever virtual workspaces are off — then a card
+/// still means "a display", exactly as it has always meant.
+struct BentoHit: Equatable {
+    let screen: NSScreen
+    let workspaceIndex: Int?
+    let zone: TileZone
+
+    /// Two hits address the same CARD when both the display and the workspace
+    /// match. Used to decide which card lights up.
+    func sameCard(as other: BentoHit) -> Bool {
+        screen == other.screen && workspaceIndex == other.workspaceIndex
+    }
+}
+
+/// One window drawn in a card's overview layer — the "what is already in this
+/// workspace" picture.
+struct WSOverviewWindow {
+    /// Position and size as a fraction of the card's tile area, NS-style
+    /// (origin bottom-left).
+    let unitRect: NSRect
+    let icon: NSImage?
+}
+
 // MARK: - TileCancelDot
 //
 // Bento-style overlay shown at the middle-button gesture origin while a
@@ -229,6 +256,46 @@ final class TileCancelDot: NSPanel {
     /// path.
     var multiDisplayEnabled: Bool = false
 
+    // MARK: - Virtual workspaces
+    //
+    // All four are supplied by DragEngine before each show. When
+    // `workspacesPerDisplay <= 1` the overlay behaves exactly as it shipped —
+    // this whole dimension collapses away and the code below takes the same
+    // branches it always did.
+
+    /// How many workspaces each display carries. 0 or 1 = feature off.
+    var workspacesPerDisplay: Int = 0
+
+    /// Which workspace a display is currently showing.
+    var currentWorkspaceIndex: ((NSScreen) -> Int)?
+
+    /// The user's name for a workspace (defaults to its number).
+    var workspaceName: ((NSScreen, Int) -> String)?
+
+    /// The windows already in a workspace, for the overview layer.
+    ///
+    /// **This closure must be a pure memory read.** It is called while the
+    /// panel is being built, which happens on middle-button-down — the most
+    /// latency-sensitive moment in the app. Enumerating windows here would
+    /// make the gesture feel sticky.
+    var overviewProvider: ((NSScreen, Int) -> [WSOverviewWindow])?
+
+    /// True when the gesture has no window to move (middle-press on empty
+    /// desktop): no tiles are drawn and every card is purely a jump target.
+    var switcherOnly: Bool = false
+
+    /// Whether the workspace dimension is live for this show.
+    private var workspacesActive: Bool { workspacesPerDisplay > 1 }
+
+    /// How far the jump frame's HIT area reaches beyond the card's drawn
+    /// edge. Kept under half the inter-card gap (12) so two cards can never
+    /// both claim the same point.
+    static let jumpOuterSlop: CGFloat = 5
+    /// How far the jump frame's hit area eats INTO the tile area. The drawn
+    /// padding ring is only 12pt; at drag speed that is not aimable, so the
+    /// judged region is roughly twice the drawn one.
+    static let jumpInnerBite: CGFloat = 6
+
     /// Set by DragEngine from Preferences before each show. When true (default),
     /// the overlay is kept fully on-screen near a screen edge and the real
     /// cursor glides to its center; when false, it centers on the cursor with
@@ -274,8 +341,12 @@ final class TileCancelDot: NSPanel {
     /// Size of the content area inside the window (the window is bigger by
     /// `shadowMargin` on every side). Cards are laid out inside it.
     private var contentSizeInWindow: CGSize = .zero
-    private var activeScreen: NSScreen?
-    private var activeZone: TileZone?
+    private var activeHit: BentoHit?
+
+    /// Which card the cursor is physically over, independent of whether a
+    /// zone resolved. The cancel cell resolves to no zone, but the card is
+    /// still the one being pointed at and must keep showing its grid.
+    private var hoveredCardIndex: Int?
 
     // MARK: - Subviews
 
@@ -337,6 +408,13 @@ final class TileCancelDot: NSPanel {
         targetSource = source
     }
 
+    /// Switcher mode: there is no window, so the name chip must not appear.
+    func clearTarget() {
+        targetAppName = nil
+        targetAppIcon = nil
+        targetSource = nil
+    }
+
     /// Anchor the chip above `anchorFrame` (NS coords) and show it. No target
     /// name → hide it (defensive; the tile path always sets one).
     private func positionTargetChip(anchorFrame: NSRect, on screen: NSScreen) {
@@ -386,7 +464,11 @@ final class TileCancelDot: NSPanel {
     /// y-down). Picks single- or multi-display layout based on the toggle
     /// and the number of connected displays.
     func show(atCGPoint cgScreenPoint: CGPoint) {
-        let useMulti = multiDisplayEnabled && NSScreen.screens.count >= 2
+        // Workspaces force the card layout regardless of display count: the
+        // workspace cards and the jump frame only exist there. On one display
+        // it degrades to a single column of workspace cards — which is exactly
+        // the case where virtual workspaces are worth the most.
+        let useMulti = (multiDisplayEnabled && NSScreen.screens.count >= 2) || workspacesActive
         if useMulti {
             showMultiDisplay(atCGPoint: cgScreenPoint)
         } else {
@@ -430,8 +512,8 @@ final class TileCancelDot: NSPanel {
         displayLayout = nil
         displayOffset = .zero
         contentSizeInWindow = contentFrame.size
-        activeScreen = nil
-        activeZone = nil
+        activeHit = nil
+        hoveredCardIndex = nil
 
         setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
         layOutCardViews()
@@ -455,7 +537,11 @@ final class TileCancelDot: NSPanel {
         let result = Self.computeMultiDisplayLayout(
             screens: screens,
             currentScreen: currentScreen,
-            source: targetSource
+            source: switcherOnly ? nil : targetSource,
+            workspacesPerDisplay: workspacesPerDisplay,
+            currentWorkspaceIndex: currentWorkspaceIndex,
+            workspaceName: workspaceName,
+            overviewProvider: overviewProvider
         )
 
         // Anchor: the current card's GRID center aligned to the click point,
@@ -508,8 +594,8 @@ final class TileCancelDot: NSPanel {
         displayLayout = result.cards
         displayOffset = offset
         contentSizeInWindow = contentFrame.size
-        activeScreen = nil
-        activeZone = nil
+        activeHit = nil
+        hoveredCardIndex = nil
 
         setFrame(contentFrame.insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin), display: true)
         layOutCardViews()
@@ -593,6 +679,13 @@ final class TileCancelDot: NSPanel {
                 view.content.isCurrent = card.isCurrent
                 view.content.centerZone = card.centerZone
                 view.content.moveHerePreview = card.moveHerePreview
+                view.content.workspaceMode = card.workspaceIndex != nil
+                view.content.overview = card.overview
+                // The panel opens with the cursor parked on the current card's
+                // centre, so that card starts hot — its grid is visible from
+                // the first frame.
+                view.content.isHot = card.workspaceIndex != nil && card.isCurrent && !switcherOnly
+                view.content.isJumping = false
                 view.content.activeZone = nil
                 view.content.cancelActive = false
                 view.content.needsDisplay = true
@@ -675,8 +768,18 @@ final class TileCancelDot: NSPanel {
     private static func computeMultiDisplayLayout(
         screens: [NSScreen],
         currentScreen: NSScreen,
-        source: TileZone.Source?
+        source: TileZone.Source?,
+        workspacesPerDisplay: Int,
+        currentWorkspaceIndex: ((NSScreen) -> Int)?,
+        workspaceName: ((NSScreen, Int) -> String)?,
+        overviewProvider: ((NSScreen, Int) -> [WSOverviewWindow])?
     ) -> (panelSize: CGSize, cards: [DisplayCard]) {
+        // > 1 workspaces per display turns each display's single card into a
+        // vertical stack of workspace cards. At 0 or 1 the loops below run
+        // exactly once per display and every workspace field stays nil, so
+        // the shipped display-only behaviour is bit-for-bit unchanged.
+        let wsCount = max(1, workspacesPerDisplay)
+        let wsActive = workspacesPerDisplay > 1
         // Each card's grid box matches the single-display card exactly, so
         // the user sees identical cell / preview / cancel-ring rendering
         // inside each one. Multi-display becomes "lay N of those cards out
@@ -722,7 +825,7 @@ final class TileCancelDot: NSPanel {
         // column count and M = max rows-in-any-column. Each cell holds one
         // screen; empty cells are blank gaps.
         let nCols = columns.count
-        let nRows = columns.map(\.count).max() ?? 0
+        let nRows = (columns.map(\.count).max() ?? 0) * wsCount
 
         // No outer container any more: the layout is exactly the cards plus
         // the gaps between them.
@@ -731,26 +834,40 @@ final class TileCancelDot: NSPanel {
 
         var cards: [DisplayCard] = []
         for (col, columnScreens) in columns.enumerated() {
-            for (rowFromTop, screen) in columnScreens.enumerated() {
-                let x = CGFloat(col) * (cardW + gap)
-                // Card top y (non-flipped: y=0 at bottom, row 0 is the
-                // visual TOP). The title row occupies the top of the card,
-                // the grid box the rest.
-                let cardTopY = panelH - CGFloat(rowFromTop) * (cardH + gap)
-                let cardY = cardTopY - cardH
-                let isCurrent = screen == currentScreen
-                let canMoveHere = !isCurrent && source != nil
-                cards.append(DisplayCard(
-                    screen: screen,
-                    cardRect: NSRect(x: x, y: cardY, width: cardW, height: cardH),
-                    gridRect: NSRect(x: x, y: cardY, width: cardW, height: gridH),
-                    isCurrent: isCurrent,
-                    label: screen.localizedName,
-                    centerZone: canMoveHere ? .moveToDisplay : nil,
-                    moveHerePreview: canMoveHere
-                        ? moveHereUnitRect(source: source!, on: screen)
-                        : nil
-                ))
+            var rowFromTop = 0
+            for screen in columnScreens {
+                let visibleWS = currentWorkspaceIndex?(screen) ?? 0
+                for ws in 0..<wsCount {
+                    let x = CGFloat(col) * (cardW + gap)
+                    // Card top y (non-flipped: y=0 at bottom, row 0 is the
+                    // visual TOP). The title row occupies the top of the card,
+                    // the grid box the rest.
+                    let cardTopY = panelH - CGFloat(rowFromTop) * (cardH + gap)
+                    let cardY = cardTopY - cardH
+                    // "Current" is a pair once workspaces exist: the cursor's
+                    // display AND the workspace that display is showing.
+                    let isCurrent = wsActive
+                        ? (screen == currentScreen && ws == visibleWS)
+                        : (screen == currentScreen)
+                    let canMoveHere = !isCurrent && source != nil
+                    let label = wsActive
+                        ? (workspaceName?(screen, ws) ?? Workspace.displayName(index: ws))
+                        : screen.localizedName
+                    cards.append(DisplayCard(
+                        screen: screen,
+                        cardRect: NSRect(x: x, y: cardY, width: cardW, height: cardH),
+                        gridRect: NSRect(x: x, y: cardY, width: cardW, height: gridH),
+                        isCurrent: isCurrent,
+                        label: label,
+                        workspaceIndex: wsActive ? ws : nil,
+                        overview: wsActive ? (overviewProvider?(screen, ws) ?? []) : [],
+                        centerZone: canMoveHere ? .moveToDisplay : nil,
+                        moveHerePreview: canMoveHere
+                            ? moveHereUnitRect(source: source!, on: screen)
+                            : nil
+                    ))
+                    rowFromTop += 1
+                }
             }
         }
         // Suppress "unused" warnings (kept for future row-clustering work).
@@ -780,7 +897,7 @@ final class TileCancelDot: NSPanel {
     /// (display, zone) hit. Returns nil for cancel (center cell of any
     /// display) and for "outside any display" (multi-display) or "off all
     /// screens" (single-display).
-    func resolve(cursorAtCGPoint cgPoint: CGPoint) -> (screen: NSScreen, zone: TileZone)? {
+    func resolve(cursorAtCGPoint cgPoint: CGPoint) -> BentoHit? {
         guard let primary = NSScreen.screens.first else { return nil }
         let nsY = primary.frame.height - cgPoint.y
         let cursorNS = NSPoint(x: cgPoint.x, y: nsY)
@@ -801,17 +918,52 @@ final class TileCancelDot: NSPanel {
                 x: cursorNS.x - originNS.x,
                 y: cursorNS.y - originNS.y
             )
-            return Self.resolveMultiDisplay(cursorLocal: local, layout: layout)
+            hoveredCardIndex = Self.cardIndex(at: local, layout: layout)
+            return Self.resolveMultiDisplay(cursorLocal: local, layout: layout,
+                                            switcherOnly: switcherOnly)
         } else {
             return resolveSingleDisplay(cursorNS: cursorNS)
         }
     }
 
+    /// Index of the card containing `cursorLocal`, or nil.
+    private static func cardIndex(at cursorLocal: NSPoint, layout: [DisplayCard]) -> Int? {
+        layout.firstIndex {
+            $0.cardRect.insetBy(dx: -jumpOuterSlop, dy: -jumpOuterSlop).contains(cursorLocal)
+        }
+    }
+
     private static func resolveMultiDisplay(
         cursorLocal: NSPoint,
-        layout: [DisplayCard]
-    ) -> (screen: NSScreen, zone: TileZone)? {
-        for card in layout where card.cardRect.contains(cursorLocal) {
+        layout: [DisplayCard],
+        switcherOnly: Bool
+    ) -> BentoHit? {
+        // The jump frame reaches slightly outside the card, so test the
+        // grown rect. The slop is under half the inter-card gap, so no two
+        // grown rects can overlap and claim the same point.
+        for card in layout
+        where card.cardRect.insetBy(dx: -jumpOuterSlop, dy: -jumpOuterSlop).contains(cursorLocal) {
+
+            if let ws = card.workspaceIndex {
+                // With no window in hand there is nothing to place: the whole
+                // card is one big jump target.
+                if switcherOnly {
+                    return BentoHit(screen: card.screen, workspaceIndex: ws, zone: .jump)
+                }
+                // The tile area minus a bite off every edge. Anything outside
+                // that — the title row, the padding ring, and a little beyond
+                // the card — means "take me there".
+                let tilesCore = card.gridRect.insetBy(
+                    dx: chromePadding + jumpInnerBite,
+                    dy: chromePadding + jumpInnerBite)
+                if !tilesCore.contains(cursorLocal) {
+                    return BentoHit(screen: card.screen, workspaceIndex: ws, zone: .jump)
+                }
+            } else if !card.cardRect.contains(cursorLocal) {
+                // Workspaces off: keep the shipped behaviour exactly — the
+                // grown rect must not extend the card's reach.
+                continue
+            }
             // Cells are the thirds of the GRID box, not of the whole card:
             // the title row is part of the card's visual rect but not part
             // of the grid. Clamping (rather than rejecting) means the title
@@ -830,11 +982,10 @@ final class TileCancelDot: NSPanel {
                 [.bottomLeft, .centered,  .bottomRight],
             ]
             if let zone = zoneMatrix[row][col] {
-                return (card.screen, zone)
+                return BentoHit(screen: card.screen, workspaceIndex: card.workspaceIndex, zone: zone)
             } else if let center = card.centerZone {
-                // Center cell of another display's card: send the window
-                // there untouched.
-                return (card.screen, center)
+                // Center cell of another card: send the window there untouched.
+                return BentoHit(screen: card.screen, workspaceIndex: card.workspaceIndex, zone: center)
             } else {
                 return nil  // center cell of the current card -> cancel
             }
@@ -842,9 +993,7 @@ final class TileCancelDot: NSPanel {
         return nil  // outside every card
     }
 
-    private func resolveSingleDisplay(
-        cursorNS: NSPoint
-    ) -> (screen: NSScreen, zone: TileZone)? {
+    private func resolveSingleDisplay(cursorNS: NSPoint) -> BentoHit? {
         // Single-display: the cells extend to infinity, so resolve from
         // the card-relative offset and look up which screen the cursor
         // is currently on (since the tile target follows the cursor's
@@ -861,31 +1010,43 @@ final class TileCancelDot: NSPanel {
         let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorNS) })
             ?? NSScreen.screens.first
         guard let screen else { return nil }
-        return (screen, zone)
+        return BentoHit(screen: screen,
+                        workspaceIndex: workspacesActive ? currentWorkspaceIndex?(screen) : nil,
+                        zone: zone)
     }
 
     /// Highlight the resolved hit. Pass nil to clear (cursor in cancel
     /// cell or outside any zone). Cheap to call every drag event — only
     /// triggers a redraw when the visible state changes.
-    func setActive(_ hit: (screen: NSScreen, zone: TileZone)?) {
-        let newScreen = hit?.screen
-        let newZone = hit?.zone
-        guard newScreen != activeScreen || newZone != activeZone else { return }
-        activeScreen = newScreen
-        activeZone = newZone
+    func setActive(_ hit: BentoHit?) {
+        guard hit != activeHit else { return }
+        activeHit = hit
 
         if let layout = displayLayout {
-            // Only the card whose screen matches the hit shows a highlight.
-            for (view, card) in zip(cardViews, layout) {
-                let zone = card.screen == newScreen ? newZone : nil
-                guard view.content.activeZone != zone else { continue }
+            for (index, pair) in zip(cardViews, layout).enumerated() {
+                let (view, card) = pair
+                // "Hot" = the cursor is over this card, whether or not a zone
+                // resolved. Deriving it from the hit alone would blank the grid
+                // the moment the cursor sat in the cancel cell — including the
+                // instant the panel opens, which is exactly when the user needs
+                // to see where the cells are.
+                let onThisCard = hoveredCardIndex == index
+                let jumping = onThisCard && hit?.zone == .jump
+                let hot = onThisCard && !jumping && !switcherOnly
+                _ = card
+                let zone = hot ? hit?.zone : nil
+                guard view.content.activeZone != zone
+                        || view.content.isHot != hot
+                        || view.content.isJumping != jumping else { continue }
                 view.content.activeZone = zone
+                view.content.isHot = hot
+                view.content.isJumping = jumping
                 view.content.needsDisplay = true
             }
         } else if let view = cardViews.first {
-            view.content.activeZone = newZone
-            // No zone → the cursor is back in the deadzone: light the ring.
-            view.content.cancelActive = newZone == nil
+            view.content.activeZone = hit?.zone
+            // No zone -> the cursor is back in the deadzone: light the ring.
+            view.content.cancelActive = hit == nil
             view.content.needsDisplay = true
         }
     }
@@ -909,6 +1070,13 @@ struct DisplayCard {
     /// other card: "send the window to this display exactly as it is".
     /// Computed once here so the hit test and the drawing can never disagree
     /// about which cell does what.
+    /// Which workspace this card is. nil when virtual workspaces are off, in
+    /// which case the card is a plain display card and everything below
+    /// behaves exactly as it shipped.
+    let workspaceIndex: Int?
+    /// The windows already living in this workspace, for the overview layer.
+    /// Empty when workspaces are off.
+    let overview: [WSOverviewWindow]
     let centerZone: TileZone?
     /// Only set alongside `centerZone == .moveToDisplay`: where the window
     /// would land on THIS display, as a fraction of the display's visible
@@ -1051,6 +1219,27 @@ private final class BentoCardContentView: NSView {
     /// plain `bounds` fill would poke square corners out of the card.
     var cornerRadius: CGFloat = 15
 
+    // MARK: - Virtual workspace state
+    //
+    // All inert when `workspaceMode` is false, which is how the overlay
+    // behaves when the feature is off.
+
+    /// True when this card represents a workspace rather than a display.
+    var workspaceMode: Bool = false
+    /// The cursor is inside this card's tile area: show the 3x3 grid and let
+    /// the overview recede behind it.
+    var isHot: Bool = false
+    /// The cursor is on this card's jump frame: no grid, full-strength
+    /// overview, accent ring, and the title says where you're going.
+    var isJumping: Bool = false
+    /// What already lives in this workspace.
+    var overview: [WSOverviewWindow] = []
+
+    /// How far the overview fades when the grid takes over. Not zero — a
+    /// ghost of the real layout behind the cells is useful context, and it
+    /// keeps the card from flashing empty as the cursor crosses in.
+    private static let overviewRecededAlpha: CGFloat = 0.25
+
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1065,9 +1254,37 @@ private final class BentoCardContentView: NSView {
             width: bounds.width,
             height: max(0, bounds.height - titleAreaHeight)
         )
-        drawGrid(in: gridRect, accent: NSColor.controlAccentColor)
+        let accent = NSColor.controlAccentColor
 
-        if let label, !label.isEmpty {
+        if workspaceMode {
+            // Two layers, and only ever one of them in focus. Which one wins
+            // is decided purely by where the cursor is, so the card never
+            // asks the eye to read both at once.
+            let tiles = gridRect.insetBy(dx: TileCancelDot.chromePadding,
+                                         dy: TileCancelDot.chromePadding)
+            drawOverview(in: tiles,
+                         alpha: isHot ? Self.overviewRecededAlpha : 1.0)
+            if isHot {
+                drawGrid(in: gridRect, accent: accent)
+            }
+            if isJumping {
+                let inset = bounds.insetBy(dx: 1, dy: 1)
+                let path = NSBezierPath(roundedRect: inset,
+                                        xRadius: cornerRadius - 1, yRadius: cornerRadius - 1)
+                accent.setStroke()
+                path.lineWidth = 2
+                path.stroke()
+            }
+        } else {
+            drawGrid(in: gridRect, accent: accent)
+        }
+
+        if isJumping, let label, !label.isEmpty {
+            // Replaces the normal title rather than floating a pill outside
+            // the card: a pill above a card in the second row would sit on
+            // top of the card above it.
+            drawTitle("\u{21B3} " + label, accentOverride: accent)
+        } else if let label, !label.isEmpty {
             drawTitle(label)
         }
 
@@ -1093,7 +1310,7 @@ private final class BentoCardContentView: NSView {
 
     // MARK: - Title row
 
-    private func drawTitle(_ text: String) {
+    private func drawTitle(_ text: String, accentOverride: NSColor? = nil) {
         let titleH = TileCancelDot.cardTitleHeight
         let rowY = bounds.maxY - TileCancelDot.cardTitleTopPad - titleH
 
@@ -1104,8 +1321,18 @@ private final class BentoCardContentView: NSView {
             width: dotSize,
             height: dotSize
         )
-        (isCurrent ? NSColor.controlAccentColor : Self.cardDotIdleColor).setFill()
-        NSBezierPath(ovalIn: dotRect).fill()
+        if let accentOverride {
+            // Jump state: the arrow in the text carries the meaning, so the
+            // dot would just be noise. Draw it hollow to keep the text's
+            // left edge where it always is.
+            accentOverride.setStroke()
+            let ring = NSBezierPath(ovalIn: dotRect.insetBy(dx: 0.6, dy: 0.6))
+            ring.lineWidth = 1.2
+            ring.stroke()
+        } else {
+            (isCurrent ? NSColor.controlAccentColor : Self.cardDotIdleColor).setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+        }
 
         let textX = dotRect.maxX + TileCancelDot.cardTitleDotGap
         let textRect = NSRect(
@@ -1118,12 +1345,100 @@ private final class BentoCardContentView: NSView {
         paragraph.lineBreakMode = .byTruncatingTail
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .medium),
-            .foregroundColor: isCurrent ? NSColor.controlAccentColor : Self.cardLabelColor,
+            .foregroundColor: accentOverride
+                ?? (isCurrent ? NSColor.controlAccentColor : Self.cardLabelColor),
             .kern: 0.8,
             .paragraphStyle: paragraph,
         ]
         NSAttributedString(string: text.uppercased(), attributes: attrs).draw(in: textRect)
     }
+
+    // MARK: - Workspace overview
+
+    /// Draw what already lives in this workspace: one little window per real
+    /// window, each with a title strip and its app icon in the corner.
+    ///
+    /// The strip and the icon are what make these read as *windows*. Without
+    /// them the card is a handful of grey rectangles that look like empty
+    /// boxes, which is worse than drawing nothing.
+    private func drawOverview(in area: NSRect, alpha: CGFloat) {
+        guard !overview.isEmpty else {
+            if !isHot { drawEmptyNote(in: area) }
+            return
+        }
+        guard let ctx = NSGraphicsContext.current else { return }
+        ctx.saveGraphicsState()
+        // Clip to the card. Without this a window whose computed rect falls
+        // outside the tile area is drawn straight across the neighbouring
+        // cards — which is exactly what the first build did.
+        NSBezierPath(rect: area.insetBy(dx: -1, dy: -1)).setClip()
+        ctx.cgContext.setAlpha(alpha)
+
+        let fill = Self.overviewFill
+        let line = Self.overviewStroke
+        let bar = Self.overviewTitleBar
+
+        for w in overview {
+            // Skip anything that isn't really on this display. A unit rect far
+            // outside 0...1 means the window's recorded frame belongs
+            // somewhere else (or is stale) — drawing it would be a lie, and a
+            // messy one.
+            guard w.unitRect.maxX > -0.2, w.unitRect.minX < 1.2,
+                  w.unitRect.maxY > -0.2, w.unitRect.minY < 1.2 else { continue }
+            let r = NSRect(
+                x: area.minX + w.unitRect.minX * area.width,
+                y: area.minY + w.unitRect.minY * area.height,
+                width: max(10, w.unitRect.width * area.width),
+                height: max(8, w.unitRect.height * area.height)
+            ).insetBy(dx: 0.5, dy: 0.5)
+            guard r.width > 2, r.height > 2 else { continue }
+
+            let path = NSBezierPath(roundedRect: r, xRadius: 3, yRadius: 3)
+            fill.setFill()
+            path.fill()
+
+            // Title strip along the top (NS coords: top = maxY).
+            let barH = min(9.0, r.height * 0.32)
+            let barRect = NSRect(x: r.minX, y: r.maxY - barH, width: r.width, height: barH)
+            NSGraphicsContext.current?.saveGraphicsState()
+            path.setClip()
+            bar.setFill()
+            barRect.fill()
+            NSGraphicsContext.current?.restoreGraphicsState()
+
+            line.setStroke()
+            path.lineWidth = 1
+            path.stroke()
+
+            if let icon = w.icon, barH >= 6 {
+                let side = min(barH - 2.5, 7)
+                let iconRect = NSRect(x: r.minX + 3,
+                                      y: barRect.midY - side / 2,
+                                      width: side, height: side)
+                icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
+            }
+        }
+        ctx.restoreGraphicsState()
+    }
+
+    private func drawEmptyNote(in area: NSRect) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: Self.cardLabelColor.withAlphaComponent(0.55),
+        ]
+        let text = NSAttributedString(
+            string: NSLocalizedString("Empty", comment: "empty workspace card"),
+            attributes: attrs)
+        let size = text.size()
+        text.draw(at: NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
+    }
+
+    private static let overviewFill = dynamic(
+        dark: NSColor(white: 1, alpha: 0.13), light: NSColor(white: 0, alpha: 0.10))
+    private static let overviewStroke = dynamic(
+        dark: NSColor(white: 1, alpha: 0.30), light: NSColor(white: 0, alpha: 0.24))
+    private static let overviewTitleBar = dynamic(
+        dark: NSColor(white: 1, alpha: 0.22), light: NSColor(white: 0, alpha: 0.17))
 
     // MARK: - Grid
     //
@@ -1261,6 +1576,10 @@ private final class BentoCardContentView: NSView {
                 width: w,
                 height: h
             )
+        case .jump:
+            // Never rendered inside a cell — the jump frame is the ring
+            // around the grid, not one of the nine tiles.
+            return
         }
 
         let fg: NSColor = isActive
