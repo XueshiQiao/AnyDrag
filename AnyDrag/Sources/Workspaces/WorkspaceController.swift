@@ -85,6 +85,25 @@ final class WorkspaceController {
     /// display → index of the workspace currently on screen. Missing = 0.
     private var visibleIndex: [DisplayKey: Int] = [:]
 
+    /// The last topology we acted on: each attached display's full frame,
+    /// deliberately NOT its visible frame. See `handleScreenParametersChanged`.
+    private var lastTopology: [String: CGRect] = WorkspaceController.topologySnapshot()
+
+    private static func topologySnapshot() -> [String: CGRect] {
+        var out: [String: CGRect] = [:]
+        for screen in NSScreen.screens {
+            guard let key = DisplayKey.from(screen) else { continue }
+            out[key.uuid] = screen.frame
+        }
+        return out
+    }
+
+    private static func describe(_ t: [String: CGRect]) -> String {
+        t.sorted { $0.key < $1.key }
+            .map { "\($0.key.prefix(8)) \(WSDebug.rect($0.value))" }
+            .joined(separator: " | ")
+    }
+
     // MARK: - Queries
 
     func visibleWorkspaceIndex(on display: DisplayKey) -> Int {
@@ -234,14 +253,35 @@ final class WorkspaceController {
     /// Workspace membership survives; only the hiding is undone. The next
     /// switch re-parks whatever needs parking, using the new topology.
     func handleScreenParametersChanged() {
-        let run = WSDebug.newRun("displays")
         DisplayKey.invalidateCache()   // CG display IDs get recycled
 
-        let attached = NSScreen.screens.compactMap { screen -> String? in
-            guard let k = DisplayKey.from(screen) else { return nil }
-            return "\(screen.localizedName)=\(k.uuid.prefix(8)) \(WSDebug.rect(WSCoord.visibleFrameCG(of: screen)))"
+        // `didChangeScreenParametersNotification` is NOT a display-topology
+        // notification. It also fires for anything that alters a screen's
+        // *visible* area — most often the Dock hiding, revealing, or moving to
+        // whichever display the cursor is near. On a two-monitor setup that
+        // happens every time the pointer brushes the bottom of a screen.
+        //
+        // Reacting to those meant un-parking every hidden window whenever the
+        // Dock appeared: windows from other workspaces flooded back and it
+        // looked like the workspace had switched itself. So compare the actual
+        // topology — which displays exist and their full frames — and ignore
+        // everything else. The Dock changes `visibleFrame`; it never changes
+        // `frame`.
+        let now = Self.topologySnapshot()
+        guard now != lastTopology else {
+            if WSDebug.enabled {
+                WSDebug.log("displays", "screen parameters changed but the topology is identical "
+                    + "(Dock moved, or menu bar changed) — ignoring")
+            }
+            return
         }
-        WSDebug.log(run, "display topology changed; now attached: \(attached.joined(separator: " | "))")
+        let previous = lastTopology
+        lastTopology = now
+
+        let run = WSDebug.newRun("displays")
+        WSDebug.log(run, "TOPOLOGY CHANGED")
+        WSDebug.log(run, "  was: \(Self.describe(previous))")
+        WSDebug.log(run, "  now: \(Self.describe(now))")
 
         guard isEnabled else { return WSDebug.bail(run, "feature disabled") }
 
