@@ -100,18 +100,23 @@ struct ModifierCombination: OptionSet, Equatable, Hashable {
         Self.augmentCandidates.contains(self)
     }
 
-    /// First eligible secondary key that doesn't overlap `base`, so the resize
-    /// trigger can never collide with the move trigger (the base modifier).
+    /// First eligible secondary key that isn't identical to `base`. A key may
+    /// overlap a multi-key base because both gestures use exact flag matching.
     static func defaultAugment(excluding base: ModifierCombination) -> ModifierCombination {
-        augmentCandidates.first { $0.isDisjoint(with: base) } ?? .shift
+        augmentCandidates.first { $0.isValidAugment(for: base) } ?? .shift
     }
 
-    /// Normalize a persisted/hand-edited augment for the given base: keep it if
-    /// it's a single eligible key disjoint from the base, otherwise fall back to
-    /// the first non-conflicting default. Guarantees the engine never arms the
-    /// resize path on the same flags as the move path.
+    /// True when this is a valid secondary key whose final shortcut is not
+    /// identical to the move shortcut. A single key contained in a multi-key
+    /// base remains valid because both matchers require exact flag equality.
+    func isValidAugment(for base: ModifierCombination) -> Bool {
+        isValidAugment && self != base
+    }
+
+    /// Normalize a persisted/hand-edited augment for the given base, preserving
+    /// contained keys while preventing identical move and resize shortcuts.
     func sanitizedAugment(base: ModifierCombination) -> ModifierCombination {
-        (isValidAugment && isDisjoint(with: base)) ? self : Self.defaultAugment(excluding: base)
+        isValidAugment(for: base) ? self : Self.defaultAugment(excluding: base)
     }
 
     /// Migrate the pre-1.3 `ModifierKey` string preference.
@@ -216,8 +221,8 @@ final class DragEngine {
     var leftResizeEnabled: Bool { resizeTrigger == .leftClick }
     /// The single secondary key that triggers a left-click resize on its own
     /// (e.g. `.shift` → Shift + left-drag resizes; the primary modifier is not
-    /// required). Always kept disjoint from `modifiers` so this trigger can
-    /// never collide with the move gesture — see `sanitizedAugment(base:)`.
+    /// required). It may be contained in a multi-key move modifier, but may not
+    /// be identical to it — see `sanitizedAugment(base:)`.
     var leftResizeModifier: ModifierCombination = .shift
     /// When true (default) and ≥2 displays are connected, the bento panel
     /// renders all displays at their real arrangement so the user can pick
@@ -1947,8 +1952,7 @@ final class DragEngine {
     /// the primary modifier is NOT required (it gates only the move/right-resize
     /// gestures). Returns false (so the event falls through to the move/maximize
     /// path) whenever the feature is off, the app has no primary modifier
-    /// configured (effectively off), or the secondary would overlap the base —
-    /// which keeps the move gesture working no matter how the two are configured.
+    /// configured (effectively off), or the secondary is identical to the base.
     private func matchesLeftResizeModifier(_ flags: CGEventFlags) -> Bool {
         guard leftResizeEnabled else { return false }
         // No primary modifier configured means AnyDrag is off; don't arm resize
@@ -1956,10 +1960,10 @@ final class DragEngine {
         // non-empty for a Hyper/CapsLock base, whose eventFlags are empty.)
         guard !modifiers.isEmpty else { return false }
         let augment = leftResizeModifier
-        // The secondary must be a single real flag key that isn't already part
-        // of the base — otherwise "secondary alone" could collide with the move
-        // trigger (which arms on the base).
-        guard augment.isValidAugment, augment.isDisjoint(with: modifiers) else { return false }
+        // The secondary must be a single real flag key and must not be identical
+        // to the move shortcut. Containment in a multi-key base is safe because
+        // both paths use exact flag matching.
+        guard augment.isValidAugment(for: modifiers) else { return false }
         let augmentFlags = augment.eventFlags
         guard !augmentFlags.isEmpty else { return false }
 

@@ -334,8 +334,8 @@ enum Preferences {
 
         // Secondary modifier for the "left" trigger. Read after `modifiers` so
         // the augment can be sanitized against the (now-known) base — it must
-        // stay a single valid key disjoint from the base, else the resize
-        // trigger wouldn't differ from the move trigger.
+        // stay a single valid key whose final shortcut differs from the move
+        // trigger, while containment in a multi-key base remains valid.
         if let raw = d.object(forKey: Key.leftResizeModifier) as? UInt {
             engine.leftResizeModifier = ModifierCombination(rawValue: raw).sanitizedAugment(base: engine.modifiers)
         } else {
