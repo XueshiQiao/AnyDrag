@@ -14,10 +14,10 @@ import ApplicationServices
 //   3. `Analytics.trackPreferenceChanged` (only on an actual value change).
 //
 // All the subtle invariants the panes enforced are preserved here: Hyper is
-// exclusive with the flag modifiers, the left-resize augment is kept disjoint
-// from the base, and the corner-bracket / tile sub-options gate on their parent
-// selection. The views stay dumb — they read these properties and call the
-// `set*` methods; the store owns the rules.
+// exclusive with the flag modifiers, the left-resize shortcut stays distinct
+// from the primary shortcut, and the corner-bracket / tile sub-options gate on
+// their parent selection. The views stay dumb — they read these properties and
+// call the `set*` methods; the store owns the rules.
 //
 // Not actor-isolated: it is only ever touched on the main thread — SwiftUI
 // bindings run on main, and every notification observer below uses `queue:
@@ -150,8 +150,8 @@ final class SettingsStore: ObservableObject {
         modifiers = proposed
         UserDefaults.standard.set(proposed.rawValue, forKey: Preferences.Key.modifierFlags)
 
-        // Keep the secondary a single eligible key disjoint from the new base so
-        // the left-resize trigger can never collide with the move trigger.
+        // Keep the secondary a single eligible key distinct from the new base.
+        // It may remain contained in a multi-key base because matching is exact.
         let sanitized = engine.leftResizeModifier.sanitizedAugment(base: proposed)
         if sanitized != engine.leftResizeModifier {
             engine.leftResizeModifier = sanitized
@@ -167,19 +167,17 @@ final class SettingsStore: ObservableObject {
 
     // MARK: Left-resize augment (secondary modifier)
 
-    /// The keys forbidden in the augment picker — those already taken by the
-    /// base modifier (picking one would make the resize trigger identical to
-    /// the move trigger).
+    /// The key forbidden in the augment picker when the primary modifier is the
+    /// same single key. Keys contained in a multi-key primary remain available.
     var augmentDisabledElements: ModifierCombination {
-        let mask = ModifierCombination.augmentCandidates.reduce(into: ModifierCombination()) { $0.formUnion($1) }
-        return mask.intersection(modifiers)
+        modifiers.isValidAugment ? modifiers : []
     }
 
     /// Apply a proposed augment. Accepted only when it is a single eligible key
-    /// disjoint from the base — matching the old picker's validation.
+    /// whose final shortcut differs from the primary modifier.
     @discardableResult
     func setAugment(_ proposed: ModifierCombination) -> Bool {
-        guard proposed.isValidAugment, proposed.isDisjoint(with: modifiers) else { return false }
+        guard proposed.isValidAugment(for: modifiers) else { return false }
         let previous = engine.leftResizeModifier
         engine.leftResizeModifier = proposed
         leftResizeModifier = proposed
