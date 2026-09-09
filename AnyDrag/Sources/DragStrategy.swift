@@ -60,7 +60,7 @@ final class TitleBarDragStrategy {
     /// Diagnostics aid; off by default.
     var showDebugDot: Bool = false
 
-    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil) -> Unmanaged<CGEvent>? {
+    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil, visibleTopInset: CGFloat = 0, debugCaption: String? = nil) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
         // Drag point: cursor's X (on an exposed part of the window), Y near the top of
@@ -68,12 +68,17 @@ final class TitleBarDragStrategy {
         // stock AppKit windows; the offset is tunable for apps with custom top regions.
         // The engine passes a per-app override when one is set; otherwise we fall back
         // to the global `self.titleBarYOffset`.
+        // `visibleTopInset` is normally 0. It is non-zero only for windows whose
+        // rect is taller than what you can see — an Electron popup reserving a
+        // transparent strip for a panel that expands upward (issue #43). There
+        // the rect's top edge is empty space, so the click has to start below
+        // it, at the top of the visible content. See `DragEngine.visibleTopInset`.
         let effectiveOffset = titleBarYOffset ?? self.titleBarYOffset
-        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + effectiveOffset)
+        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + visibleTopInset + effectiveOffset)
 
         // Diagnostic: show where we're targeting the synthesized click.
         if showDebugDot {
-            debugDot.flash(at: dragPoint)
+            debugDot.flash(at: dragPoint, caption: debugCaption)
         }
 
         // Only Y needs an offset — X stays at the cursor position

@@ -1146,13 +1146,19 @@ final class DragEngine {
         // (the stale-`resizeStrategy` guard), so nothing to clear here.
         strategy.reset()
         Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+        let offset = effectiveTitleBarYOffset(forPid: windowInfo.pid)
+        let probe = visibleTopInset(pid: windowInfo.pid, windowFrame: windowInfo.frame,
+                                    aimX: event.location.x, cursorY: event.location.y)
+        Self.log.info("top probe: app=\"\(windowInfo.app)\" window=\(Int(windowInfo.frame.width))x\(Int(windowInfo.frame.height)) \(probe.summary)")
         beginFlagScrub(candidates: TitleBarDragStrategy.modifierFlagsToStrip, heldOn: event)
         return strategy.handleMouseDown(
             pid: windowInfo.pid,
             windowID: windowInfo.windowID,
             windowFrame: windowInfo.frame,
             event: event,
-            titleBarYOffset: effectiveTitleBarYOffset(forPid: windowInfo.pid)
+            titleBarYOffset: offset,
+            visibleTopInset: probe.inset,
+            debugCaption: probe.summary
         )
     }
 
@@ -1440,6 +1446,10 @@ final class DragEngine {
             cbState.withLock { $0.middleClickOrigin = screenPoint }
             strategy.reset()
             Self.log.info("middle drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+            let middleOffset = effectiveTitleBarYOffset(forPid: windowInfo.pid)
+            let middleProbe = visibleTopInset(pid: windowInfo.pid, windowFrame: windowInfo.frame,
+                                              aimX: event.location.x, cursorY: event.location.y)
+            Self.log.info("top probe: app=\"\(windowInfo.app)\" window=\(Int(windowInfo.frame.width))x\(Int(windowInfo.frame.height)) \(middleProbe.summary)")
             beginFlagScrub(candidates: TitleBarDragStrategy.modifierFlagsToStrip, heldOn: event)
             return strategy.handleMouseDown(
                 pid: windowInfo.pid,
@@ -1447,7 +1457,9 @@ final class DragEngine {
                 windowFrame: windowInfo.frame,
                 event: event,
                 rewriteToLeftButton: true,
-                titleBarYOffset: effectiveTitleBarYOffset(forPid: windowInfo.pid)
+                titleBarYOffset: middleOffset,
+                visibleTopInset: middleProbe.inset,
+                debugCaption: middleProbe.summary
             )
 
         case .tileByDirection:
@@ -2498,6 +2510,156 @@ final class DragEngine {
             return custom
         }
         return strategy.titleBarYOffset
+    }
+
+    // MARK: - Transparent Top Strip (issue #43)
+
+    /// What we found out about a window's top edge and what we did about it.
+    /// `summary` is diagnostics only — it goes to the log on every drag and,
+    /// when the debug dot is on, onto the screen next to the dot, so the next
+    /// window with this problem can be identified without a debugger.
+    ///
+    /// Deliberately not cached. Measured cost of the whole thing is 0.3–1.5 ms
+    /// median per drag (worst case a few ms when the other app is busy, bounded
+    /// by a 50 ms messaging timeout), against the 8 ms `TitleBarDragStrategy`
+    /// already waits before it synthesizes the click — so a cache would save
+    /// nothing measurable. An earlier version did cache, keyed by pid, and a
+    /// single failed measurement then stuck to every later drag of that app.
+    struct VisibleTopProbe {
+        let inset: CGFloat
+        let summary: String
+        static let none = VisibleTopProbe(inset: 0, summary: "—")
+    }
+
+    /// A hit that comes back within this many points of the window's own height
+    /// counts as the window-sized wrapper, not real content.
+    private static let visibleTopInsetTolerance: CGFloat = 20
+    /// Below this, the measured inset is ordinary window chrome — leave the aim
+    /// point alone rather than changing behavior for normal apps.
+    private static let visibleTopInsetMinimum: CGFloat = 24
+
+    /// How far below the window rect's top edge the window's *visible* content
+    /// starts, for a window that has no title bar of its own.
+    ///
+    /// `TitleBarDragStrategy` aims its synthesized click at the top of the
+    /// window rect, which on a normal window is the title bar. A window with no
+    /// title bar can be much bigger than what you can see: the Codex "ask
+    /// anything" popup reserves ~180 pt of transparent space above its input
+    /// bar for a panel that expands upward. The rect's top edge is empty there,
+    /// the click lands on nothing, and the window server never starts a drag
+    /// (issue #43).
+    ///
+    /// **Which windows this applies to.** Only ones with no standard window
+    /// buttons. A window that has a close button has a real title bar, which is
+    /// draggable already, so it is left alone. That is the whole test, and it
+    /// is a structural fact about the window rather than a guess: measured
+    /// across Chrome, Ghostty, Claude, WeChat and the Codex *main* window, all
+    /// report a close button; only the Codex popup does not.
+    ///
+    /// Two earlier attempts tried to detect the transparent strip instead, and
+    /// both are worth not repeating:
+    ///
+    /// - Asking the app what lives at the aim row. WeChat and the Codex popup
+    ///   both answer with a window-sized `AXGroup`, so the rule that fixed the
+    ///   popup also pushed WeChat's click below its title bar.
+    /// - Asking the system-wide element who would receive a click at the aim
+    ///   point, which should follow real window shape. Its answer is not
+    ///   stable: for the same popup sitting over the same window it answered
+    ///   with the window behind on one run and with the popup itself on
+    ///   another.
+    ///
+    /// **Finding the real top.** The cursor is already on the part of the
+    /// window the user can see, so walk up from the element under it and keep
+    /// the outermost ancestor still smaller than the window. That is the
+    /// visible container, and its own top edge is the answer, exact — measured
+    /// at 178 pt for the popup, the same wherever the window sat.
+    ///
+    /// Returns a zero inset for anything we can't measure, which keeps the
+    /// normal aim point.
+    private func visibleTopInset(pid: pid_t, windowFrame: CGRect,
+                                 aimX: CGFloat, cursorY: CGFloat) -> VisibleTopProbe {
+        guard pid != getpid() else { return .none }
+        guard axGuardOrAbort("visibleTopInset") else { return .none }
+
+        let app = AXUIElementCreateApplication(pid)
+        // Bound every call: a busy app must not stall the event-tap thread.
+        AXUIElementSetMessagingTimeout(app, 0.05)
+
+        func attribute(_ element: AXUIElement, _ name: String) -> AXValue? {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, name as CFString, &ref) == .success,
+                  let value = ref, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+            return (value as! AXValue)
+        }
+        func frame(_ element: AXUIElement) -> CGRect? {
+            guard let positionValue = attribute(element, kAXPositionAttribute),
+                  let sizeValue = attribute(element, kAXSizeAttribute) else { return nil }
+            var origin = CGPoint.zero, size = CGSize.zero
+            AXValueGetValue(positionValue, .cgPoint, &origin)
+            AXValueGetValue(sizeValue, .cgSize, &size)
+            return CGRect(origin: origin, size: size)
+        }
+        func role(_ element: AXUIElement) -> String {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &ref) == .success
+            else { return "?" }
+            return (ref as? String) ?? "?"
+        }
+        func parent(_ element: AXUIElement) -> AXUIElement? {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &ref) == .success,
+                  let value = ref else { return nil }
+            return (value as! AXUIElement)
+        }
+        func hasCloseButton(_ window: AXUIElement) -> Bool {
+            var ref: CFTypeRef?
+            return AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &ref) == .success
+                && ref != nil
+        }
+        /// Smaller than the window by a clear margin — a real control rather
+        /// than one of the wrappers that span the whole rect.
+        func isControl(_ rect: CGRect) -> Bool {
+            rect.height < windowFrame.height - Self.visibleTopInsetTolerance && rect.width > 1
+        }
+
+        // 1. A window with standard buttons has a title bar; aim at it as usual.
+        guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else {
+            return VisibleTopProbe(inset: 0, summary: "window not in the app's window list, aim at top")
+        }
+        guard !hasCloseButton(axWindow) else {
+            return VisibleTopProbe(inset: 0, summary: "has a title bar, aim at top")
+        }
+
+        // 2. No title bar: find where the visible part starts.
+        var cursorElement: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(app, Float(aimX), Float(min(cursorY, windowFrame.maxY - 1)),
+                                               &cursorElement) == .success,
+              let cursorElement else {
+            return VisibleTopProbe(inset: 0, summary: "no title bar, but nothing under the cursor")
+        }
+        var visible: CGRect?
+        var visibleRole = "?"
+        var node: AXUIElement? = cursorElement
+        var depth = 0
+        while let current = node, depth < 16 {
+            if role(current) == kAXWindowRole as String { break }
+            if let rect = frame(current), isControl(rect) { visible = rect; visibleRole = role(current) }
+            node = parent(current)
+            depth += 1
+        }
+        guard let visible else {
+            return VisibleTopProbe(inset: 0, summary: "no title bar, but no visible part found")
+        }
+        let inset = visible.minY - windowFrame.minY
+        // Content starting at (or just below) the window's own top edge means
+        // there is no transparent margin to skip.
+        guard inset >= Self.visibleTopInsetMinimum else {
+            return VisibleTopProbe(inset: 0, summary: "no title bar; visible part starts \(Int(inset))pt down, aim at top")
+        }
+        return VisibleTopProbe(
+            inset: inset,
+            summary: "no title bar; visible part (\(visibleRole) \(Int(visible.width))x\(Int(visible.height))) starts \(Int(inset))pt down"
+        )
     }
 
     // MARK: - Window Detection
