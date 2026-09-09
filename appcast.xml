@@ -5,8 +5,20 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.07.113</title>
-      <description><![CDATA[<h3>What's New in 26.07.113</h3>
+      <title>Version 26.09.114</title>
+      <description><![CDATA[<h3>What's New in 26.09.114</h3>
+<ul>
+  <li><b>Drag windows that have no title bar</b> — Some windows are much larger than they look. Codex's floating <i>Ask ChatGPT anything</i> bar keeps roughly 180 pt of transparent space above itself for the results panel, so AnyDrag aimed at the top edge of the window, grabbed empty space, and nothing moved. AnyDrag now measures where such a window's visible part starts and grabs that instead — and no longer pulls the app's main window out from behind whatever you had in front when you move one. Windows with an ordinary title bar behave exactly as before. Thanks to <a href="https://github.com/Depixelate">@Depixelate</a> for reporting it (<a href="https://github.com/XueshiQiao/AnyDrag/issues/43">#43</a>).</li>
+  <li><b>The left-drag resize key can be part of your move shortcut</b> — Set the primary modifier to Control + Command and <b>Settings → Window Resize → Left-drag → Left-drag Resize Modifier</b> to Control on its own: Control + drag resizes a window, Control + Command + drag moves it. Only making the two shortcuts identical is still refused. Contributed by <a href="https://github.com/zuozh11">@zuozh11</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/47">#47</a>).</li>
+</ul>
+
+<h3>26.09.114 更新内容</h3>
+<ul>
+  <li><b>没有标题栏的窗口也能拖了</b> — 有些窗口比看上去大一圈:Codex 那个悬浮的 <i>Ask ChatGPT anything</i> 输入条,上方留了大约 180 点的透明区域给结果面板展开。AnyDrag 原本对准窗口的顶边,就抓在了这片空白上,窗口纹丝不动。现在会先量出这类窗口看得见的部分从哪儿开始、抓那儿;拖动它们时也不再把该应用的主窗口从你原本的窗口后面拽到前台。有正常标题栏的窗口行为完全不变。感谢 <a href="https://github.com/Depixelate">@Depixelate</a> 反馈(<a href="https://github.com/XueshiQiao/AnyDrag/issues/43">#43</a>)。</li>
+  <li><b>左键缩放的修饰键可以是移动快捷键的一部分</b> — 把主修饰键设成 Control + Command,再把<b>「设置 → 窗口缩放 → 左键拖动 → 左键缩放修饰键」</b>单独设成 Control:按住 Control 拖动是缩放窗口,按住 Control + Command 拖动是移动窗口。只有两者完全相同时才仍然禁止。感谢 <a href="https://github.com/zuozh11">@zuozh11</a> 贡献(<a href="https://github.com/XueshiQiao/AnyDrag/pull/47">#47</a>)。</li>
+</ul>
+
+<h3>What's New in 26.07.113</h3>
 <ul>
   <li><b>Send a window to another display, untouched</b> — In the multi-display tile panel (hold the middle button and drag), stopping on the <b>center cell of another display's card</b> now sends the window to that display exactly as it is — same size, same relative position, not tiled. The small rectangle drawn inside that cell previews where it will land. The center cell of the card you started on is still cancel.</li>
   <li><b>Compatible with BetterMouse</b> — With BetterMouse running, holding Control and dragging a window only popped a context menu; the window never moved. BetterMouse re-applies modifier flags to left-button events from the physical key state, which undid the Control flag AnyDrag has to clear for its title-bar drag — so macOS read every drag as a right-click. AnyDrag now repeats that clear at the very end of the event chain, and creates it at the start of each gesture, so it holds no matter which app launched first or was restarted. Thanks to <a href="https://github.com/Leroy-X">@Leroy-X</a> for reporting it and narrowing it down to BetterMouse in a clean VM (<a href="https://github.com/XueshiQiao/AnyDrag/issues/27">#27</a>). The full investigation is <a href="https://github.com/XueshiQiao/AnyDrag/blob/main/docs/event-tap-conflict-bettermouse.html">written up here</a>.</li>
@@ -265,11 +277,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Mon, 27 Jul 2026 07:34:53 +0000</pubDate>
-      <sparkle:version>113</sparkle:version>
-      <sparkle:shortVersionString>26.07.113</sparkle:shortVersionString>
+      <pubDate>Wed, 09 Sep 2026 13:56:35 +0000</pubDate>
+      <sparkle:version>114</sparkle:version>
+      <sparkle:shortVersionString>26.09.114</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.07.113/AnyDrag.dmg" length="4038543" type="application/octet-stream" sparkle:edSignature="EQXOJGZF4cWon7CGtl9byNv8+1+6vZU9lcfwz39jqb2l5zpVF5ERb0ygYnoLre/1najtYl0v4u1CufDeED0uAw==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.09.114/AnyDrag.dmg" length="4053897" type="application/octet-stream" sparkle:edSignature="yD5bF62FBc3gujI+iZjddxFok4yrw+7EP3bIpAWFn5LSie0/eohxRyye0uw7fLN77KRfk2eEb+2oLkkoX23XBg==" />
     </item>
   </channel>
 </rss>
