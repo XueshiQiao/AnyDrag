@@ -50,7 +50,9 @@ final class DebugDotOverlay {
         )
         // The window has to cover the dot *and* the caption, so grow it to the
         // side the caption will sit on.
-        let screenMaxX = (originScreen ?? NSScreen.main)?.frame.maxX ?? dotFrame.maxX
+        // Fit the caption on the display the dot is on, not the primary one.
+        let dotScreen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: dotFrame.midX, y: dotFrame.midY)) }
+        let screenMaxX = (dotScreen ?? originScreen ?? NSScreen.main)?.frame.maxX ?? dotFrame.maxX
         let captionOnRight = dotFrame.maxX + 8 + captionWidth < screenMaxX
         var frame = dotFrame
         if caption != nil {

@@ -56,11 +56,15 @@ final class TitleBarDragStrategy {
     /// larger offset. Tunable from Settings → General → Diagnostics.
     var titleBarYOffset: CGFloat = 3
 
+    /// Distance below the measured top of a window's visible content to aim,
+    /// mirroring the 3 pt used against a real title bar.
+    private static let measuredAimOffset: CGFloat = 3
+
     /// When true, every drag flashes a marker at the synthesized click point.
     /// Diagnostics aid; off by default.
     var showDebugDot: Bool = false
 
-    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil, visibleTopInset: CGFloat = 0, debugCaption: String? = nil) -> Unmanaged<CGEvent>? {
+    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil, visibleTopInset: CGFloat = 0, activateApp: Bool = true, debugCaption: String? = nil) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
         // Drag point: cursor's X (on an exposed part of the window), Y near the top of
@@ -73,7 +77,12 @@ final class TitleBarDragStrategy {
         // transparent strip for a panel that expands upward (issue #43). There
         // the rect's top edge is empty space, so the click has to start below
         // it, at the top of the visible content. See `DragEngine.visibleTopInset`.
-        let effectiveOffset = titleBarYOffset ?? self.titleBarYOffset
+        // The tunable offsets exist to clear a non-draggable strip at the top
+        // of a particular app's *title bar*; they mean nothing once we are
+        // aiming at a measured content box, so the measured case uses the plain
+        // default instead of adding a user value on top of it.
+        let effectiveOffset = visibleTopInset > 0 ? Self.measuredAimOffset
+                                                  : (titleBarYOffset ?? self.titleBarYOffset)
         dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + visibleTopInset + effectiveOffset)
 
         // Diagnostic: show where we're targeting the synthesized click.
@@ -102,8 +111,21 @@ final class TitleBarDragStrategy {
                 }
             }
         } else {
-            let appElement = AXUIElementCreateApplication(pid)
-            AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            // Activating the app is what makes the synthesized title-bar click
+            // land on the window we mean rather than on whatever covers it, and
+            // it matches what dragging a real title bar does.
+            //
+            // Skipped for a window with no title bar. Those are floating panels
+            // — the Codex "ask anything" popup, say — which macOS does not
+            // activate their owning app for when you click them, and which sit
+            // above other windows anyway, so the click reaches them without
+            // help. Forcing the app frontmost there pulls the app's *main*
+            // window out from behind whatever the user had in front, which is
+            // the complaint in issue #43. The window is still raised below.
+            if activateApp {
+                let appElement = AXUIElementCreateApplication(pid)
+                AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            }
 
             if let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) {
                 let raiseResult = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)

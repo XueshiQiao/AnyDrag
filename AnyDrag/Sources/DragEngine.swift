@@ -1158,6 +1158,7 @@ final class DragEngine {
             event: event,
             titleBarYOffset: offset,
             visibleTopInset: probe.inset,
+            activateApp: probe.hasTitleBar,
             debugCaption: probe.summary
         )
     }
@@ -1459,6 +1460,7 @@ final class DragEngine {
                 rewriteToLeftButton: true,
                 titleBarYOffset: middleOffset,
                 visibleTopInset: middleProbe.inset,
+                activateApp: middleProbe.hasTitleBar,
                 debugCaption: middleProbe.summary
             )
 
@@ -2528,6 +2530,10 @@ final class DragEngine {
     struct VisibleTopProbe {
         let inset: CGFloat
         let summary: String
+        /// False only when the window definitely has no standard window
+        /// buttons. Defaults to true so anything we could not measure keeps the
+        /// existing activate-then-raise behaviour.
+        var hasTitleBar: Bool = true
         static let none = VisibleTopProbe(inset: 0, summary: "—")
     }
 
@@ -2582,8 +2588,16 @@ final class DragEngine {
         guard axGuardOrAbort("visibleTopInset") else { return .none }
 
         let app = AXUIElementCreateApplication(pid)
-        // Bound every call: a busy app must not stall the event-tap thread.
-        AXUIElementSetMessagingTimeout(app, 0.05)
+        // `AXUIElementSetMessagingTimeout` binds one element object; elements
+        // handed back by it inherit nothing, so every element we obtain gets
+        // its own. Without this a hung app blocks the event-tap thread for the
+        // process default (measured 1.5 s on macOS 26.6.1) per call, and the
+        // parent walk alone is up to 64 calls.
+        AXUIElementSetMessagingTimeout(app, Self.axProbeTimeout)
+        func bounded(_ element: AXUIElement) -> AXUIElement {
+            AXUIElementSetMessagingTimeout(element, Self.axProbeTimeout)
+            return element
+        }
 
         func attribute(_ element: AXUIElement, _ name: String) -> AXValue? {
             var ref: CFTypeRef?
@@ -2609,7 +2623,13 @@ final class DragEngine {
             var ref: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &ref) == .success,
                   let value = ref else { return nil }
-            return (value as! AXUIElement)
+            return bounded(value as! AXUIElement)
+        }
+        func children(_ element: AXUIElement) -> [AXUIElement] {
+            var ref: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref) == .success,
+                  let list = ref as? [AXUIElement] else { return [] }
+            return list.map(bounded)
         }
         func hasCloseButton(_ window: AXUIElement) -> Bool {
             var ref: CFTypeRef?
@@ -2622,24 +2642,54 @@ final class DragEngine {
             rect.height < windowFrame.height - Self.visibleTopInsetTolerance && rect.width > 1
         }
 
-        // 1. A window with standard buttons has a title bar; aim at it as usual.
-        guard let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) else {
+        // Our own window lookup rather than `findAXWindow`, so every element
+        // involved carries the short timeout. (`findAXWindow` is shared with
+        // the tile and maximize paths, which need it to succeed on slow apps.)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = (windowsRef as? [AXUIElement])?.map(bounded),
+              let axWindow = windows.first(where: { window in
+                  guard let rect = frame(window) else { return false }
+                  return abs(rect.minX - windowFrame.minX) < 5 && abs(rect.minY - windowFrame.minY) < 5
+              })
+        else {
             return VisibleTopProbe(inset: 0, summary: "window not in the app's window list, aim at top")
         }
+
+        // 1. A window with standard buttons has a title bar; aim at it as usual.
         guard !hasCloseButton(axWindow) else {
             return VisibleTopProbe(inset: 0, summary: "has a title bar, aim at top")
         }
+        // Missing buttons alone is not enough: a `.titled`-but-not-`.closable`
+        // window and a standalone `NSAlert` also report none, and both put real
+        // controls right under the window — aiming at those would land the
+        // synthesized click on a button, and a short drag would fire it. What
+        // separates them is the shape of the tree: an AppKit window's controls
+        // hang directly off the window, while the windows this is for wrap
+        // everything in one box the size of the whole window (Chromium's web
+        // content host). Require that wrapper.
+        let topLevel = children(axWindow)
+        guard let wrapper = topLevel.first, let wrapperFrame = frame(wrapper),
+              !isControl(wrapperFrame)
+        else {
+            return VisibleTopProbe(inset: 0, summary: "no title bar, but controls sit directly on it — aim at top",
+                                   hasTitleBar: false)
+        }
+        func panel(_ summary: String, inset: CGFloat = 0) -> VisibleTopProbe {
+            VisibleTopProbe(inset: inset, summary: summary, hasTitleBar: false)
+        }
 
-        // 2. No title bar: find where the visible part starts.
+        // 2. Find where the visible part starts. The cursor is on it already.
         var cursorElement: AXUIElement?
         guard AXUIElementCopyElementAtPosition(app, Float(aimX), Float(min(cursorY, windowFrame.maxY - 1)),
                                                &cursorElement) == .success,
-              let cursorElement else {
-            return VisibleTopProbe(inset: 0, summary: "no title bar, but nothing under the cursor")
+              let cursorElement
+        else {
+            return panel("no title bar, but nothing under the cursor")
         }
         var visible: CGRect?
         var visibleRole = "?"
-        var node: AXUIElement? = cursorElement
+        var node: AXUIElement? = bounded(cursorElement)
         var depth = 0
         while let current = node, depth < 16 {
             if role(current) == kAXWindowRole as String { break }
@@ -2648,19 +2698,29 @@ final class DragEngine {
             depth += 1
         }
         guard let visible else {
-            return VisibleTopProbe(inset: 0, summary: "no title bar, but no visible part found")
+            return panel("no title bar, but no visible part found")
+        }
+        // The hit test is routed by the window server and can answer with
+        // something that is not in this window at all — measured: with the
+        // Codex popup on screen it returned the app's own menu bar, 1029 pt
+        // above the window. Anything outside the window is not an answer to
+        // the question we asked.
+        guard windowFrame.insetBy(dx: -2, dy: -2).contains(visible) else {
+            return panel("no title bar, but the answer was outside the window")
         }
         let inset = visible.minY - windowFrame.minY
         // Content starting at (or just below) the window's own top edge means
         // there is no transparent margin to skip.
         guard inset >= Self.visibleTopInsetMinimum else {
-            return VisibleTopProbe(inset: 0, summary: "no title bar; visible part starts \(Int(inset))pt down, aim at top")
+            return panel("no title bar; visible part starts \(Int(inset))pt down, aim at top")
         }
-        return VisibleTopProbe(
-            inset: inset,
-            summary: "no title bar; visible part (\(visibleRole) \(Int(visible.width))x\(Int(visible.height))) starts \(Int(inset))pt down"
-        )
+        return panel("no title bar; visible part (\(visibleRole) \(Int(visible.width))x\(Int(visible.height))) starts \(Int(inset))pt down",
+                     inset: inset)
     }
+
+    /// Every accessibility call made while measuring gets this timeout, so a
+    /// hung or slow app cannot stall the event-tap thread.
+    private static let axProbeTimeout: Float = 0.05
 
     // MARK: - Window Detection
 
