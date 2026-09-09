@@ -1,3 +1,15 @@
+<h3>What's New in 26.09.114</h3>
+<ul>
+  <li><b>Drag windows that have no title bar</b> — Some windows are much larger than they look. Codex's floating <i>Ask ChatGPT anything</i> bar keeps roughly 180 pt of transparent space above itself for the results panel, so AnyDrag aimed at the top edge of the window, grabbed empty space, and nothing moved. AnyDrag now measures where such a window's visible part starts and grabs that instead — and no longer pulls the app's main window out from behind whatever you had in front when you move one. Windows with an ordinary title bar behave exactly as before. Thanks to <a href="https://github.com/Depixelate">@Depixelate</a> for reporting it (<a href="https://github.com/XueshiQiao/AnyDrag/issues/43">#43</a>).</li>
+  <li><b>The left-drag resize key can be part of your move shortcut</b> — Set the primary modifier to Control + Command and <b>Settings → Window Resize → Left-drag → Left-drag Resize Modifier</b> to Control on its own: Control + drag resizes a window, Control + Command + drag moves it. Only making the two shortcuts identical is still refused. Contributed by <a href="https://github.com/zuozh11">@zuozh11</a> (<a href="https://github.com/XueshiQiao/AnyDrag/pull/47">#47</a>).</li>
+</ul>
+
+<h3>26.09.114 更新内容</h3>
+<ul>
+  <li><b>没有标题栏的窗口也能拖了</b> — 有些窗口比看上去大一圈:Codex 那个悬浮的 <i>Ask ChatGPT anything</i> 输入条,上方留了大约 180 点的透明区域给结果面板展开。AnyDrag 原本对准窗口的顶边,就抓在了这片空白上,窗口纹丝不动。现在会先量出这类窗口看得见的部分从哪儿开始、抓那儿;拖动它们时也不再把该应用的主窗口从你原本的窗口后面拽到前台。有正常标题栏的窗口行为完全不变。感谢 <a href="https://github.com/Depixelate">@Depixelate</a> 反馈(<a href="https://github.com/XueshiQiao/AnyDrag/issues/43">#43</a>)。</li>
+  <li><b>左键缩放的修饰键可以是移动快捷键的一部分</b> — 把主修饰键设成 Control + Command,再把<b>「设置 → 窗口缩放 → 左键拖动 → 左键缩放修饰键」</b>单独设成 Control:按住 Control 拖动是缩放窗口,按住 Control + Command 拖动是移动窗口。只有两者完全相同时才仍然禁止。感谢 <a href="https://github.com/zuozh11">@zuozh11</a> 贡献(<a href="https://github.com/XueshiQiao/AnyDrag/pull/47">#47</a>)。</li>
+</ul>
+
 <h3>What's New in 26.07.113</h3>
 <ul>
   <li><b>Send a window to another display, untouched</b> — In the multi-display tile panel (hold the middle button and drag), stopping on the <b>center cell of another display's card</b> now sends the window to that display exactly as it is — same size, same relative position, not tiled. The small rectangle drawn inside that cell previews where it will land. The center cell of the card you started on is still cancel.</li>
