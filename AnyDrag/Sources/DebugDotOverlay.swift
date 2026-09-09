@@ -13,10 +13,7 @@ final class DebugDotOverlay {
 
     private var window: NSWindow?
     private let dotSize: CGFloat = 14
-    /// Held fully opaque this long before fading, so the marker survives long
-    /// enough to be screenshotted after the mouse comes up.
-    private let holdDuration: TimeInterval = 3.0
-    private let fadeDuration: TimeInterval = 0.6
+    private let fadeDuration: TimeInterval = 1.0
     /// Caption sits to the right of the dot, flipping to the left near a screen
     /// edge. Long enough for an accessibility role plus two sizes.
     private let captionWidth: CGFloat = 420
@@ -113,18 +110,12 @@ final class DebugDotOverlay {
 
         window = w
 
-        // Hold, then fade. A later flash calls `orderOut` on this window in
-        // `show(at:caption:)` above and takes over `window`, so the delayed
-        // block checks it is still the current one before animating.
-        DispatchQueue.main.asyncAfter(deadline: .now() + holdDuration) { [weak self] in
-            guard self?.window === w else { return }
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = self?.fadeDuration ?? 0.6
-                w.animator().alphaValue = 0
-            }, completionHandler: { [weak self] in
-                w.orderOut(nil)
-                if self?.window === w { self?.window = nil }
-            })
-        }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = fadeDuration
+            w.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            w.orderOut(nil)
+            if self?.window === w { self?.window = nil }
+        })
     }
 }
