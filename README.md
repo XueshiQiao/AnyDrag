@@ -121,8 +121,13 @@ brew install --cask XueshiQiao/tap/anydrag
 
 ```bash
 brew tap XueshiQiao/tap
+brew trust XueshiQiao/tap   # Homebrew 6.0+; earlier versions can skip this line
 brew install --cask anydrag
 ```
+
+Since Homebrew 6.0 a cask from a third-party tap will not load unless the tap is
+trusted — or the cask is named in full on the command line, which is exactly what
+the one-liner above does. Hence the extra step here.
 </details>
 
 Or download the latest `.dmg` from [GitHub Releases](https://github.com/XueshiQiao/AnyDrag/releases) and drag AnyDrag into your Applications folder.
