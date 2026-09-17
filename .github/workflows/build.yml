@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
@@ -281,7 +281,7 @@ jobs:
           echo "--- latest.json ---"; cat latest.json
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: AnyDrag-macOS
           path: build/Release/AnyDrag.dmg
@@ -321,7 +321,7 @@ jobs:
           fi
 
       - name: Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: |
@@ -354,7 +354,7 @@ jobs:
 
       - name: Trigger Homebrew Tap Update
         if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_HOMEBREW_PAT == 'true' && success() }}
-        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           # Cross-repo dispatch needs a PAT (the default GITHUB_TOKEN can only
           # dispatch inside this repo). The receiving workflow lives at
