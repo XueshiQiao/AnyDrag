@@ -51,13 +51,18 @@ final class TitleBarDragStrategy {
     private let debugDot = DebugDotOverlay()
 
     /// Vertical offset from the window's top edge to the synthesized title-bar
-    /// click. The default works for stock AppKit windows; some custom-rendered
-    /// apps (e.g. WeChat) have non-draggable strips at the very top and need a
-    /// larger offset. Tunable from Settings → General → Diagnostics.
-    var titleBarYOffset: CGFloat = 3
+    /// click. The default works for stock AppKit windows (and is one point
+    /// larger on macOS 27 — see `Preferences.defaultTitleBarYOffset`); some
+    /// custom-rendered apps (e.g. WeChat) have non-draggable strips at the very
+    /// top and need a larger offset. Tunable from Settings → General →
+    /// Diagnostics. The engine overwrites this from UserDefaults at launch.
+    var titleBarYOffset: CGFloat = Preferences.defaultTitleBarYOffset
 
-    /// Distance below the measured top of a window's visible content to aim,
-    /// mirroring the 3 pt used against a real title bar.
+    /// Distance below the measured top of a window's visible content to aim.
+    /// Stays 3 pt on every macOS version, unlike the title-bar default: this
+    /// one aims into a window's own content box, well clear of the frame edge
+    /// where the window server's title-bar/resize hit regions live, so the
+    /// macOS 27 change behind issue #51 does not reach it.
     private static let measuredAimOffset: CGFloat = 3
 
     /// When true, every drag flashes a marker at the synthesized click point.
@@ -68,8 +73,9 @@ final class TitleBarDragStrategy {
         let cursorPos = event.location
 
         // Drag point: cursor's X (on an exposed part of the window), Y near the top of
-        // the title bar. The default 3px is a narrow strip that's always draggable on
-        // stock AppKit windows; the offset is tunable for apps with custom top regions.
+        // the title bar. The default (3 pt, 4 on macOS 27) is a narrow strip that's
+        // always draggable on stock AppKit windows; the offset is tunable for apps
+        // with custom top regions.
         // The engine passes a per-app override when one is set; otherwise we fall back
         // to the global `self.titleBarYOffset`.
         // `visibleTopInset` is normally 0. It is non-zero only for windows whose

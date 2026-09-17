@@ -131,7 +131,7 @@
 "diagnostics.showDot" = "Show synthesized-click dot";
 "diagnostics.showDot.subtitle" = "Show a marker at the synthesized click point during drag (title bar) and resize (window corner).";
 "diagnostics.titleBarYOffset" = "Title-bar Y offset";
-"diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default 3 pt.";
+"diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default %d pt.";
 "diagnostics.resizeCornerInset" = "Resize corner inset";
 "diagnostics.resizeCornerInset.hint" = "How far inside the window's corner the resize click lands. Larger values for apps with rounded outer corners (Safari, Finder). Default 5 pt.";
 "diagnostics.reset" = "Reset";

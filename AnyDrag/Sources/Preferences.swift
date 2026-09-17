@@ -110,9 +110,24 @@ enum Preferences {
         static let legacyEnabled          = "AnyDragEnabled"            // pre-1.3 master toggle
     }
 
-    /// The default title-bar Y offset, in points. The reset button in the
+    /// The default title-bar Y offset, in points: how far below the window's
+    /// top edge the synthesized click lands. The reset button in the
     /// Diagnostics section snaps the value back to this default.
-    static let defaultTitleBarYOffset: CGFloat = 3
+    ///
+    /// macOS 27 needs one point more than every release before it. Through
+    /// macOS 26 a click 3 pt below a stock AppKit window's top edge is taken
+    /// as a title-bar drag; on 27 the same click is no longer accepted by
+    /// Apple's own apps (Finder, Mail, Safari) while Chromium-class windows
+    /// still take it — exactly the split reported in issue #51, where the
+    /// middle-click drag silently did nothing in native apps only. 4 pt works
+    /// in both families on macOS 27.0 (measured by hand, not derived from any
+    /// documented metric, so it is a default and not a computed inset).
+    ///
+    /// Only the default moves. A value the user has already set is stored in
+    /// UserDefaults and still wins; this is what an untouched install and the
+    /// Reset button get.
+    static let defaultTitleBarYOffset: CGFloat =
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 ? 4 : 3
 
     /// Range mirrored from the Diagnostics control (0…40). Persisted values are
     /// clamped on launch so a manually edited UserDefaults entry can't push the

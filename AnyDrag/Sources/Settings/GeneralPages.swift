@@ -61,7 +61,11 @@ struct GeneralPage: View {
 
                 stepperRow(
                     symbol: "arrow.up.and.down", color: .orange,
-                    title: L("diagnostics.titleBarYOffset"), hint: L("diagnostics.titleBarYOffset.hint"),
+                    title: L("diagnostics.titleBarYOffset"),
+                    // The default is version-dependent (4 pt on macOS 27, 3 before),
+                    // so the hint has to name the value this machine actually resets to.
+                    hint: String(format: L("diagnostics.titleBarYOffset.hint"),
+                                 Int(Preferences.defaultTitleBarYOffset)),
                     value: store.titleBarYOffset,
                     range: Preferences.titleBarYOffsetRange,
                     isDefault: store.titleBarYOffset == Preferences.defaultTitleBarYOffset,
