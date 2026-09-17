@@ -1,3 +1,13 @@
+<h3>What's New in 26.09.115</h3>
+<ul>
+  <li><b>Dragging windows works again on macOS 27</b> — AnyDrag moves a window by planting a synthesized click just inside its title bar, 3 pt below the window's top edge. macOS 27 no longer accepts a click that high as a title-bar drag, so windows simply stopped moving — with no error, and only in some apps, while resizing kept working throughout. The default is now 4 pt on macOS 27 and later, and stays 3 pt on macOS 26 and earlier. If you had already changed <b>Settings → General → Diagnostics → Title-bar Y offset</b> by hand, your own value is kept — press <b>Reset</b> on that row to take the new default. Thanks to <a href="https://github.com/alejandrovegab">@alejandrovegab</a> (<a href="https://github.com/XueshiQiao/AnyDrag/issues/49">#49</a>) and <a href="https://github.com/hexeric">@hexeric</a> (<a href="https://github.com/XueshiQiao/AnyDrag/issues/51">#51</a>) for reporting it and for pinning down which apps were affected.</li>
+</ul>
+
+<h3>26.09.115 更新内容</h3>
+<ul>
+  <li><b>macOS 27 上窗口又能拖动了</b> — AnyDrag 移动窗口的办法,是在窗口顶边下方 3 pt 处、也就是标题栏里侧,放一个模拟点击。macOS 27 已经不再把这么靠上的点击当作标题栏拖动,于是窗口就是不动——没有任何报错,而且只有一部分 app 受影响,缩放窗口却始终是好的。现在 macOS 27 及以后默认改为 4 pt,macOS 26 及以前仍是 3 pt。如果你自己手动改过<b>「设置 → 通用 → 诊断 → 标题栏 Y 偏移」</b>,你填的值会保留;想用上新的默认值,按那一行的<b>「重置」</b>。感谢 <a href="https://github.com/alejandrovegab">@alejandrovegab</a>(<a href="https://github.com/XueshiQiao/AnyDrag/issues/49">#49</a>)和 <a href="https://github.com/hexeric">@hexeric</a>(<a href="https://github.com/XueshiQiao/AnyDrag/issues/51">#51</a>)反馈,并帮忙确认了受影响的 app 范围。</li>
+</ul>
+
 <h3>What's New in 26.09.114</h3>
 <ul>
   <li><b>Drag windows that have no title bar</b> — Some windows are much larger than they look. Codex's floating <i>Ask ChatGPT anything</i> bar keeps roughly 180 pt of transparent space above itself for the results panel, so AnyDrag aimed at the top edge of the window, grabbed empty space, and nothing moved. AnyDrag now measures where such a window's visible part starts and grabs that instead — and no longer pulls the app's main window out from behind whatever you had in front when you move one. Windows with an ordinary title bar behave exactly as before. Thanks to <a href="https://github.com/Depixelate">@Depixelate</a> for reporting it (<a href="https://github.com/XueshiQiao/AnyDrag/issues/43">#43</a>).</li>
