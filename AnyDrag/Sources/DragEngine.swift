@@ -665,6 +665,8 @@ final class DragEngine {
         cbState.withLock { state in
             state.rightTarget = nil
             state.rightOrigin = nil
+            state.plainClickOrigin = nil
+            state.plainClickFlags = nil
         }
 
         // Backstop deliberately kept alive across stop(). `AXIsProcessTrusted`
@@ -1256,6 +1258,15 @@ final class DragEngine {
     // MARK: - Mouse Up
 
     private func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // The up half of our own replayed ⌘-click (issue #53). It is posted
+        // from main a few ms after the real release; if the user has already
+        // pressed again by then, treating it as *that* gesture's release would
+        // end the new drag or resize early. Same wave-through as mouseDown.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            Self.log.info("plain-click replay: synthesized leftMouseUp passed through")
+            return Unmanaged.passUnretained(event)
+        }
+
         // Left-click resize in flight: let the resize strategy commit (on drag)
         // or quietly swallow the press (no drag). Unlike the right-click path
         // there's no TilingPanel fallback — a bare base+extra click is a no-op.
@@ -1292,7 +1303,10 @@ final class DragEngine {
                 DispatchQueue.main.async { [weak self] in
                     self?.replayClick(button: .left, at: pending.origin, flags: pending.flags)
                 }
-            } else {
+            } else if modsForAnalytics == .command {
+                // Only on the ⌘-only setup, where "not armed" is the odd case
+                // (⌘⌥ was held). On any other modifier every no-drag click
+                // lands here and a line per click would just be noise.
                 Self.log.info("plain-click replay: no drag, not armed — lone up passes through (modifier=\(modsForAnalytics.symbol))")
             }
         }
