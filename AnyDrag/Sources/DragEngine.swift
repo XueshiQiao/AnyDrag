@@ -351,6 +351,13 @@ final class DragEngine {
         /// strip (close / minimize / full screen).
         var tileAction: WindowAction? = nil
         var middleClickOrigin: CGPoint? = nil
+        /// Issue #53: where and with which flags the current left-button
+        /// press landed, kept only while that press might still turn out to
+        /// be a plain ⌘-click the app should receive. Set at mouseDown by
+        /// `armPlainCommandClickReplay`, consumed (and always cleared) at the
+        /// matching mouseUp whether or not the press turned into a drag.
+        var plainClickOrigin: CGPoint? = nil
+        var plainClickFlags: CGEventFlags? = nil
         // Sticky: set true the first drag event that resolves to a non-nil
         // zone. Releasing in the deadzone with this true means the user
         // actively chose a direction and then changed their mind — cancel
@@ -1059,6 +1066,15 @@ final class DragEngine {
     // MARK: - Mouse Down
 
     private func handleMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Our own replayed ⌘-click (issue #53) coming back through the tap. It
+        // carries the modifier that would arm us again, so it must be waved
+        // through before any matching below — otherwise we'd swallow the very
+        // click we just put back.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+            Self.log.info("plain-click replay: synthesized leftMouseDown passed through at (\(Int(event.location.x)), \(Int(event.location.y)))")
+            return Unmanaged.passUnretained(event)
+        }
+
         // If tiling panel is visible, don't intercept — let clicks reach the panel
         if tilingPanel?.isVisible == true {
             return Unmanaged.passUnretained(event)
@@ -1153,6 +1169,7 @@ final class DragEngine {
         // (the stale-`resizeStrategy` guard), so nothing to clear here.
         strategy.reset()
         Self.log.info("drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+        armPlainCommandClickReplay(for: event, app: windowInfo.app)
         let offset = effectiveTitleBarYOffset(forPid: windowInfo.pid)
         let probe = visibleTopInset(pid: windowInfo.pid, windowFrame: windowInfo.frame,
                                     aimX: event.location.x, cursorY: event.location.y)
@@ -1252,7 +1269,34 @@ final class DragEngine {
         }
         let didDrag = strategy.didDrag
         let modsForAnalytics = self.modifiers
-        let result = strategy.handleMouseUp(event: event)
+        var result = strategy.handleMouseUp(event: event)
+
+        // Issue #53: the press never became a drag. If mouseDown armed it as a
+        // plain ⌘-click, swallow this lone up too and hand the app a whole
+        // click instead — the down was already suppressed, so letting only
+        // the up through gives the app half a click, which is nothing.
+        let pending = cbState.withLock { state -> (origin: CGPoint, flags: CGEventFlags)? in
+            defer {
+                state.plainClickOrigin = nil
+                state.plainClickFlags = nil
+            }
+            guard let origin = state.plainClickOrigin, let flags = state.plainClickFlags else { return nil }
+            return (origin, flags)
+        }
+        if !didDrag {
+            if let pending {
+                result = nil
+                Self.log.info("plain-click replay: no drag, swallowing up and replaying ⌘-click at (\(Int(pending.origin.x)), \(Int(pending.origin.y))) flags=0x\(String(pending.flags.rawValue, radix: 16))")
+                // Off the tap thread — posting from inside the callback can
+                // re-enter our own tap synchronously on the same run loop.
+                DispatchQueue.main.async { [weak self] in
+                    self?.replayClick(button: .left, at: pending.origin, flags: pending.flags)
+                }
+            } else {
+                Self.log.info("plain-click replay: no drag, not armed — lone up passes through (modifier=\(modsForAnalytics.symbol))")
+            }
+        }
+
         endFlagScrub(release: result, event: event)
         if didDrag {
             DispatchQueue.main.async {
@@ -1260,6 +1304,42 @@ final class DragEngine {
             }
         }
         return result
+    }
+
+    // MARK: - Plain ⌘-click passthrough (issue #53)
+
+    /// Decide at mouseDown whether this press, should it end without a drag,
+    /// is to be replayed to the app as the ⌘-click the user actually made.
+    ///
+    /// Deliberately narrow: the configured modifier must be exactly ⌘ (no
+    /// extra chips, no Hyper) AND the keys physically held must be exactly ⌘.
+    /// Anyone on ⌥, ⌃, ⌘⌥, or holding ⌘⌥ for the macOS Option-tiling
+    /// augmentation keeps today's behavior (the click is swallowed) — that
+    /// scope was the user's call, so other setups see no change at all.
+    private func armPlainCommandClickReplay(for event: CGEvent, app: String) {
+        let held = event.flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
+        let configuredIsCommandOnly = modifiers == .command
+        let heldIsCommandOnly = held == .maskCommand
+        guard configuredIsCommandOnly, heldIsCommandOnly else {
+            cbState.withLock { state in
+                state.plainClickOrigin = nil
+                state.plainClickFlags = nil
+            }
+            // Only worth a line when the setup is ⌘-only but the press isn't
+            // (e.g. ⌘⌥ held) — with any other configured modifier this is the
+            // ordinary case and would just be noise on every drag.
+            if configuredIsCommandOnly {
+                Self.log.info("plain-click replay: not armed, held flags 0x\(String(held.rawValue, radix: 16)) are not ⌘ alone (app=\"\(app)\")")
+            }
+            return
+        }
+        let origin = event.location
+        let flags = event.flags
+        cbState.withLock { state in
+            state.plainClickOrigin = origin
+            state.plainClickFlags = flags
+        }
+        Self.log.info("plain-click replay: armed for app=\"\(app)\" at (\(Int(origin.x)), \(Int(origin.y))) — will replay if released without dragging")
     }
 
     // MARK: - Right Button (resize-from-anywhere or open TilingPanel)
@@ -1665,7 +1745,7 @@ final class DragEngine {
                     self.tileOverlay.hide()
                     // Cursor never left the center cell — treat as a plain
                     // middle-click so apps still see it (browser tab close, etc.).
-                    self.replayMiddleClick(at: finish.origin)
+                    self.replayClick(button: .middle, at: finish.origin)
                 }
             }
             return nil
@@ -1694,7 +1774,7 @@ final class DragEngine {
         // our own tap synchronously on the same run loop.
         if !didDrag, let origin {
             DispatchQueue.main.async { [weak self] in
-                self?.replayMiddleClick(at: origin)
+                self?.replayClick(button: .middle, at: origin)
             }
         } else if didDrag {
             DispatchQueue.main.async {
@@ -1900,33 +1980,56 @@ final class DragEngine {
                cgPoint.x <= primaryFrame.origin.x + primaryFrame.width
     }
 
-    private func replayMiddleClick(at point: CGPoint) {
+    /// Which button a swallowed click is put back as.
+    private enum ReplayButton {
+        case left, middle
+
+        var types: (down: CGEventType, up: CGEventType, button: CGMouseButton) {
+            switch self {
+            case .left:   return (.leftMouseDown, .leftMouseUp, .left)
+            case .middle: return (.otherMouseDown, .otherMouseUp, .center)
+            }
+        }
+    }
+
+    /// Post a whole click (down + up) at `point`, tagged so our own tap waves
+    /// it through. Used when a press we suppressed at mouseDown turned out to
+    /// be a plain click the app should have received: the middle-button tap
+    /// (browser tab close etc.) and, since issue #53, a plain ⌘-click with ⌘
+    /// as the only configured modifier.
+    ///
+    /// `flags`: the modifier flags to stamp on both events. The ⌘-click replay
+    /// passes the flags recorded at the real mouseDown so the app sees the
+    /// same ⌘ (+⇧ …) the user held. nil leaves whatever the event source
+    /// supplies, which is what the middle-click path always did.
+    private func replayClick(button: ReplayButton, at point: CGPoint, flags: CGEventFlags? = nil) {
+        let label = button == .left ? "replayClick(left)" : "replayClick(middle)"
         guard let source = CGEventSource(stateID: .hidSystemState) else {
-            Self.log.warn("replayMiddleClick: CGEventSource creation failed — middle-click swallowed")
+            Self.log.warn("\(label): CGEventSource creation failed — click swallowed")
             return
         }
         source.userData = Self.synthesizedEventMarker
+        // After any post, macOS suppresses the user's real mouse motion for
+        // 0.25 s by default. That starved the start of the next gesture in the
+        // no-drag-move investigation; a click that costs the user a quarter
+        // second of frozen cursor is the same bug, so zero it here too.
+        source.localEventsSuppressionInterval = 0
 
-        if let down = CGEvent(
-            mouseEventSource: source,
-            mouseType: .otherMouseDown,
-            mouseCursorPosition: point,
-            mouseButton: .center
-        ) {
-            down.post(tap: .cghidEventTap)
-        } else {
-            Self.log.warn("replayMiddleClick: failed to create mouseDown event")
+        let types = button.types
+        for (phase, type) in [("down", types.down), ("up", types.up)] {
+            guard let e = CGEvent(
+                mouseEventSource: source,
+                mouseType: type,
+                mouseCursorPosition: point,
+                mouseButton: types.button
+            ) else {
+                Self.log.warn("\(label): failed to create mouse\(phase) event")
+                continue
+            }
+            if let flags { e.flags = flags }
+            e.post(tap: .cghidEventTap)
         }
-        if let up = CGEvent(
-            mouseEventSource: source,
-            mouseType: .otherMouseUp,
-            mouseCursorPosition: point,
-            mouseButton: .center
-        ) {
-            up.post(tap: .cghidEventTap)
-        } else {
-            Self.log.warn("replayMiddleClick: failed to create mouseUp event")
-        }
+        Self.log.info("\(label): posted down+up at (\(Int(point.x)), \(Int(point.y)))\(flags.map { " flags=0x\(String($0.rawValue, radix: 16))" } ?? "")")
     }
 
     private func showTilingPanel(at point: NSPoint, for windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
