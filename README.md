@@ -66,6 +66,8 @@ Resize a window from its **nearest corner** without aiming for the tiny corner h
 - **Right-drag** — hold the primary modifier and right-drag.
 - **Left-drag** — hold a dedicated *Left-drag Resize Modifier* and left-drag.
 
+Enable **Always resize from bottom-right** in **Settings → Window Resize** to keep the top-left corner fixed, wherever you start dragging. It is off by default, preserving nearest-corner resizing.
+
 A glowing **Corner Bracket** indicator marks the active corner during the resize (toggleable for best performance).
 
 ### 🖱️ Middle-click → Tile by direction

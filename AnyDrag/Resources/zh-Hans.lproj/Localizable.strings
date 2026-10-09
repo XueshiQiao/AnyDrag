@@ -70,10 +70,12 @@
 "resizeTrigger.right" = "右键拖动";
 "resizeTrigger.left"  = "左键拖动";
 "resizeTrigger.off.subtitle"   = "不缩放窗口。";
-"resizeTrigger.right.subtitle" = "按住主修饰键 + 右键拖动,从最近的窗口角缩放。";
+"resizeTrigger.right.subtitle" = "按住主修饰键 + 右键拖动,缩放窗口。";
 /* %@ = 用户当前设置的左键缩放修饰键符号(如 ⇧) */
-"resizeTrigger.left.subtitle"  = "按住 %@ 左键拖动,从最近的窗口角缩放。";
+"resizeTrigger.left.subtitle"  = "按住 %@ 左键拖动,缩放窗口。";
 "leftResize.augment"          = "左键缩放修饰键";
+"feature.resizeFromBottomRightOnly" = "始终从右下角缩放";
+"feature.resizeFromBottomRightOnly.subtitle" = "无论从窗口内何处开始拖动，都保持左上角固定。";
 "feature.cornerBracket"          = "角标指示线";
 "feature.cornerBracket.subtitle" = "缩放时在被抓的窗口角显示发光指示线。关掉可获得更好性能——开启时每秒约读取 30 次窗口位置。";
 "feature.linkedResize"          = "联动缩放";

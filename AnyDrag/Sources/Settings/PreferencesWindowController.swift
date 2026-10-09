@@ -46,6 +46,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var tilingEnabled: Bool
     @Published private(set) var resizeTrigger: ResizeTrigger
     @Published private(set) var cornerBracketEnabled: Bool
+    @Published private(set) var resizeFromBottomRightOnly: Bool
     @Published private(set) var multiDisplayBentoEnabled: Bool
     @Published private(set) var bentoBorderEnabled: Bool
     @Published private(set) var bentoWindowActionsEnabled: Bool
@@ -84,6 +85,7 @@ final class SettingsStore: ObservableObject {
         tilingEnabled = engine.tilingEnabled
         resizeTrigger = engine.resizeTrigger
         cornerBracketEnabled = engine.cornerBracketEnabled
+        resizeFromBottomRightOnly = engine.resizeFromBottomRightOnly
         multiDisplayBentoEnabled = engine.multiDisplayBentoEnabled
         bentoBorderEnabled = engine.bentoBorderEnabled
         bentoWindowActionsEnabled = engine.bentoWindowActionsEnabled
@@ -237,6 +239,7 @@ final class SettingsStore: ObservableObject {
     func setDragEnabled(_ on: Bool)     { setBool(on, key: Preferences.Key.dragEnabled, analytics: "drag_enabled", current: \.dragEnabled, write: { self.engine.dragEnabled = $0 }, mirror: { self.dragEnabled = $0 }) }
     func setMaximizeEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.maximizeEnabled, analytics: "maximize_enabled", current: \.maximizeEnabled, write: { self.engine.maximizeEnabled = $0 }, mirror: { self.maximizeEnabled = $0 }) }
     func setTilingEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.tilingEnabled, analytics: "tiling_enabled", current: \.tilingEnabled, write: { self.engine.tilingEnabled = $0 }, mirror: { self.tilingEnabled = $0 }) }
+    func setResizeFromBottomRightOnly(_ on: Bool) { setBool(on, key: Preferences.Key.resizeFromBottomRightOnly, analytics: "resize_from_bottom_right_only", current: \.resizeFromBottomRightOnly, write: { self.engine.resizeFromBottomRightOnly = $0 }, mirror: { self.resizeFromBottomRightOnly = $0 }) }
     func setCornerBracketEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.cornerBracketEnabled, analytics: "corner_bracket_enabled", current: \.cornerBracketEnabled, write: { self.engine.cornerBracketEnabled = $0 }, mirror: { self.cornerBracketEnabled = $0 }) }
     func setMultiDisplayBentoEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.multiDisplayBentoEnabled, analytics: "multi_display_bento_enabled", current: \.multiDisplayBentoEnabled, write: { self.engine.multiDisplayBentoEnabled = $0 }, mirror: { self.multiDisplayBentoEnabled = $0 }) }
     func setBentoWindowActionsEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.bentoWindowActionsEnabled, analytics: "bento_window_actions_enabled", current: \.bentoWindowActionsEnabled, write: { self.engine.bentoWindowActionsEnabled = $0 }, mirror: { self.bentoWindowActionsEnabled = $0 }) }

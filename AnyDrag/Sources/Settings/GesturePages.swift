@@ -210,9 +210,13 @@ struct WindowResizePage: View {
                 }
             }
 
-            // Corner bracket — only matters during a resize, so hidden when off.
+            // Resize options only apply while a resize trigger is enabled.
             if store.resizeTrigger != .off {
                 Section {
+                    Toggle(isOn: Binding(get: { store.resizeFromBottomRightOnly }, set: { store.setResizeFromBottomRightOnly($0) })) {
+                        featureLabel("arrow.down.right", .teal, L("feature.resizeFromBottomRightOnly"), L("feature.resizeFromBottomRightOnly.subtitle"))
+                    }
+                    .disabled(store.modifiers.isEmpty)
                     Toggle(isOn: Binding(get: { store.cornerBracketEnabled }, set: { store.setCornerBracketEnabled($0) })) {
                         featureLabel("viewfinder", .teal, L("feature.cornerBracket"), L("feature.cornerBracket.subtitle"))
                     }
