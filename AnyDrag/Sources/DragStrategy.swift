@@ -8,12 +8,13 @@ import ApplicationServices
 //
 // 1. modifier+mouseDown: suppress the event, activate the target app and raise the window.
 // 2. First mouseDragged (~8ms later): convert it into a mouseDown at the window's title bar
-//    (y = windowFrame.top + 3px, x = cursor's original x). The window server sees a title bar
-//    click and begins a native drag. The ~8ms gap ensures window reordering has completed.
-// 3. Subsequent mouseDragged: rewrite Y by a fixed offset (yOffset = titleBarY - cursorY) so
-//    the window server sees movement relative to the title bar click point. X is unchanged.
+//    (Y near the window top, X at the cursor or configured edge insets).
+//    The window server sees a title bar click and begins a native drag.
+//    The ~8ms gap ensures window reordering has completed.
+// 3. Subsequent mouseDragged: translate coordinates by a fixed offset so the window
+//    server sees movement relative to the title bar click point.
 //    Coordinates are rounded consistently so the window follows the cursor on whole points.
-// 4. mouseUp: rewrite Y with the same offset, ending the native drag.
+// 4. mouseUp: apply the same translation, ending the native drag.
 //
 // Result: zero per-frame IPC. The window server moves the window directly at compositor level,
 // identical in performance to manually dragging a title bar.
@@ -24,6 +25,7 @@ final class TitleBarDragStrategy {
 
     private(set) var isActive = false
     private(set) var didDrag = false
+    private var xOffset: CGFloat = 0
     private var yOffset: CGFloat = 0
     private var dragPoint: CGPoint = .zero
     private var needsInitialMouseDown = false
@@ -57,6 +59,32 @@ final class TitleBarDragStrategy {
     /// top and need a larger offset. Tunable from Settings → General →
     /// Diagnostics. The engine overwrites this from UserDefaults at launch.
     var titleBarYOffset: CGFloat = Preferences.defaultTitleBarYOffset
+    var useFixedTitleBarX = false
+    var titleBarLeftInset: CGFloat = Preferences.defaultTitleBarLeftInset
+    var titleBarRightInset: CGFloat = Preferences.defaultTitleBarRightInset
+
+    /// Prefer the left anchor, then the right if the left is offscreen.
+    /// Clamp both inside narrow windows; preserve mouse X if neither is visible.
+    static func titleBarX(cursorX: CGFloat, windowFrame: CGRect, titleBarY: CGFloat,
+                          leftInset: CGFloat, rightInset: CGFloat, displayBounds: [CGRect]) -> CGFloat {
+        let margin = min(8, windowFrame.width / 2)
+        let candidates = [windowFrame.minX + leftInset, windowFrame.maxX - rightInset]
+        for candidate in candidates {
+            let x = min(max(candidate, windowFrame.minX + margin), windowFrame.maxX - margin).rounded()
+            if displayBounds.contains(where: { $0.contains(CGPoint(x: x, y: titleBarY)) }) {
+                return x
+            }
+        }
+        return cursorX.rounded()
+    }
+
+    private func activeDisplayBounds() -> [CGRect] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success else { return [] }
+        return displays.prefix(Int(count)).map { CGDisplayBounds($0) }
+    }
 
     /// Distance below the measured top of a window's visible content to aim.
     /// Stays 3 pt on every macOS version, unlike the title-bar default: this
@@ -69,11 +97,11 @@ final class TitleBarDragStrategy {
     /// Diagnostics aid; off by default.
     var showDebugDot: Bool = false
 
-    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil, visibleTopInset: CGFloat = 0, activateApp: Bool = true, debugCaption: String? = nil) -> Unmanaged<CGEvent>? {
+    func handleMouseDown(pid: pid_t, windowID: CGWindowID, windowFrame: CGRect, event: CGEvent, rewriteToLeftButton: Bool = false, titleBarYOffset: CGFloat? = nil, titleBarXOffsets: TitleBarXOffsets? = nil, visibleTopInset: CGFloat = 0, activateApp: Bool = true, debugCaption: String? = nil) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
 
-        // Drag point: cursor's X (on an exposed part of the window), Y near the top of
-        // the title bar. The default (3 pt, 4 on macOS 27) is a narrow strip that's
+        // Drag point: cursor's X by default, or configured edge insets;
+        // Y near the top of the title bar. The default (3 pt, 4 on macOS 27) is a narrow strip that's
         // always draggable on stock AppKit windows; the offset is tunable for apps
         // with custom top regions.
         // The engine passes a per-app override when one is set; otherwise we fall back
@@ -93,15 +121,23 @@ final class TitleBarDragStrategy {
         // drag/up. High-resolution mouse events contain fractional coordinates;
         // forwarding their fractional displacement can leave the compositor
         // displaying an interpolated window surface after release.
-        dragPoint = CGPoint(x: cursorPos.x.rounded(),
-                            y: (windowFrame.origin.y + visibleTopInset + effectiveOffset).rounded())
+        let titleBarY = (windowFrame.origin.y + visibleTopInset + effectiveOffset).rounded()
+        let fixedX = titleBarXOffsets != nil || useFixedTitleBarX
+        let titleBarX = fixedX
+            ? Self.titleBarX(cursorX: cursorPos.x, windowFrame: windowFrame, titleBarY: titleBarY,
+                             leftInset: titleBarXOffsets?.left ?? titleBarLeftInset,
+                             rightInset: titleBarXOffsets?.right ?? titleBarRightInset, displayBounds: activeDisplayBounds())
+            : cursorPos.x.rounded()
+        dragPoint = CGPoint(x: titleBarX, y: titleBarY)
 
         // Diagnostic: show where we're targeting the synthesized click.
         if showDebugDot {
             debugDot.flash(at: dragPoint, caption: debugCaption)
         }
 
-        // Only Y needs an offset — X follows the cursor on the same whole-point grid.
+        // Snapshot both offsets so changing settings mid-drag cannot move the anchor.
+        // Preserve the old X rounding behavior when the fixed-X option is disabled.
+        xOffset = fixedX ? dragPoint.x - cursorPos.x : 0
         yOffset = dragPoint.y - cursorPos.y
 
         // Activate the target app and raise the window to front.
@@ -174,10 +210,10 @@ final class TitleBarDragStrategy {
             event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
         }
 
-        // Shift Y so the window server sees movement relative to the title bar click.
+        // Translate both axes relative to the initial title-bar click.
         // Round both axes like the initial click so the final translation stays integral.
         let pos = event.location
-        event.location = CGPoint(x: pos.x.rounded(), y: (pos.y + yOffset).rounded())
+        event.location = CGPoint(x: (pos.x + xOffset).rounded(), y: (pos.y + yOffset).rounded())
         return Unmanaged.passUnretained(event)
     }
 
@@ -200,7 +236,7 @@ final class TitleBarDragStrategy {
 
         event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         let pos = event.location
-        event.location = CGPoint(x: pos.x.rounded(), y: (pos.y + yOffset).rounded())
+        event.location = CGPoint(x: (pos.x + xOffset).rounded(), y: (pos.y + yOffset).rounded())
         isActive = false
         return Unmanaged.passUnretained(event)
     }
@@ -208,6 +244,7 @@ final class TitleBarDragStrategy {
     func reset() {
         isActive = false
         didDrag = false
+        xOffset = 0
         yOffset = 0
         dragPoint = .zero
         needsInitialMouseDown = false

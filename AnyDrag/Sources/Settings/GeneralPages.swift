@@ -89,6 +89,30 @@ struct GeneralPage: View {
                     set: { store.setTitleBarYOffset($0) }, reset: { store.resetTitleBarYOffset() }
                 )
 
+                Toggle(isOn: Binding(get: { store.useFixedTitleBarX }, set: { store.setUseFixedTitleBarX($0) })) {
+                    featureLabel("arrow.left.and.right", .orange,
+                                 L("diagnostics.fixedTitleBarX"), L("diagnostics.fixedTitleBarX.hint"))
+                }
+
+                if store.useFixedTitleBarX {
+                    stepperRow(
+                        symbol: "arrow.left.to.line", color: .orange,
+                        title: L("diagnostics.titleBarLeftInset"), hint: L("diagnostics.titleBarLeftInset.hint"),
+                        value: store.titleBarLeftInset,
+                        range: Preferences.titleBarLeftInsetRange,
+                        isDefault: store.titleBarLeftInset == Preferences.defaultTitleBarLeftInset,
+                        set: { store.setTitleBarLeftInset($0) }, reset: { store.resetTitleBarLeftInset() }
+                    )
+                    stepperRow(
+                        symbol: "arrow.right.to.line", color: .orange,
+                        title: L("diagnostics.titleBarRightInset"), hint: L("diagnostics.titleBarRightInset.hint"),
+                        value: store.titleBarRightInset,
+                        range: Preferences.titleBarRightInsetRange,
+                        isDefault: store.titleBarRightInset == Preferences.defaultTitleBarRightInset,
+                        set: { store.setTitleBarRightInset($0) }, reset: { store.resetTitleBarRightInset() }
+                    )
+                }
+
                 stepperRow(
                     symbol: "arrow.down.right.and.arrow.up.left", color: .teal,
                     title: L("diagnostics.resizeCornerInset"), hint: L("diagnostics.resizeCornerInset.hint"),
