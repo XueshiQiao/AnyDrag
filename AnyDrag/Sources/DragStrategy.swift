@@ -12,7 +12,7 @@ import ApplicationServices
 //    click and begins a native drag. The ~8ms gap ensures window reordering has completed.
 // 3. Subsequent mouseDragged: rewrite Y by a fixed offset (yOffset = titleBarY - cursorY) so
 //    the window server sees movement relative to the title bar click point. X is unchanged.
-//    The delta matches the real mouse movement, so the window follows the cursor 1:1.
+//    Coordinates are rounded consistently so the window follows the cursor on whole points.
 // 4. mouseUp: rewrite Y with the same offset, ending the native drag.
 //
 // Result: zero per-frame IPC. The window server moves the window directly at compositor level,
@@ -89,14 +89,19 @@ final class TitleBarDragStrategy {
         // default instead of adding a user value on top of it.
         let effectiveOffset = visibleTopInset > 0 ? Self.measuredAimOffset
                                                   : (titleBarYOffset ?? self.titleBarYOffset)
-        dragPoint = CGPoint(x: cursorPos.x, y: windowFrame.origin.y + visibleTopInset + effectiveOffset)
+        // Use the same whole-point grid for the initial click and every later
+        // drag/up. High-resolution mouse events contain fractional coordinates;
+        // forwarding their fractional displacement can leave the compositor
+        // displaying an interpolated window surface after release.
+        dragPoint = CGPoint(x: cursorPos.x.rounded(),
+                            y: (windowFrame.origin.y + visibleTopInset + effectiveOffset).rounded())
 
         // Diagnostic: show where we're targeting the synthesized click.
         if showDebugDot {
             debugDot.flash(at: dragPoint, caption: debugCaption)
         }
 
-        // Only Y needs an offset — X stays at the cursor position
+        // Only Y needs an offset — X follows the cursor on the same whole-point grid.
         yOffset = dragPoint.y - cursorPos.y
 
         // Activate the target app and raise the window to front.
@@ -170,9 +175,9 @@ final class TitleBarDragStrategy {
         }
 
         // Shift Y so the window server sees movement relative to the title bar click.
-        // X is unchanged (xOffset = 0), so horizontal movement is 1:1 with the cursor.
+        // Round both axes like the initial click so the final translation stays integral.
         let pos = event.location
-        event.location = CGPoint(x: pos.x, y: pos.y + yOffset)
+        event.location = CGPoint(x: pos.x.rounded(), y: (pos.y + yOffset).rounded())
         return Unmanaged.passUnretained(event)
     }
 
@@ -195,7 +200,7 @@ final class TitleBarDragStrategy {
 
         event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         let pos = event.location
-        event.location = CGPoint(x: pos.x, y: pos.y + yOffset)
+        event.location = CGPoint(x: pos.x.rounded(), y: (pos.y + yOffset).rounded())
         isActive = false
         return Unmanaged.passUnretained(event)
     }
