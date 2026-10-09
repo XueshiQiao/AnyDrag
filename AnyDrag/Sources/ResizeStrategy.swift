@@ -12,9 +12,8 @@ import ApplicationServices
 // subsequent drag/up event gets rewritten by the same (anchor − cursor) offset
 // so the cursor delta drives the edge 1:1, with zero per-frame AX calls.
 //
-// Corner selection (v1): 4-quadrant by window center. Cursor in the top-left
-// quadrant → resize from the top-left corner, etc. Edges (8-zone) can come
-// later once the corner-only version proves out in real use.
+// Corner selection defaults to the cursor quadrant. The bottom-right-only
+// preference fixes the anchor to bottom-right regardless of cursor position.
 
 enum ResizeCorner {
     case topLeft, topRight, bottomLeft, bottomRight
@@ -127,6 +126,9 @@ final class ResizeStrategy {
     /// Chromium apps.
     var cornerInset: CGFloat = 5
 
+    /// Keep the top-left corner fixed, regardless of where the gesture begins.
+    var resizeFromBottomRightOnly = false
+
     /// User-facing toggle: show the Corner Bracket overlay during resize?
     /// When false the resize still works (CGEvent rewrite is independent
     /// of the feedback), but we also skip the AX size/position polling
@@ -178,7 +180,9 @@ final class ResizeStrategy {
                         windowFrame: CGRect,
                         event: CGEvent) -> Unmanaged<CGEvent>? {
         let cursorPos = event.location
-        let corner = ResizeCorner.nearest(cursorCG: cursorPos, windowFrame: windowFrame)
+        let corner: ResizeCorner = resizeFromBottomRightOnly
+            ? .bottomRight
+            : ResizeCorner.nearest(cursorCG: cursorPos, windowFrame: windowFrame)
 
         dragPoint = corner.anchor(in: windowFrame, inset: cornerInset)
         xOffset = dragPoint.x - cursorPos.x

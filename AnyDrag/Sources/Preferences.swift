@@ -39,6 +39,7 @@ enum Preferences {
         static let resizeEnabled      = "AnyDragResizeEnabled"
         static let leftResizeEnabled  = "AnyDragLeftResizeEnabled"
         static let cornerBracketEnabled = "AnyDragCornerBracketEnabled"
+        static let resizeFromBottomRightOnly = "AnyDragResizeFromBottomRightOnly"
         static let multiDisplayBentoEnabled = "AnyDragMultiDisplayBentoEnabled"
         // Bento overlay appearance: absent → the shipping look, i.e. no
         // border, `.popover` glass, and an accent-colour wash (the wash is
@@ -337,6 +338,7 @@ enum Preferences {
         engine.maximizeEnabled  = d.object(forKey: Key.maximizeEnabled) as? Bool ?? true
         engine.tilingEnabled    = d.object(forKey: Key.tilingEnabled) as? Bool ?? true
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
+        engine.resizeFromBottomRightOnly = d.bool(forKey: Key.resizeFromBottomRightOnly)
         engine.multiDisplayBentoEnabled = d.object(forKey: Key.multiDisplayBentoEnabled) as? Bool ?? true
         engine.bentoBorderEnabled = d.object(forKey: Key.bentoBorderEnabled) as? Bool ?? false
         engine.bentoWindowActionsEnabled = d.object(forKey: Key.bentoWindowActionsEnabled) as? Bool ?? true

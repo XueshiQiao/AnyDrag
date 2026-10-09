@@ -70,10 +70,12 @@
 "resizeTrigger.right" = "Right-drag";
 "resizeTrigger.left"  = "Left-drag";
 "resizeTrigger.off.subtitle"   = "Window resize is off.";
-"resizeTrigger.right.subtitle" = "Hold the primary modifier + right-drag to resize from the nearest window corner.";
+"resizeTrigger.right.subtitle" = "Hold the primary modifier + right-drag to resize the window.";
 /* %@ = the Left-drag Resize Modifier symbol (e.g. ⇧) the user has set */
-"resizeTrigger.left.subtitle"  = "Hold %@ and left-drag to resize from the nearest window corner.";
+"resizeTrigger.left.subtitle"  = "Hold %@ and left-drag to resize the window.";
 "leftResize.augment"          = "Left-drag Resize Modifier";
+"feature.resizeFromBottomRightOnly" = "Always resize from bottom-right";
+"feature.resizeFromBottomRightOnly.subtitle" = "Keep the top-left corner fixed, wherever you start dragging inside the window.";
 "feature.cornerBracket"          = "Corner Bracket";
 "feature.cornerBracket.subtitle" = "Show a glowing indicator at the active corner during resize. Turn off for better performance — the indicator polls the window position about 30 times per second.";
 "feature.linkedResize"          = "Linked resize";

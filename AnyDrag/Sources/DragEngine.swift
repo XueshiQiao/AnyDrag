@@ -291,6 +291,11 @@ final class DragEngine {
         set { resizeStrategy.cornerInset = newValue }
     }
 
+    var resizeFromBottomRightOnly: Bool {
+        get { resizeStrategy.resizeFromBottomRightOnly }
+        set { resizeStrategy.resizeFromBottomRightOnly = newValue }
+    }
+
     var cornerBracketEnabled: Bool {
         get { resizeStrategy.cornerBracketEnabled }
         set { resizeStrategy.cornerBracketEnabled = newValue }
