@@ -1207,6 +1207,7 @@ final class DragEngine {
             titleBarYOffset: offset,
             titleBarXOffsets: perAppTitleBarXOffsetPids.withLock { $0[windowInfo.pid] },
             visibleTopInset: probe.inset,
+            activateApp: probe.hasTitleBar,
             debugCaption: probe.summary
         )
     }
@@ -1584,6 +1585,7 @@ final class DragEngine {
                 titleBarYOffset: middleOffset,
                 titleBarXOffsets: perAppTitleBarXOffsetPids.withLock { $0[windowInfo.pid] },
                 visibleTopInset: middleProbe.inset,
+                activateApp: middleProbe.hasTitleBar,
                 debugCaption: middleProbe.summary
             )
 
@@ -2766,6 +2768,8 @@ final class DragEngine {
     struct VisibleTopProbe {
         let inset: CGFloat
         let summary: String
+        /// Floating panels must not activate their owner's main window.
+        var hasTitleBar: Bool = true
         static let none = VisibleTopProbe(inset: 0, summary: "—")
     }
 
@@ -2904,10 +2908,10 @@ final class DragEngine {
         guard let wrapper = topLevel.first, let wrapperFrame = frame(wrapper),
               !isControl(wrapperFrame)
         else {
-            return VisibleTopProbe(inset: 0, summary: "no title bar, but controls sit directly on it — aim at top")
+            return VisibleTopProbe(inset: 0, summary: "no title bar, but controls sit directly on it — aim at top", hasTitleBar: false)
         }
         func panel(_ summary: String, inset: CGFloat = 0) -> VisibleTopProbe {
-            VisibleTopProbe(inset: inset, summary: summary)
+            VisibleTopProbe(inset: inset, summary: summary, hasTitleBar: false)
         }
 
         // 2. Find where the visible part starts. The cursor is on it already.
