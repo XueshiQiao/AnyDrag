@@ -161,6 +161,12 @@
 "diagnostics.advanced.note" = "高级设置项,如非必要请保持默认值。";
 "diagnostics.showDot" = "显示模拟点击位置";
 "diagnostics.showDot.subtitle" = "在拖动(标题栏)和缩放(窗口角)的模拟点击位置显示标记。";
+"diagnostics.fixedTitleBarX" = "使用固定标题栏 X 位置";
+"diagnostics.fixedTitleBarX.hint" = "优先从窗口左边缘附近开始拖动；左侧点击位置在屏幕外时使用右侧。适用于修饰键拖动和中键拖动。";
+"diagnostics.titleBarLeftInset" = "距左边缘的距离";
+"diagnostics.titleBarLeftInset.hint" = "首选标题栏点击位置距窗口左边缘的距离，默认为 80 点。窄窗口会自动限制距离。";
+"diagnostics.titleBarRightInset" = "距右边缘的距离";
+"diagnostics.titleBarRightInset.hint" = "备用标题栏点击位置距窗口右边缘的距离，默认为 80 点。两个目标均在屏幕外时使用鼠标的 X 位置。";
 "diagnostics.titleBarYOffset" = "标题栏 Y 偏移";
 "diagnostics.titleBarYOffset.hint" = "模拟点击距离窗口顶边的距离,默认 %d pt。";
 "diagnostics.resizeCornerInset" = "Resize 角内缩量";
@@ -173,7 +179,7 @@
 "centeredSize.note" = "右键平铺面板里的「居中」和中键下滑居中都用这个比例。默认 85%。选 50% 时窗口宽高各取一半，面积是可用区域的四分之一。";
 /* %d = 百分数。两个 %% 渲染成一个百分号。 */
 "centeredSize.value.format" = "%d%%";
-"perAppOffset.note" = "为指定应用单独覆盖标题栏 Y 偏移。未列出的应用使用全局值(通用 → 诊断)。";
+"perAppOffset.note" = "左右偏移默认遵循「通用 → 诊断」。编辑后，该应用将使用自定义的左侧优先位置，即使全局选项已关闭。「使用全局设置」可恢复全局水平设置。";
 "perAppOffset.add" = "添加应用…";
 "perAppOffset.remove" = "改用全局偏移";
 
@@ -198,3 +204,9 @@
 /* About — analytics opt-out (co-located with the disclosure line) */
 "about.analytics.toggle" = "发送匿名使用数据";
 "about.analytics.subtitle" = "帮助我们了解哪些功能被使用。不会收集任何个人信息、应用名称或窗口内容。";
+
+"perAppOffset.y" = "Y 偏移";
+"perAppOffset.xGlobal" = "水平位置：全局";
+"perAppOffset.xCustom" = "水平位置：自定义";
+"perAppOffset.useGlobalX" = "使用全局设置";
+"perAppOffset.customizeX" = "设置自定义水平位置";
