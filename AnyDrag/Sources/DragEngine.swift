@@ -1431,9 +1431,10 @@ final class DragEngine {
         // this gesture — symmetric with `beginLeftResize`.
         if resizeStrategy.isActive { resizeStrategy.reset() }
 
-        // Right-click resize carries no extra augment key to scrub from the
-        // synthesized native events; clear any value a prior left-resize set.
-        resizeStrategy.extraFlagsToStrip = []
+        // Right-click resize carries no augment key, but a held Option makes
+        // the window server resize symmetrically (both opposite corners move).
+        // Scrub it so Option+right-drag resizes from the nearest corner only.
+        resizeStrategy.extraFlagsToStrip = [.maskAlternate]
 
         // Suppress the down; the strategy will replay it as a leftMouseDown
         // on the first drag (resize) — or `handleRightMouseUp` will open the
