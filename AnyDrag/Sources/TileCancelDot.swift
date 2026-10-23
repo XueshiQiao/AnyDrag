@@ -1437,14 +1437,19 @@ private final class BentoCardContentView: NSView {
                              width: mini.width / 2 - g, height: mini.height / 2 - g)
         case .moveToDisplay:
             // The window at its real relative position and size on this
-            // display. Floored to a visible size so a small window still
-            // reads as a block rather than a speck.
+            // display. Clamped to [0, 1] so a window coming from a larger
+            // display never overflows the mini-screen cell, and floored to a
+            // visible size so a tiny window still reads as a block.
             let u = moveHerePreview ?? NSRect(x: 0.2, y: 0.2, width: 0.6, height: 0.6)
-            let w = max(4, u.width * mini.width)
-            let h = max(3, u.height * mini.height)
+            let clampedW = min(max(u.width, 0), 1)
+            let clampedH = min(max(u.height, 0), 1)
+            let clampedX = min(max(u.minX, 0), 1 - clampedW)
+            let clampedY = min(max(u.minY, 0), 1 - clampedH)
+            let w = min(mini.width, max(4, clampedW * mini.width))
+            let h = min(mini.height, max(3, clampedH * mini.height))
             preview = NSRect(
-                x: min(mini.minX + u.minX * mini.width, mini.maxX - w),
-                y: min(mini.minY + u.minY * mini.height, mini.maxY - h),
+                x: min(max(mini.minX, mini.minX + clampedX * mini.width), mini.maxX - w),
+                y: min(max(mini.minY, mini.minY + clampedY * mini.height), mini.maxY - h),
                 width: w,
                 height: h
             )

@@ -8,12 +8,13 @@ enum TileZone {
     case centered      // drag down (`DragEngine.centeredSizePercent` of the visible frame)
     case left, right
     case topLeft, topRight, bottomLeft, bottomRight
-    /// Not a shape: "put the window on THIS display exactly as it is". Only
-    /// the multi-display bento produces it, from the center cell of a card
-    /// that isn't the one the gesture started on — that cell is the cancel
-    /// ring on the current display's card, and "send it here untouched" on
-    /// every other one. The size is preserved verbatim; the position is the
-    /// same relative spot on the destination screen.
+    /// Not a shape: "put the window on THIS display at the same relative
+    /// position and proportion". Only the multi-display bento produces it,
+    /// from the center cell of a card that isn't the one the gesture started
+    /// on — that cell is the cancel ring on the current display's card, and
+    /// "send it here proportionally" on every other one. Both the position and
+    /// size are scaled proportionally from the source screen's visible frame
+    /// to the destination screen's visible frame and rounded to whole points.
     case moveToDisplay
 
     /// The window a tile gesture is acting on. `.moveToDisplay` is the only
@@ -75,28 +76,43 @@ enum TileZone {
     }
 
     /// Where `source` lands on the screen whose visible frame is `v`: same
-    /// size, same spot. "Same spot" is the window's offset from the visible
-    /// frame's TOP-LEFT corner — the corner a person reads a window's position
-    /// from — carried over verbatim. On two displays of the same usable size
-    /// that is pixel-for-pixel the same position; where the usable areas
-    /// differ (one display carries the menu bar) the window keeps the same gap
-    /// to the top-left rather than the same percentage across, which is the
-    /// literal reading of "just change which screen it's on".
+    /// relative position and same relative size within `v` as `source.frame`
+    /// occupies within `source.visible`, with all coordinates and dimensions
+    /// (`x`, `y`, `width`, `height`) rounded to integer points.
     ///
-    /// The result is clamped so the window can't hang off the destination. A
-    /// window too big for the destination is pinned to the top-left corner
-    /// rather than resized: the size is the one thing this zone promises to
-    /// leave alone.
+    /// On two displays of the same usable size, the window lands at the exact
+    /// same point offset and dimensions; across displays of different
+    /// resolutions (e.g. 2560×1440 → 1920×1080), both its relative placement
+    /// and its screen-area proportion are preserved, matching every other
+    /// proportional tile zone in the grid.
     static func sameSpotRect(_ source: Source, in v: NSRect) -> NSRect {
         let sv = source.visible
-        let size = source.frame.size
-        // NS coords put y at the BOTTOM, so the offset from the top is
-        // measured against maxY on both sides.
-        var x = v.minX + (source.frame.minX - sv.minX)
-        var y = v.maxY - (sv.maxY - source.frame.maxY) - size.height
-        x = size.width  <= v.width  ? min(max(x, v.minX), v.maxX - size.width) : v.minX
-        y = size.height <= v.height ? min(max(y, v.minY), v.maxY - size.height) : v.maxY - size.height
-        return NSRect(x: x, y: y, width: size.width, height: size.height)
+        guard sv.width > 0, sv.height > 0, v.width > 0, v.height > 0 else {
+            let w = min(source.frame.width, v.width).rounded()
+            let h = min(source.frame.height, v.height).rounded()
+            return NSRect(x: v.minX.rounded(), y: v.minY.rounded(), width: w, height: h)
+        }
+
+        let relX = (source.frame.minX - sv.minX) / sv.width
+        let relY = (source.frame.minY - sv.minY) / sv.height
+        let relW = source.frame.width / sv.width
+        let relH = source.frame.height / sv.height
+
+        let minX = v.minX.rounded()
+        let minY = v.minY.rounded()
+        let maxW = v.width.rounded()
+        let maxH = v.height.rounded()
+
+        let width = min(maxW, max(1, (relW * v.width).rounded()))
+        let height = min(maxH, max(1, (relH * v.height).rounded()))
+
+        let rawX = (v.minX + relX * v.width).rounded()
+        let rawY = (v.minY + relY * v.height).rounded()
+
+        let x = min(max(rawX, minX), minX + maxW - width)
+        let y = min(max(rawY, minY), minY + maxH - height)
+
+        return NSRect(x: x, y: y, width: width, height: height)
     }
 
     /// Compute the target rect within the screen's visible NSScreen-coord frame

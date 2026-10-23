@@ -53,6 +53,9 @@ final class SnapAssistOverlay {
     private var globalMouseMonitor: Any?
     private var localKeyMonitor: Any?
     private var globalKeyMonitor: Any?
+    private var keyEventTap: CFMachPort?
+    private var keyEventRunLoopSource: CFRunLoopSource?
+    private var onSelectFirstHandler: (() -> Void)?
 
     var isVisible: Bool { panel?.isVisible == true }
 
@@ -80,7 +83,7 @@ final class SnapAssistOverlay {
         )
         panel = newPanel
         newPanel.alphaValue = 0
-        newPanel.orderFrontRegardless()
+        newPanel.makeKeyAndOrderFront(nil)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.14
@@ -103,6 +106,8 @@ final class SnapAssistOverlay {
     }
 
     private func installMonitors(onSelectFirst: @escaping () -> Void) {
+        onSelectFirstHandler = onSelectFirst
+
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] _ in
@@ -132,9 +137,56 @@ final class SnapAssistOverlay {
             }
             return event
         }
+
+        // Install a lightweight CGEvent tap for keyDown while the overlay is
+        // visible so Esc / Return work reliably even when another app holds focus
+        // (and swallow the key so Esc doesn't trigger inside the frontmost app).
+        let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        if let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { _, type, event, userInfo -> Unmanaged<CGEvent>? in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let overlay = Unmanaged<SnapAssistOverlay>.fromOpaque(userInfo).takeUnretainedValue()
+                guard type == .keyDown, overlay.panel != nil else {
+                    return Unmanaged.passUnretained(event)
+                }
+                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                if keyCode == 53 { // Esc
+                    DispatchQueue.main.async { overlay.hide() }
+                    return nil
+                } else if keyCode == 36 || keyCode == 76 { // Return / Enter
+                    DispatchQueue.main.async { overlay.onSelectFirstHandler?() }
+                    return nil
+                }
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: refcon
+        ) {
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            keyEventTap = tap
+            keyEventRunLoopSource = source
+            if let source {
+                CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+            }
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
     }
 
     private func removeMonitors() {
+        onSelectFirstHandler = nil
+        if let tap = keyEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            keyEventTap = nil
+        }
+        if let source = keyEventRunLoopSource {
+            CFRunLoopSourceInvalidate(source)
+            keyEventRunLoopSource = nil
+        }
         if let m = globalMouseMonitor { NSEvent.removeMonitor(m); globalMouseMonitor = nil }
         if let m = globalKeyMonitor { NSEvent.removeMonitor(m); globalKeyMonitor = nil }
         if let m = localKeyMonitor { NSEvent.removeMonitor(m); localKeyMonitor = nil }

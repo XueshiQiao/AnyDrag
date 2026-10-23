@@ -2071,7 +2071,11 @@ final class DragEngine {
         onFrameApplied: @escaping () -> Void
     ) {
         var targetPosition = targetFrame.origin
+        var initialSize = targetFrame.size
         withEnhancedUIDisabled(for: axWindow) {
+            if let value = AXValueCreate(.cgSize, &initialSize) {
+                AXUIElementSetAttributeValue(axWindow, kAXSizeAttribute as CFString, value)
+            }
             if let value = AXValueCreate(.cgPoint, &targetPosition) {
                 AXUIElementSetAttributeValue(axWindow, kAXPositionAttribute as CFString, value)
             }
@@ -2085,8 +2089,9 @@ final class DragEngine {
 
             guard let actualFrame = self.getWindowFrame(axWindow) else { return }
             let actualCenter = CGPoint(x: actualFrame.midX, y: actualFrame.midY)
-            guard let actualScreen = self.screen(containingCGPoint: actualCenter),
-                  actualScreen.frame == destinationScreenFrame
+            let reachedByCenter = self.screen(containingCGPoint: actualCenter)?.frame == destinationScreenFrame
+            let reachedByOrigin = self.screen(containingCGPoint: actualFrame.origin)?.frame == destinationScreenFrame
+            guard reachedByCenter || reachedByOrigin
             else {
                 Self.log.warn(
                     "cross-screen tile did not reach destination before resize: "
