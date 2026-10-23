@@ -54,7 +54,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var bentoTint: BentoTint
     @Published private(set) var tileByDirectionDragOnly: Bool
     @Published private(set) var linkedResizeEnabled: Bool
-    @Published private(set) var autoPairHalvesEnabled: Bool
+    @Published private(set) var oppositeHalfMode: OppositeHalfMode
     @Published private(set) var overlayEdgeSafeEnabled: Bool
     @Published private(set) var middleAction: MiddleAction
     @Published private(set) var centeredSizePercent: Int
@@ -65,6 +65,7 @@ final class SettingsStore: ObservableObject {
     // ─── Non-engine ──────────────────────────────────────────────────
     @Published private(set) var launchAtLogin: Bool
     @Published private(set) var accessibilityGranted: Bool
+    @Published private(set) var screenRecordingGranted: Bool
     @Published private(set) var languageCode: String?   // nil = follow system
     @Published private(set) var analyticsEnabled: Bool
     @Published private(set) var appIconMode: AppIconMode
@@ -94,7 +95,7 @@ final class SettingsStore: ObservableObject {
         bentoTint = engine.bentoTint
         tileByDirectionDragOnly = engine.tileByDirectionDragOnly
         linkedResizeEnabled = engine.linkedResizeEnabled
-        autoPairHalvesEnabled = engine.autoPairHalvesEnabled
+        oppositeHalfMode = engine.oppositeHalfMode
         overlayEdgeSafeEnabled = engine.overlayEdgeSafeEnabled
         middleAction = engine.middleAction
         centeredSizePercent = engine.centeredSizePercent
@@ -104,6 +105,7 @@ final class SettingsStore: ObservableObject {
 
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
         accessibilityGranted = AXIsProcessTrusted()
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
         let savedLang = UserDefaults.standard.string(forKey: Preferences.Key.languageOverride) ?? ""
         languageCode = savedLang.isEmpty ? nil : savedLang
         let d = UserDefaults.standard
@@ -142,6 +144,7 @@ final class SettingsStore: ObservableObject {
     /// the SwiftUI bindings (permission grant, login-item state).
     func refreshExternalState() {
         accessibilityGranted = AXIsProcessTrusted()
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
     }
 
@@ -268,7 +271,15 @@ final class SettingsStore: ObservableObject {
     }
     func setTileDragOnly(_ on: Bool)    { setBool(on, key: Preferences.Key.tileDragOnly, analytics: "tile_drag_only", current: \.tileByDirectionDragOnly, write: { self.engine.tileByDirectionDragOnly = $0 }, mirror: { self.tileByDirectionDragOnly = $0 }) }
     func setLinkedResizeEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.linkedResizeEnabled, analytics: "linked_resize_enabled", current: \.linkedResizeEnabled, write: { self.engine.linkedResizeEnabled = $0 }, mirror: { self.linkedResizeEnabled = $0 }) }
-    func setAutoPairHalvesEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.autoPairHalvesEnabled, analytics: "auto_pair_halves_enabled", current: \.autoPairHalvesEnabled, write: { self.engine.autoPairHalvesEnabled = $0 }, mirror: { self.autoPairHalvesEnabled = $0 }) }
+    func setOppositeHalfMode(_ mode: OppositeHalfMode) {
+        let previous = engine.oppositeHalfMode
+        engine.oppositeHalfMode = mode
+        oppositeHalfMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Preferences.Key.oppositeHalfMode)
+        if previous != mode {
+            Analytics.trackPreferenceChanged(key: "opposite_half_mode", value: mode.rawValue)
+        }
+    }
     func setOverlayEdgeSafeEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.overlayEdgeSafeEnabled, analytics: "overlay_edge_safe_enabled", current: \.overlayEdgeSafeEnabled, write: { self.engine.overlayEdgeSafeEnabled = $0 }, mirror: { self.overlayEdgeSafeEnabled = $0 }) }
 
     private func setBool(_ on: Bool, key: String, analytics: String,
@@ -362,6 +373,15 @@ final class SettingsStore: ObservableObject {
 
     func openAccessibilitySettings() {
         PermissionManager.openAccessibilitySettings()
+    }
+
+    func authorizeScreenRecording() {
+        PermissionManager.authorizeScreenRecording()
+        for delay in [500, 1500, 3000] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
+                self?.screenRecordingGranted = CGPreflightScreenCaptureAccess()
+            }
+        }
     }
 
     /// Staircase of re-checks after the AX-trust notification fires —

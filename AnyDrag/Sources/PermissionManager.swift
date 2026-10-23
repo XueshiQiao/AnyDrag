@@ -44,6 +44,15 @@ final class PermissionManager {
         }
     }
 
+    /// Trigger the native Screen Recording registration if not yet asked, and
+    /// open System Settings → Privacy & Security → Screen & System Audio Recording.
+    static func authorizeScreenRecording() {
+        _ = CGRequestScreenCaptureAccess()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     /// Relaunch after a live revoke so TCC evaluates authorization in a fresh
     /// process. The new instance runs `ensurePermissions`, which presents the
     /// single native prompt and re-registers an app removed from the list.

@@ -149,6 +149,24 @@ enum MiddleAction: String, CaseIterable {
     }
 }
 
+// MARK: - Opposite-Half Pairing Mode (Issue #61)
+
+/// How the opposite half of the screen is handled when tiling a window to the
+/// Left or Right half via the middle-click Bento panel.
+enum OppositeHalfMode: String, CaseIterable {
+    case off        = "off"
+    case snapAssist = "snap_assist"
+    case autoFill   = "auto_fill"
+
+    var displayName: String {
+        switch self {
+        case .off:        return NSLocalizedString("Off", comment: "")
+        case .snapAssist: return NSLocalizedString("oppositeHalf.snapAssist", comment: "")
+        case .autoFill:   return NSLocalizedString("oppositeHalf.autoFill", comment: "")
+        }
+    }
+}
+
 // MARK: - Resize Trigger Model
 
 /// How the resize-from-anywhere gesture is triggered. Mutually exclusive — the
@@ -257,10 +275,16 @@ final class DragEngine {
             linkedResizeController.disableAndReset()
         }
     }
-    /// Issue #61: when true, tiling a window to `.left` or `.right` via the
-    /// middle-click Bento panel automatically places the top-most remaining
-    /// window on the target screen into the opposite half.
-    var autoPairHalvesEnabled: Bool = Preferences.defaultAutoPairHalvesEnabled
+    /// Issue #61: what happens on the opposite half when tiling a window to
+    /// `.left` or `.right` via the middle-click Bento panel (Off, Windows 11
+    /// Snap Assist picker, or immediate Auto-fill with the next window).
+    var oppositeHalfMode: OppositeHalfMode = Preferences.defaultOppositeHalfMode {
+        didSet {
+            if oppositeHalfMode != .snapAssist {
+                snapAssistOverlay.hide()
+            }
+        }
+    }
     /// When true (default), the tile-by-direction "bento" overlay is kept fully
     /// on-screen near a screen edge and the real cursor glides to its center;
     /// when false, the overlay centers on the cursor with no edge clamping and
@@ -478,6 +502,7 @@ final class DragEngine {
     private var tilingPanel: TilingPanel?
     private lazy var tileOverlay = TileOverlay()
     private lazy var tileCancelDot = TileCancelDot()
+    private lazy var snapAssistOverlay = SnapAssistOverlay()
     private lazy var linkedResizeController = LinkedWindowResizeController()
 
     // Middle-button tile state and click origin live in `cbState` (see
@@ -1603,6 +1628,7 @@ final class DragEngine {
     /// anchored at `origin`. Main thread. No-op if the gesture was aborted
     /// between the dispatch and now.
     private func presentTileCancelDot(at origin: CGPoint) {
+        snapAssistOverlay.hide()
         let target: (pid: pid_t, app: String, frame: CGRect)? = cbState.withLock { state in
             guard let t = state.tileTarget else { return nil }
             return (t.pid, t.app, t.frame)
@@ -1842,6 +1868,7 @@ final class DragEngine {
     private func applyTile(zone: TileZone,
                            target: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
                            screen: NSScreen) {
+        snapAssistOverlay.hide()
         guard axGuardOrAbort("applyTile") else {
             tileOverlay.hide()
             return
@@ -1871,11 +1898,10 @@ final class DragEngine {
         let destinationScreen = self.screen(containingCGPoint: destinationCenter)
         let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
 
-        // Issue #61: when tiling to Left or Right with auto-pair enabled, pick
-        // the highest-Z-order remaining window on the destination screen before
-        // mutating frames so we can place it into the opposite half.
+        // Issue #61: when in `.autoFill` mode, capture the highest-Z-order
+        // remaining window on the destination screen before mutating frames.
         let autoPaired: (windowID: CGWindowID, pid: pid_t, frame: CGRect, axWindow: AXUIElement)?
-        if autoPairHalvesEnabled && (zone == .left || zone == .right) {
+        if oppositeHalfMode == .autoFill && (zone == .left || zone == .right) {
             autoPaired = nextWindowOnScreen(after: target.windowID, screen: screenFrame)
         } else {
             autoPaired = nil
@@ -1897,37 +1923,100 @@ final class DragEngine {
             let visibleFrame = screen.visibleFrame
             finishPlacement = { [weak self] in
                 guard let self else { return }
-                if let next = autoPaired {
-                    let oppositeNSRect = oppositeZone.rect(
-                        in: visibleFrame,
-                        centeredFraction: self.centeredFraction,
-                        source: self.tileSource(forWindowCGFrame: next.frame)
-                    )
-                    let oppositeCGRect = self.cgRectFromNSScreenRect(oppositeNSRect)
-                    self.rememberOriginalFrame(
-                        windowID: next.windowID, pid: next.pid,
-                        currentFrame: self.getWindowFrame(next.axWindow) ?? next.frame
-                    )
-                    self.setWindowFrame(next.axWindow, frame: oppositeCGRect)
-                    self.raisePairedWindowKeepingPrimaryFrontmost(
-                        pairedPid: next.pid,
-                        pairedAXWindow: next.axWindow,
-                        primaryPid: target.pid,
-                        primaryWindowID: target.windowID,
-                        primaryAXWindow: axWindow
-                    )
-                    Self.log.info("auto-pair opposite half: wid=\(next.windowID) pid=\(next.pid) zone=\(oppositeZone)")
-                    if self.linkedResizeEnabled {
-                        self.linkedResizeController.recordTiledWindow(
-                            windowID: next.windowID, pid: next.pid,
-                            frame: oppositeCGRect, screenFrame: screenFrame, slot: slot.opposite
-                        )
-                    }
-                } else {
+                switch self.oppositeHalfMode {
+                case .off:
                     self.activateTiledWindow(
                         pid: target.pid, windowID: target.windowID,
                         axWindow: axWindow, app: target.app
                     )
+                case .autoFill:
+                    if let next = autoPaired {
+                        let oppositeNSRect = oppositeZone.rect(
+                            in: visibleFrame,
+                            centeredFraction: self.centeredFraction,
+                            source: self.tileSource(forWindowCGFrame: next.frame)
+                        )
+                        let oppositeCGRect = self.cgRectFromNSScreenRect(oppositeNSRect)
+                        self.rememberOriginalFrame(
+                            windowID: next.windowID, pid: next.pid,
+                            currentFrame: self.getWindowFrame(next.axWindow) ?? next.frame
+                        )
+                        self.setWindowFrame(next.axWindow, frame: oppositeCGRect)
+                        self.raisePairedWindowKeepingPrimaryFrontmost(
+                            pairedPid: next.pid,
+                            pairedAXWindow: next.axWindow,
+                            primaryPid: target.pid,
+                            primaryWindowID: target.windowID,
+                            primaryAXWindow: axWindow
+                        )
+                        Self.log.info("auto-pair opposite half: wid=\(next.windowID) pid=\(next.pid) zone=\(oppositeZone)")
+                        if self.linkedResizeEnabled {
+                            self.linkedResizeController.recordTiledWindow(
+                                windowID: next.windowID, pid: next.pid,
+                                frame: oppositeCGRect, screenFrame: screenFrame, slot: slot.opposite
+                            )
+                        }
+                    } else {
+                        self.activateTiledWindow(
+                            pid: target.pid, windowID: target.windowID,
+                            axWindow: axWindow, app: target.app
+                        )
+                    }
+                case .snapAssist:
+                    self.activateTiledWindow(
+                        pid: target.pid, windowID: target.windowID,
+                        axWindow: axWindow, app: target.app
+                    )
+                    let candidates = self.snapAssistCandidates(
+                        after: target.windowID,
+                        screen: screenFrame,
+                        limit: 6
+                    )
+                    if !candidates.isEmpty {
+                        let oppositeNSRect = oppositeZone.rect(
+                            in: visibleFrame,
+                            centeredFraction: self.centeredFraction,
+                            source: self.tileSource(forWindowCGFrame: currentFrame)
+                        )
+                        Self.log.info("snap assist showing \(candidates.count) candidate(s) for opposite zone=\(oppositeZone)")
+                        self.snapAssistOverlay.show(
+                            candidates: candidates,
+                            in: oppositeNSRect
+                        ) { [weak self] selected in
+                            guard let self, self.axGuardOrAbort("snapAssistSelect") else { return }
+                            let liveFrame = self.getWindowFrame(selected.axWindow) ?? selected.frame
+                            let targetNSRect = oppositeZone.rect(
+                                in: visibleFrame,
+                                centeredFraction: self.centeredFraction,
+                                source: self.tileSource(forWindowCGFrame: liveFrame)
+                            )
+                            let targetCGRect = self.cgRectFromNSScreenRect(targetNSRect)
+                            self.rememberOriginalFrame(
+                                windowID: selected.windowID,
+                                pid: selected.pid,
+                                currentFrame: liveFrame
+                            )
+                            self.setWindowFrame(selected.axWindow, frame: targetCGRect)
+                            AXUIElementSetMessagingTimeout(axWindow, Self.axProbeTimeout)
+                            _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+                            self.activateTiledWindow(
+                                pid: selected.pid,
+                                windowID: selected.windowID,
+                                axWindow: selected.axWindow,
+                                app: selected.appName
+                            )
+                            Self.log.info("snap assist paired opposite half: wid=\(selected.windowID) pid=\(selected.pid) app=\"\(selected.appName)\" zone=\(oppositeZone)")
+                            if self.linkedResizeEnabled {
+                                self.linkedResizeController.recordTiledWindow(
+                                    windowID: selected.windowID,
+                                    pid: selected.pid,
+                                    frame: targetCGRect,
+                                    screenFrame: screenFrame,
+                                    slot: slot.opposite
+                                )
+                            }
+                        }
+                    }
                 }
                 if self.linkedResizeEnabled {
                     self.linkedResizeController.recordTiledWindow(
@@ -2742,6 +2831,57 @@ final class DragEngine {
         }
 
         return results
+    }
+
+    /// Builds up to `limit` Snap Assist candidates in Z-order on `screen`,
+    /// skipping `windowID`, enriched with app icon, window title, and live
+    /// window thumbnail (captured in parallel across cores) when available.
+    private func snapAssistCandidates(
+        after windowID: CGWindowID,
+        screen: CGRect,
+        limit: Int
+    ) -> [SnapAssistCandidate] {
+        let rawWindows = windowsOnScreen(after: windowID, screen: screen, limit: limit)
+        guard !rawWindows.isEmpty else { return [] }
+
+        let windowIDs = rawWindows.map { $0.windowID }
+        var thumbnails = [NSImage?](repeating: nil, count: rawWindows.count)
+        let thumbLock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: rawWindows.count) { index in
+            if let img = SnapAssistOverlay.captureThumbnail(for: windowIDs[index]) {
+                thumbLock.lock()
+                thumbnails[index] = img
+                thumbLock.unlock()
+            }
+        }
+
+        return rawWindows.enumerated().map { index, item in
+            let runningApp = NSRunningApplication(processIdentifier: item.pid)
+            let appName = runningApp?.localizedName ?? "App"
+            let appIcon = runningApp?.icon
+            let title = axWindowTitle(item.axWindow) ?? appName
+            return SnapAssistCandidate(
+                windowID: item.windowID,
+                pid: item.pid,
+                frame: item.frame,
+                axWindow: item.axWindow,
+                appName: appName,
+                windowTitle: title,
+                appIcon: appIcon,
+                thumbnail: thumbnails[index]
+            )
+        }
+    }
+
+    private func axWindowTitle(_ axWindow: AXUIElement) -> String? {
+        AXUIElementSetMessagingTimeout(axWindow, Self.axProbeTimeout)
+        var titleRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &titleRef) == .success,
+              let title = titleRef as? String,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return title
     }
 
     /// True if `axWindow` is a normal user window rather than an `AXUnknown` /

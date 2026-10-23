@@ -80,8 +80,12 @@
 "feature.cornerBracket.subtitle" = "缩放时在被抓的窗口角显示发光指示线。关掉可获得更好性能——开启时每秒约读取 30 次窗口位置。";
 "feature.linkedResize"          = "联动缩放";
 "feature.linkedResize.subtitle" = "拖动两个已平铺窗口之间的公共边,同时缩放两个窗口。";
-"feature.autoPairHalves"          = "左右分屏时自动补位另一侧";
-"feature.autoPairHalves.subtitle" = "将窗口平铺到左半屏或右半屏时,自动把当前屏幕上排在最前面的另一个窗口放到对侧半屏。";
+"feature.oppositeHalfMode"          = "左右分屏时补位另一侧";
+"feature.oppositeHalfMode.subtitle" = "将窗口平铺到左半屏或右半屏后,可在对侧弹出窗口选择器 (Snap Assist) 供点击补位,或直接把当前屏幕上排在最前面的另一个窗口自动放到对侧。";
+"oppositeHalf.snapAssist" = "选择窗口 (Snap Assist)";
+"oppositeHalf.autoFill"   = "自动补位最前窗口";
+"feature.snapAssistThumbnails"          = "显示窗口实时缩略图（可选）";
+"feature.snapAssistThumbnails.subtitle" = "授权「屏幕录制」权限后,分屏选择器将显示窗口的真实画面预览;未授权时默认显示应用图标卡片。";
 "feature.multiDisplayBento"          = "面板内显示所有显示器";
 "feature.multiDisplayBento.subtitle" = "当鼠标中键设为「按方向平铺」并连接了多块显示器时,bento 面板会按真实物理布局画出所有显示器,一次手势就能挑「目标显示器 × 目标区域」。";
 "feature.tileDragOnly"          = "仅拖动时触发";

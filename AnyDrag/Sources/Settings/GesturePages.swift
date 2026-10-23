@@ -263,8 +263,32 @@ struct MiddleClickPage: View {
                     Toggle(isOn: Binding(get: { store.overlayEdgeSafeEnabled }, set: { store.setOverlayEdgeSafeEnabled($0) })) {
                         featureLabel("cursorarrow.rays", .teal, L("feature.overlayEdgeSafe"), L("feature.overlayEdgeSafe.subtitle"))
                     }
-                    Toggle(isOn: Binding(get: { store.autoPairHalvesEnabled }, set: { store.setAutoPairHalvesEnabled($0) })) {
-                        featureLabel("uiwindow.split.2x1", .blue, L("feature.autoPairHalves"), L("feature.autoPairHalves.subtitle"))
+                    Picker(selection: Binding(
+                        get: { store.oppositeHalfMode },
+                        set: { store.setOppositeHalfMode($0) }
+                    )) {
+                        ForEach(OppositeHalfMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    } label: {
+                        featureLabel("uiwindow.split.2x1", .blue, L("feature.oppositeHalfMode"), L("feature.oppositeHalfMode.subtitle"))
+                    }
+                    if store.oppositeHalfMode == .snapAssist {
+                        LabeledContent {
+                            if store.screenRecordingGranted {
+                                Text(L("accessibility.granted"))
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.green)
+                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                    .background(Capsule().fill(Color.green.opacity(0.15)))
+                            } else {
+                                Button(L("accessibility.grantButton")) {
+                                    store.authorizeScreenRecording()
+                                }
+                            }
+                        } label: {
+                            featureLabel("photo.on.rectangle.angled", .cyan, L("feature.snapAssistThumbnails"), L("feature.snapAssistThumbnails.subtitle"))
+                        }
                     }
                     // Linked resize belongs with tiling: it acts on an
                     // AnyDrag-tiled pair (plain left-drag on the shared seam).

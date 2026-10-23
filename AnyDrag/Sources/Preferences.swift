@@ -61,10 +61,10 @@ enum Preferences {
         // Linked resize: drag the shared seam between two AnyDrag-tiled
         // complementary windows to resize both. Absent = default (on).
         static let linkedResizeEnabled = "AnyDragLinkedResizeEnabled"
-        // Auto-pair opposite half: when tiling a window to Left or Right via the
-        // middle-click Bento panel, automatically tile the next window in Z-order
-        // on that screen into the opposite half (issue #61). Absent = default (off).
-        static let autoPairHalvesEnabled = "AnyDragAutoPairHalvesEnabled"
+        // Opposite-half behavior when tiling a window to Left or Right via the
+        // middle-click Bento panel (issue #61): Off, Windows 11 Snap Assist
+        // picker (default), or immediate Auto-fill with the next window.
+        static let oppositeHalfMode = "AnyDragOppositeHalfMode"
         // Tiling-overlay edge-safe placement + cursor warp. When on (default),
         // the bento overlay is kept fully on-screen near an edge and the cursor
         // glides to its center; when off, the overlay centers on the cursor
@@ -172,10 +172,10 @@ enum Preferences {
     /// always-on behavior shipped before the toggle existed.
     static let defaultLinkedResizeEnabled = true
 
-    /// Default for auto-pairing the opposite half when tiling left/right from
-    /// the middle-click Bento panel (issue #61). FALSE keeps single-window
-    /// tiling as the default until the user turns the toggle on.
-    static let defaultAutoPairHalvesEnabled = false
+    /// Default for the opposite-half behavior when tiling left/right from the
+    /// middle-click Bento panel (issue #61). `.snapAssist` shows the Windows 11
+    /// Snap Assist window picker by default.
+    static let defaultOppositeHalfMode: OppositeHalfMode = .snapAssist
 
     // ─── Centered-window size ────────────────────────────────────────────────
 
@@ -359,7 +359,12 @@ enum Preferences {
             .flatMap(BentoTint.init(rawValue:)) ?? .accent
         engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
         engine.linkedResizeEnabled = d.object(forKey: Key.linkedResizeEnabled) as? Bool ?? defaultLinkedResizeEnabled
-        engine.autoPairHalvesEnabled = d.object(forKey: Key.autoPairHalvesEnabled) as? Bool ?? defaultAutoPairHalvesEnabled
+        if let raw = d.string(forKey: Key.oppositeHalfMode),
+           let mode = OppositeHalfMode(rawValue: raw) {
+            engine.oppositeHalfMode = mode
+        } else {
+            engine.oppositeHalfMode = defaultOppositeHalfMode
+        }
         engine.overlayEdgeSafeEnabled = d.object(forKey: Key.overlayEdgeSafeEnabled) as? Bool ?? defaultOverlayEdgeSafeEnabled
         engine.centeredSizePercent = normalizedCenteredPercent(
             (d.object(forKey: Key.centeredSizePercent) as? Int) ?? defaultCenteredPercent
