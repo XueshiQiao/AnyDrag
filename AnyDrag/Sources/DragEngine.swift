@@ -257,6 +257,10 @@ final class DragEngine {
             linkedResizeController.disableAndReset()
         }
     }
+    /// Issue #61: when true, tiling a window to `.left` or `.right` via the
+    /// middle-click Bento panel automatically places the top-most remaining
+    /// window on the target screen into the opposite half.
+    var autoPairHalvesEnabled: Bool = Preferences.defaultAutoPairHalvesEnabled
     /// When true (default), the tile-by-direction "bento" overlay is kept fully
     /// on-screen near a screen edge and the real cursor glides to its center;
     /// when false, the overlay centers on the cursor with no edge clamping and
@@ -1614,6 +1618,32 @@ final class DragEngine {
         tileCancelDot.show(atCGPoint: origin)
     }
 
+    /// Issue #62: activate and raise the tiled window once a tile zone is
+    /// committed so it becomes the foreground focused window at its new spot.
+    /// Main thread only.
+    private func activateTiledWindow(pid: pid_t, windowID: CGWindowID, axWindow: AXUIElement, app: String) {
+        guard axGuardOrAbort("activateTiledWindow") else { return }
+        if pid == getpid() {
+            NSApp.activate(ignoringOtherApps: true)
+            let targetNumber = Int(windowID)
+            if let window = NSApp.windows.first(where: { $0.windowNumber == targetNumber }) {
+                window.makeKeyAndOrderFront(nil)
+            }
+            return
+        }
+
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, Self.axProbeTimeout)
+        AXUIElementSetMessagingTimeout(axWindow, Self.axProbeTimeout)
+        AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+        _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        if AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString) != .success {
+            AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+        }
+        Self.log.info("tile commit activated window: app=\"\(app)\" wid=\(windowID)")
+    }
+
     private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
             return Unmanaged.passUnretained(event)
@@ -1838,6 +1868,18 @@ final class DragEngine {
         let destinationCenter = CGPoint(x: cgRect.midX, y: cgRect.midY)
         let sourceScreen = self.screen(containingCGPoint: sourceCenter)
         let destinationScreen = self.screen(containingCGPoint: destinationCenter)
+        let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
+
+        // Issue #61: when tiling to Left or Right with auto-pair enabled, pick
+        // the highest-Z-order remaining window on the destination screen before
+        // mutating frames so we can place it into the opposite half.
+        let autoPaired: (windowID: CGWindowID, pid: pid_t, frame: CGRect, axWindow: AXUIElement)?
+        if autoPairHalvesEnabled && (zone == .left || zone == .right) {
+            autoPaired = nextWindowOnScreen(after: target.windowID, screen: screenFrame)
+        } else {
+            autoPaired = nil
+        }
+
         // Register the placement so a complementary half-screen pair on this
         // screen exposes a draggable shared divider (linked resize), unless the
         // feature is off — then there is nothing to track. A half tile
@@ -1846,24 +1888,63 @@ final class DragEngine {
         // up front would let the pair validation read the still-pre-resize
         // frame, judge it non-adjacent, and dissolve the group). A non-half
         // tile just drops the window from tracking — no frame dependency.
-        let registerLinkedResize: () -> Void
-        if linkedResizeEnabled {
-            let screenFrame = cgRectFromNSScreenRect(screen.visibleFrame)
-            switch zone {
-            case .left, .right:
-                let slot: LinkedTileSlot = zone == .left ? .left : .right
-                registerLinkedResize = { [weak self] in
-                    self?.linkedResizeController.recordTiledWindow(
+        let finishPlacement: () -> Void
+        switch zone {
+        case .left, .right:
+            let slot: LinkedTileSlot = zone == .left ? .left : .right
+            let oppositeZone: TileZone = zone == .left ? .right : .left
+            let visibleFrame = screen.visibleFrame
+            finishPlacement = { [weak self] in
+                guard let self else { return }
+                if let next = autoPaired {
+                    let oppositeNSRect = oppositeZone.rect(
+                        in: visibleFrame,
+                        centeredFraction: self.centeredFraction,
+                        source: self.tileSource(forWindowCGFrame: next.frame)
+                    )
+                    let oppositeCGRect = self.cgRectFromNSScreenRect(oppositeNSRect)
+                    self.rememberOriginalFrame(
+                        windowID: next.windowID, pid: next.pid,
+                        currentFrame: self.getWindowFrame(next.axWindow) ?? next.frame
+                    )
+                    self.setWindowFrame(next.axWindow, frame: oppositeCGRect)
+                    self.raisePairedWindowKeepingPrimaryFrontmost(
+                        pairedPid: next.pid,
+                        pairedAXWindow: next.axWindow,
+                        primaryPid: target.pid,
+                        primaryWindowID: target.windowID,
+                        primaryAXWindow: axWindow
+                    )
+                    Self.log.info("auto-pair opposite half: wid=\(next.windowID) pid=\(next.pid) zone=\(oppositeZone)")
+                    if self.linkedResizeEnabled {
+                        self.linkedResizeController.recordTiledWindow(
+                            windowID: next.windowID, pid: next.pid,
+                            frame: oppositeCGRect, screenFrame: screenFrame, slot: slot.opposite
+                        )
+                    }
+                } else {
+                    self.activateTiledWindow(
+                        pid: target.pid, windowID: target.windowID,
+                        axWindow: axWindow, app: target.app
+                    )
+                }
+                if self.linkedResizeEnabled {
+                    self.linkedResizeController.recordTiledWindow(
                         windowID: target.windowID, pid: target.pid,
                         frame: cgRect, screenFrame: screenFrame, slot: slot
                     )
                 }
-            default:
-                linkedResizeController.removeWindow(target.windowID)
-                registerLinkedResize = {}
             }
-        } else {
-            registerLinkedResize = {}
+        default:
+            if linkedResizeEnabled {
+                linkedResizeController.removeWindow(target.windowID)
+            }
+            finishPlacement = { [weak self] in
+                self?.activateTiledWindow(
+                    pid: target.pid, windowID: target.windowID,
+                    axWindow: axWindow, app: target.app
+                )
+            }
         }
 
         if let sourceScreen,
@@ -1876,11 +1957,11 @@ final class DragEngine {
                 destinationScreenFrame: destinationScreen.frame,
                 target: target,
                 zone: zone,
-                onFrameApplied: registerLinkedResize
+                onFrameApplied: finishPlacement
             )
         } else {
             setWindowFrame(axWindow, frame: cgRect)
-            registerLinkedResize()
+            finishPlacement()
             tileOverlay.hide()
         }
     }
@@ -2628,8 +2709,13 @@ final class DragEngine {
                   let boundsDict = info[kCGWindowBounds] as? [String: CGFloat],
                   let pid = info[kCGWindowOwnerPID] as? pid_t,
                   let wID = info[kCGWindowNumber] as? CGWindowID,
-                  wID != windowID
+                  wID != windowID,
+                  pid != getpid(),
+                  !isBlacklisted(pid: pid)
             else { continue }
+
+            let alpha = info[kCGWindowAlpha] as? Double ?? 1.0
+            guard alpha > 0.01 else { continue }
 
             let ownerName = info[kCGWindowOwnerName] as? String ?? "unknown"
             if ownerName == "Dock" { continue }
@@ -2639,17 +2725,75 @@ final class DragEngine {
                 width: boundsDict["Width"] ?? 0, height: boundsDict["Height"] ?? 0
             )
 
+            // Skip 0×0 / tiny helper windows (e.g. Attaché's 0×0 AXUnknown
+            // window or 1×1 overlay windows at layer 0).
+            guard frame.width >= 100 && frame.height >= 100 else { continue }
+
             // Check if window center is on the same screen
             let centerX = frame.midX
             let centerY = frame.midY
             guard centerX >= screen.minX && centerX <= screen.maxX &&
                   centerY >= screen.minY && centerY <= screen.maxY else { continue }
 
-            guard let axWindow = findAXWindow(pid: pid, windowFrame: frame) else { continue }
+            guard let axWindow = findAXWindow(pid: pid, windowFrame: frame),
+                  isStandardTileableWindow(axWindow) else { continue }
             results.append((wID, pid, frame, axWindow))
         }
 
         return results
+    }
+
+    /// True if `axWindow` is a normal user window rather than an `AXUnknown` /
+    /// floating / system-dialog helper window. If the app doesn't report a
+    /// subrole at all, allow it as long as its AX size is non-trivial.
+    private func isStandardTileableWindow(_ axWindow: AXUIElement) -> Bool {
+        var subroleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(axWindow, kAXSubroleAttribute as CFString, &subroleRef) == .success,
+           let subrole = subroleRef as? String {
+            return subrole == (kAXStandardWindowSubrole as String)
+        }
+        return true
+    }
+
+    /// Bring the auto-paired window directly behind the primary tiled window so
+    /// no third window (for example, another window belonging to `primaryPid`
+    /// that was pulled forward when `primaryPid` activated) covers the opposite
+    /// half, while keeping `primaryAXWindow` frontmost and focused.
+    private func raisePairedWindowKeepingPrimaryFrontmost(
+        pairedPid: pid_t,
+        pairedAXWindow: AXUIElement,
+        primaryPid: pid_t,
+        primaryWindowID: CGWindowID,
+        primaryAXWindow: AXUIElement
+    ) {
+        AXUIElementSetMessagingTimeout(pairedAXWindow, Self.axProbeTimeout)
+        if pairedPid != primaryPid {
+            let pairedApp = AXUIElementCreateApplication(pairedPid)
+            AXUIElementSetMessagingTimeout(pairedApp, Self.axProbeTimeout)
+            AXUIElementSetAttributeValue(pairedAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementPerformAction(pairedAXWindow, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(pairedApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        } else {
+            _ = AXUIElementPerformAction(pairedAXWindow, kAXRaiseAction as CFString)
+        }
+
+        if primaryPid == getpid() {
+            NSApp.activate(ignoringOtherApps: true)
+            let targetNumber = Int(primaryWindowID)
+            if let window = NSApp.windows.first(where: { $0.windowNumber == targetNumber }) {
+                window.makeKeyAndOrderFront(nil)
+            }
+        } else {
+            let primaryApp = AXUIElementCreateApplication(primaryPid)
+            AXUIElementSetMessagingTimeout(primaryApp, Self.axProbeTimeout)
+            AXUIElementSetMessagingTimeout(primaryAXWindow, Self.axProbeTimeout)
+            AXUIElementSetAttributeValue(primaryAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementPerformAction(primaryAXWindow, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(primaryApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            if AXUIElementPerformAction(primaryAXWindow, kAXRaiseAction as CFString) != .success {
+                AXUIElementSetAttributeValue(primaryAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+            }
+        }
     }
 
     // MARK: - App blacklist

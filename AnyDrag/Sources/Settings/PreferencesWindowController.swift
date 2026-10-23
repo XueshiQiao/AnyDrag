@@ -54,6 +54,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var bentoTint: BentoTint
     @Published private(set) var tileByDirectionDragOnly: Bool
     @Published private(set) var linkedResizeEnabled: Bool
+    @Published private(set) var autoPairHalvesEnabled: Bool
     @Published private(set) var overlayEdgeSafeEnabled: Bool
     @Published private(set) var middleAction: MiddleAction
     @Published private(set) var centeredSizePercent: Int
@@ -93,6 +94,7 @@ final class SettingsStore: ObservableObject {
         bentoTint = engine.bentoTint
         tileByDirectionDragOnly = engine.tileByDirectionDragOnly
         linkedResizeEnabled = engine.linkedResizeEnabled
+        autoPairHalvesEnabled = engine.autoPairHalvesEnabled
         overlayEdgeSafeEnabled = engine.overlayEdgeSafeEnabled
         middleAction = engine.middleAction
         centeredSizePercent = engine.centeredSizePercent
@@ -266,6 +268,7 @@ final class SettingsStore: ObservableObject {
     }
     func setTileDragOnly(_ on: Bool)    { setBool(on, key: Preferences.Key.tileDragOnly, analytics: "tile_drag_only", current: \.tileByDirectionDragOnly, write: { self.engine.tileByDirectionDragOnly = $0 }, mirror: { self.tileByDirectionDragOnly = $0 }) }
     func setLinkedResizeEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.linkedResizeEnabled, analytics: "linked_resize_enabled", current: \.linkedResizeEnabled, write: { self.engine.linkedResizeEnabled = $0 }, mirror: { self.linkedResizeEnabled = $0 }) }
+    func setAutoPairHalvesEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.autoPairHalvesEnabled, analytics: "auto_pair_halves_enabled", current: \.autoPairHalvesEnabled, write: { self.engine.autoPairHalvesEnabled = $0 }, mirror: { self.autoPairHalvesEnabled = $0 }) }
     func setOverlayEdgeSafeEnabled(_ on: Bool) { setBool(on, key: Preferences.Key.overlayEdgeSafeEnabled, analytics: "overlay_edge_safe_enabled", current: \.overlayEdgeSafeEnabled, write: { self.engine.overlayEdgeSafeEnabled = $0 }, mirror: { self.overlayEdgeSafeEnabled = $0 }) }
 
     private func setBool(_ on: Bool, key: String, analytics: String,

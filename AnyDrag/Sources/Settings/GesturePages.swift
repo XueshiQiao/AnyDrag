@@ -263,6 +263,9 @@ struct MiddleClickPage: View {
                     Toggle(isOn: Binding(get: { store.overlayEdgeSafeEnabled }, set: { store.setOverlayEdgeSafeEnabled($0) })) {
                         featureLabel("cursorarrow.rays", .teal, L("feature.overlayEdgeSafe"), L("feature.overlayEdgeSafe.subtitle"))
                     }
+                    Toggle(isOn: Binding(get: { store.autoPairHalvesEnabled }, set: { store.setAutoPairHalvesEnabled($0) })) {
+                        featureLabel("uiwindow.split.2x1", .blue, L("feature.autoPairHalves"), L("feature.autoPairHalves.subtitle"))
+                    }
                     // Linked resize belongs with tiling: it acts on an
                     // AnyDrag-tiled pair (plain left-drag on the shared seam).
                     Toggle(isOn: Binding(get: { store.linkedResizeEnabled }, set: { store.setLinkedResizeEnabled($0) })) {

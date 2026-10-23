@@ -61,6 +61,10 @@ enum Preferences {
         // Linked resize: drag the shared seam between two AnyDrag-tiled
         // complementary windows to resize both. Absent = default (on).
         static let linkedResizeEnabled = "AnyDragLinkedResizeEnabled"
+        // Auto-pair opposite half: when tiling a window to Left or Right via the
+        // middle-click Bento panel, automatically tile the next window in Z-order
+        // on that screen into the opposite half (issue #61). Absent = default (off).
+        static let autoPairHalvesEnabled = "AnyDragAutoPairHalvesEnabled"
         // Tiling-overlay edge-safe placement + cursor warp. When on (default),
         // the bento overlay is kept fully on-screen near an edge and the cursor
         // glides to its center; when off, the overlay centers on the cursor
@@ -167,6 +171,11 @@ enum Preferences {
     /// AnyDrag-tiled windows to resize both at once). TRUE preserves the
     /// always-on behavior shipped before the toggle existed.
     static let defaultLinkedResizeEnabled = true
+
+    /// Default for auto-pairing the opposite half when tiling left/right from
+    /// the middle-click Bento panel (issue #61). FALSE keeps single-window
+    /// tiling as the default until the user turns the toggle on.
+    static let defaultAutoPairHalvesEnabled = false
 
     // ─── Centered-window size ────────────────────────────────────────────────
 
@@ -350,6 +359,7 @@ enum Preferences {
             .flatMap(BentoTint.init(rawValue:)) ?? .accent
         engine.tileByDirectionDragOnly = d.object(forKey: Key.tileDragOnly) as? Bool ?? false
         engine.linkedResizeEnabled = d.object(forKey: Key.linkedResizeEnabled) as? Bool ?? defaultLinkedResizeEnabled
+        engine.autoPairHalvesEnabled = d.object(forKey: Key.autoPairHalvesEnabled) as? Bool ?? defaultAutoPairHalvesEnabled
         engine.overlayEdgeSafeEnabled = d.object(forKey: Key.overlayEdgeSafeEnabled) as? Bool ?? defaultOverlayEdgeSafeEnabled
         engine.centeredSizePercent = normalizedCenteredPercent(
             (d.object(forKey: Key.centeredSizePercent) as? Int) ?? defaultCenteredPercent
