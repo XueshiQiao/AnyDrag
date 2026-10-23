@@ -5,8 +5,20 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.10.118</title>
-      <description><![CDATA[<h3>What's New in 26.10.118</h3>
+      <title>Version 26.10.119</title>
+      <description><![CDATA[<h3>What's New in 26.10.119</h3>
+<ul>
+  <li><b>New option: auto-fill the opposite half when tiling left or right</b> — Turn on <b>Settings → Middle-click action → Tile by direction → Auto-fill opposite half</b> and tiling a window to the left or right half with the middle-button panel automatically places the top-most remaining window on that screen into the other half — so tiling the frontmost window B to the left puts the second-most-recent window A on the right, and tiling a background window A to the left puts the frontmost window B on the right. Both windows remember their original sizes for Restore and pair up for linked resize automatically. Thanks to X user goDavi（狗大V国际版） (<a href="https://x.com/corndogjpn2">@corndogjpn2</a>) for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/61">#61</a>).</li>
+  <li><b>Tiled windows come to the front after you place them</b> — When you use the middle-button tile panel on a background window, holding the middle button leaves the window's layer untouched while you pick a spot; once you release on a tile zone (left, right, corners, center, or full), the tiled window is brought to the front and given focus at its new position. Thanks to X user goDavi（狗大V国际版） (<a href="https://x.com/corndogjpn2">@corndogjpn2</a>) for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/62">#62</a>).</li>
+</ul>
+
+<h3>26.10.119 更新内容</h3>
+<ul>
+  <li><b>新选项：左右分屏时自动补位另一侧</b> — 打开<b>「设置 → 鼠标中键动作 → 按方向平铺 → 左右分屏时自动补位另一侧」</b>后，用中键平铺面板把窗口放到左半屏或右半屏时，会自动把同一块屏幕上排在最前面的另一个窗口放到对侧半屏——把最前面的窗口 B 拖到左侧，倒数第二活跃的窗口 A 就会自动补到右侧；反过来把后面的窗口 A 拖到左侧，最前面的窗口 B 就会自动补到右侧。两个窗口都会记录原始尺寸以支持恢复，并自动组成可联动拖拽中间分割线的分屏对。感谢 X 用户 goDavi（狗大V国际版）（<a href="https://x.com/corndogjpn2">@corndogjpn2</a>）提出建议（<a href="https://github.com/XueshiQiao/AnyDrag/issues/61">#61</a>）。</li>
+  <li><b>中键平铺落位后自动置顶窗口</b> — 在后台窗口上按住鼠标中键呼出平铺面板时，窗口保持原有层级不变（取消手势不会打乱窗口顺序）；当你选定具体平铺区域（左侧、右侧、四角、居中或全屏）松手挪过去之后，该窗口会自动激活并提到最前面获得焦点。感谢 X 用户 goDavi（狗大V国际版）（<a href="https://x.com/corndogjpn2">@corndogjpn2</a>）提出建议（<a href="https://github.com/XueshiQiao/AnyDrag/issues/62">#62</a>）。</li>
+</ul>
+
+<h3>What's New in 26.10.118</h3>
 <ul>
   <li><b>Windows stay sharp after you drag them</b> — After moving a window with AnyDrag, its contents could look slightly blurry until you dragged it once more by its real title bar. The mouse reports positions in fractions of a point, and AnyDrag passed those fractions on, so a window could come to rest between two pixels. AnyDrag now rounds every position in a drag to whole points, so the window always lands exactly on the pixel grid. It was easiest to notice on external displays at 1× scaling. Contributed by @jnchman (<a href="https://github.com/XueshiQiao/AnyDrag/pull/58">#58</a>).</li>
   <li><b>New option: always resize from the bottom-right corner</b> — Turn on <b>Settings → Window Resize → Always resize from bottom-right</b> and a resize gesture always moves the bottom-right corner while the top-left corner stays put, no matter where in the window you start dragging. It's off by default, so resizing from the nearest corner works exactly as before. Contributed by @jnchman (<a href="https://github.com/XueshiQiao/AnyDrag/pull/58">#58</a>).</li>
@@ -321,11 +333,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Wed, 14 Oct 2026 14:54:54 +0000</pubDate>
-      <sparkle:version>118</sparkle:version>
-      <sparkle:shortVersionString>26.10.118</sparkle:shortVersionString>
+      <pubDate>Fri, 23 Oct 2026 01:30:31 +0000</pubDate>
+      <sparkle:version>119</sparkle:version>
+      <sparkle:shortVersionString>26.10.119</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.10.118/AnyDrag.dmg" length="4111201" type="application/octet-stream" sparkle:edSignature="Lj+no+gL20GBI/vgvEVVmBPyDjW5GX7X8M7lJESwqDGsCFxr0qkdAhQ0NWkVcSWuU0vbx/BKwl5DvVvRBFV9Bg==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.10.119/AnyDrag.dmg" length="4116496" type="application/octet-stream" sparkle:edSignature="kaxPQ2z4DQFVwDS7jzQ4BR+cdk7l7PYhl6dr3/ltehHC4giJbybZEEgm715CRECUmiSas6qNhBTlABpyNC8GAA==" />
     </item>
   </channel>
 </rss>
