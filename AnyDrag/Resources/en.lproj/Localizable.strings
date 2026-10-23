@@ -163,6 +163,12 @@
 "diagnostics.advanced.note" = "Advanced setting — leave the values as they are unless you need to tune them.";
 "diagnostics.showDot" = "Show synthesized-click dot";
 "diagnostics.showDot.subtitle" = "Show a marker at the synthesized click point during drag (title bar) and resize (window corner).";
+"diagnostics.fixedTitleBarX" = "Use fixed title-bar X position";
+"diagnostics.fixedTitleBarX.hint" = "Start drags near the left edge; use the right edge if the left click position is offscreen. Applies to modifier and middle-click dragging.";
+"diagnostics.titleBarLeftInset" = "Distance from left edge";
+"diagnostics.titleBarLeftInset.hint" = "Preferred title-bar click position, measured inside the left edge. Default 80 pt. Clamped for narrow windows.";
+"diagnostics.titleBarRightInset" = "Distance from right edge";
+"diagnostics.titleBarRightInset.hint" = "Fallback title-bar click position, measured inside the right edge. Default 80 pt. Uses the mouse’s X position if both targets are offscreen.";
 "diagnostics.titleBarYOffset" = "Title-bar Y offset";
 "diagnostics.titleBarYOffset.hint" = "Distance below the window's top edge for the synthesized click. Default %d pt.";
 "diagnostics.resizeCornerInset" = "Resize corner inset";
@@ -175,7 +181,7 @@
 "centeredSize.note" = "Used by Center in the right-click tiling panel and by the middle-click drag-down center. Default 85%. At 50% the window is half as wide and half as tall — a quarter of the screen area.";
 /* %d = size in percent. The doubled %% renders as a single percent sign. */
 "centeredSize.value.format" = "%d%%";
-"perAppOffset.note" = "Override the title-bar Y offset for specific apps. Apps not listed here use the global value (General → Diagnostics).";
+"perAppOffset.note" = "Left and right offsets follow General → Diagnostics until edited. Editing enables a custom left-first position for that app, even when the global option is off. Use global restores the global horizontal settings.";
 "perAppOffset.add" = "Add app…";
 "perAppOffset.remove" = "Use global offset";
 
@@ -200,3 +206,9 @@
 /* About — analytics opt-out (co-located with the disclosure line) */
 "about.analytics.toggle" = "Send anonymous usage data";
 "about.analytics.subtitle" = "Helps us understand which features are used. No personal data, app names, or window contents are collected.";
+
+"perAppOffset.y" = "Y offset";
+"perAppOffset.xGlobal" = "Horizontal position: global";
+"perAppOffset.xCustom" = "Horizontal position: custom";
+"perAppOffset.useGlobalX" = "Use global";
+"perAppOffset.customizeX" = "Set custom horizontal positions";

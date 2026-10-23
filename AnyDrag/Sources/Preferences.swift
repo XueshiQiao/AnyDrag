@@ -9,6 +9,13 @@ struct BlacklistedApp: Equatable {
     let name: String
 }
 
+/// Optional per-app horizontal anchor overrides. Their presence enables fixed X
+/// for that app; absence inherits the global mode and both global insets.
+struct TitleBarXOffsets: Equatable {
+    var left: CGFloat
+    var right: CGFloat
+}
+
 /// One app with a custom title-bar Y offset that overrides the global default
 /// (`titleBarYOffset`). `bundleID` is the match key (stable across renames);
 /// `name` is kept for display; `offset` is in points, clamped to
@@ -17,6 +24,7 @@ struct AppTitleBarOffset: Equatable {
     let bundleID: String
     let name: String
     var offset: CGFloat
+    var xOffsets: TitleBarXOffsets? = nil
 }
 
 /// Centralizes UserDefaults keys, defaults, and migration so the menu, the
@@ -81,6 +89,9 @@ enum Preferences {
 
         // Diagnostics — persisted across launches now that the section is
         // always visible in Settings.
+        static let useFixedTitleBarX  = "AnyDragUseFixedTitleBarX"
+        static let titleBarLeftInset  = "AnyDragTitleBarLeftInset"
+        static let titleBarRightInset = "AnyDragTitleBarRightInset"
         static let titleBarYOffset    = "AnyDragTitleBarYOffset"
         static let showDebugDot       = "AnyDragShowDebugDot"
         static let resizeCornerInset  = "AnyDragResizeCornerInset"
@@ -142,6 +153,12 @@ enum Preferences {
     /// Reset button get.
     static let defaultTitleBarYOffset: CGFloat =
         ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 ? 4 : 3
+
+    /// Fixed horizontal click locations, measured inside each edge.
+    static let defaultTitleBarLeftInset: CGFloat = 80
+    static let titleBarLeftInsetRange: ClosedRange<CGFloat> = 8...400
+    static let defaultTitleBarRightInset: CGFloat = 80
+    static let titleBarRightInsetRange: ClosedRange<CGFloat> = 8...400
 
     /// Range mirrored from the Diagnostics control (0…40). Persisted values are
     /// clamped on launch so a manually edited UserDefaults entry can't push the
@@ -297,7 +314,14 @@ enum Preferences {
             let name = (entry["name"] as? String) ?? bundleID
             let rawOffset = (entry["offset"] as? Double) ?? Double(defaultTitleBarYOffset)
             let clamped = min(max(CGFloat(rawOffset), titleBarYOffsetRange.lowerBound), titleBarYOffsetRange.upperBound)
-            return AppTitleBarOffset(bundleID: bundleID, name: name, offset: clamped)
+            var xOffsets: TitleBarXOffsets?
+            if let left = entry["leftInset"] as? Double, left.isFinite,
+               let right = entry["rightInset"] as? Double, right.isFinite {
+                xOffsets = TitleBarXOffsets(
+                    left: min(max(CGFloat(left), titleBarLeftInsetRange.lowerBound), titleBarLeftInsetRange.upperBound),
+                    right: min(max(CGFloat(right), titleBarRightInsetRange.lowerBound), titleBarRightInsetRange.upperBound))
+            }
+            return AppTitleBarOffset(bundleID: bundleID, name: name, offset: clamped, xOffsets: xOffsets)
         }
     }
 
@@ -305,8 +329,13 @@ enum Preferences {
     /// `DragEngine.setPerAppTitleBarYOffsets` so the running tap sees the change
     /// immediately, not just on next launch.
     static func setPerAppTitleBarOffsets(_ items: [AppTitleBarOffset]) {
-        let serialized = items.map {
-            ["bundleID": $0.bundleID, "name": $0.name, "offset": Double($0.offset)] as [String: Any]
+        let serialized = items.map { item -> [String: Any] in
+            var entry: [String: Any] = ["bundleID": item.bundleID, "name": item.name, "offset": Double(item.offset)]
+            if let x = item.xOffsets {
+                entry["leftInset"] = Double(x.left)
+                entry["rightInset"] = Double(x.right)
+            }
+            return entry
         }
         UserDefaults.standard.set(serialized, forKey: Key.perAppTitleBarYOffsets)
     }
@@ -411,6 +440,14 @@ enum Preferences {
             engine.titleBarYOffset = defaultTitleBarYOffset
         }
 
+        engine.useFixedTitleBarX = d.bool(forKey: Key.useFixedTitleBarX)
+        let rawLeftInset = d.object(forKey: Key.titleBarLeftInset) as? Double
+        let leftInset = rawLeftInset.flatMap { $0.isFinite ? CGFloat($0) : nil } ?? defaultTitleBarLeftInset
+        engine.titleBarLeftInset = min(max(leftInset, titleBarLeftInsetRange.lowerBound), titleBarLeftInsetRange.upperBound)
+        let rawInset = d.object(forKey: Key.titleBarRightInset) as? Double
+        let inset = rawInset.flatMap { $0.isFinite ? CGFloat($0) : nil } ?? defaultTitleBarRightInset
+        engine.titleBarRightInset = min(max(inset, titleBarRightInsetRange.lowerBound), titleBarRightInsetRange.upperBound)
+
         if let raw = d.object(forKey: Key.resizeCornerInset) as? Double {
             let clamped = min(max(CGFloat(raw), resizeCornerInsetRange.lowerBound), resizeCornerInsetRange.upperBound)
             engine.resizeCornerInset = clamped
@@ -427,5 +464,8 @@ enum Preferences {
             uniquingKeysWith: { _, last in last }
         )
         engine.setPerAppTitleBarYOffsets(offsetMap)
+        engine.setPerAppTitleBarXOffsets(Dictionary(
+            perAppTitleBarOffsets().compactMap { item in item.xOffsets.map { (item.bundleID, $0) } },
+            uniquingKeysWith: { _, last in last }))
     }
 }

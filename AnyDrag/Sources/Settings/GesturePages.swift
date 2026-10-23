@@ -127,49 +127,88 @@ struct WindowDragPage: View {
     /// and between the icon and name. Only the name↔cluster gap is flexible.
     private static let perAppRowSpacing: CGFloat = 8
 
-    /// One per-app override row — strictly a single line: app icon + name
-    /// (left-aligned; hover the name to reveal its bundle id), a flexible spacer,
-    /// then a right-aligned cluster of the live value, a stepper, and
-    /// a remove button. Removing the row reverts that app to the global offset.
+    /// App identity and Y tuning, with optional independent horizontal anchors.
+    /// Removing the app restores all global defaults.
     @ViewBuilder
     private func perAppOffsetRow(_ item: AppTitleBarOffset) -> some View {
-        HStack(spacing: Self.perAppRowSpacing) {
-            Image(nsImage: store.icon(forBundleID: item.bundleID))
-                .resizable().frame(width: 22, height: 22)
-            Text(item.name)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .help(item.bundleID)
-            Spacer(minLength: Self.perAppRowSpacing)
-            Text("\(Int(item.offset.rounded())) pt")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .frame(width: Self.perAppValueWidth, alignment: .trailing)
-            Stepper(
-                value: Binding(
-                    get: { Double(item.offset) },
-                    set: { store.setPerAppOffset(bundleID: item.bundleID, value: CGFloat($0)) }
-                ),
-                in: Double(Preferences.perAppTitleBarYOffsetRange.lowerBound)...Double(Preferences.perAppTitleBarYOffsetRange.upperBound),
-                step: 1
-            ) {
-                EmptyView()
-            }
-            .labelsHidden()
-            Button {
-                store.removePerAppOffset(bundleID: item.bundleID)
-            } label: {
-                Image(systemName: "minus.circle.fill")
-                    .font(.system(size: 14))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: Self.perAppRowSpacing) {
+                Image(nsImage: store.icon(forBundleID: item.bundleID))
+                    .resizable().frame(width: 22, height: 22)
+                Text(item.name)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(item.bundleID)
+                Spacer(minLength: Self.perAppRowSpacing)
+                Text(L("perAppOffset.y"))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("\(Int(item.offset.rounded())) pt")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .contentShape(Circle())
+                    .monospacedDigit()
+                    .frame(width: Self.perAppValueWidth, alignment: .trailing)
+                Stepper(
+                    value: Binding(
+                        get: { Double(item.offset) },
+                        set: { store.setPerAppOffset(bundleID: item.bundleID, value: CGFloat($0)) }
+                    ),
+                    in: Double(Preferences.perAppTitleBarYOffsetRange.lowerBound)...Double(Preferences.perAppTitleBarYOffsetRange.upperBound),
+                    step: 1
+                ) {
+                    EmptyView()
+                }
+                .labelsHidden()
+                Button {
+                    store.removePerAppOffset(bundleID: item.bundleID)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(L("perAppOffset.remove"))
             }
-            .buttonStyle(.plain)
-            .help(L("perAppOffset.remove"))
+            if store.useFixedTitleBarX || item.xOffsets != nil {
+                HStack {
+                    Text(L(item.xOffsets == nil ? "perAppOffset.xGlobal" : "perAppOffset.xCustom"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(L("perAppOffset.useGlobalX")) {
+                        store.resetPerAppXInsets(bundleID: item.bundleID)
+                    }
+                    .controlSize(.small)
+                    .disabled(item.xOffsets == nil)
+                }
+                perAppXInsetRow(item, left: true, value: item.xOffsets?.left ?? store.titleBarLeftInset)
+                perAppXInsetRow(item, left: false, value: item.xOffsets?.right ?? store.titleBarRightInset)
+            } else {
+                Button(L("perAppOffset.customizeX")) {
+                    store.customizePerAppXInsets(bundleID: item.bundleID)
+                }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            }
         }
         .padding(.vertical, 2)
     }
+    private func perAppXInsetRow(_ item: AppTitleBarOffset, left: Bool, value: CGFloat) -> some View {
+        HStack(spacing: Self.perAppRowSpacing) {
+            Text(L(left ? "diagnostics.titleBarLeftInset" : "diagnostics.titleBarRightInset"))
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Text("\(Int(value)) pt")
+                .font(.system(size: 11, weight: .medium)).monospacedDigit()
+                .frame(width: Self.perAppValueWidth, alignment: .trailing)
+            Stepper(value: Binding(
+                get: { Double(value) },
+                set: { store.setPerAppXInset(bundleID: item.bundleID, left: left, value: CGFloat($0)) }
+            ), in: 8...400, step: 1) { EmptyView() }
+                .labelsHidden()
+                .accessibilityLabel(L(left ? "diagnostics.titleBarLeftInset" : "diagnostics.titleBarRightInset"))
+        }
+    }
+
 }
 
 // MARK: - Window Resize

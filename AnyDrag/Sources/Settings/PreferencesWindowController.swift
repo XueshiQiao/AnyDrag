@@ -58,6 +58,9 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var overlayEdgeSafeEnabled: Bool
     @Published private(set) var middleAction: MiddleAction
     @Published private(set) var centeredSizePercent: Int
+    @Published private(set) var useFixedTitleBarX: Bool
+    @Published private(set) var titleBarLeftInset: CGFloat
+    @Published private(set) var titleBarRightInset: CGFloat
     @Published private(set) var titleBarYOffset: CGFloat
     @Published private(set) var resizeCornerInset: CGFloat
     @Published private(set) var showDebugDot: Bool
@@ -98,6 +101,9 @@ final class SettingsStore: ObservableObject {
         overlayEdgeSafeEnabled = engine.overlayEdgeSafeEnabled
         middleAction = engine.middleAction
         centeredSizePercent = engine.centeredSizePercent
+        useFixedTitleBarX = engine.useFixedTitleBarX
+        titleBarLeftInset = engine.titleBarLeftInset
+        titleBarRightInset = engine.titleBarRightInset
         titleBarYOffset = engine.titleBarYOffset
         resizeCornerInset = engine.resizeCornerInset
         showDebugDot = engine.showDebugDot
@@ -298,6 +304,32 @@ final class SettingsStore: ObservableObject {
         UserDefaults.standard.set(Double(clamped), forKey: Preferences.Key.titleBarYOffset)
     }
 
+    func setUseFixedTitleBarX(_ on: Bool) {
+        engine.useFixedTitleBarX = on
+        useFixedTitleBarX = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.useFixedTitleBarX)
+    }
+
+    func setTitleBarLeftInset(_ value: CGFloat) {
+        guard value.isFinite else { return }
+        let clamped = value.rounded().clamped(to: Preferences.titleBarLeftInsetRange)
+        engine.titleBarLeftInset = clamped
+        titleBarLeftInset = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: Preferences.Key.titleBarLeftInset)
+    }
+
+    func resetTitleBarLeftInset() { setTitleBarLeftInset(Preferences.defaultTitleBarLeftInset) }
+
+    func setTitleBarRightInset(_ value: CGFloat) {
+        guard value.isFinite else { return }
+        let clamped = value.rounded().clamped(to: Preferences.titleBarRightInsetRange)
+        engine.titleBarRightInset = clamped
+        titleBarRightInset = clamped
+        UserDefaults.standard.set(Double(clamped), forKey: Preferences.Key.titleBarRightInset)
+    }
+
+    func resetTitleBarRightInset() { setTitleBarRightInset(Preferences.defaultTitleBarRightInset) }
+
     func setResizeCornerInset(_ value: CGFloat) {
         let clamped = value.rounded().clamped(to: Preferences.resizeCornerInsetRange)
         engine.resizeCornerInset = clamped
@@ -470,6 +502,30 @@ final class SettingsStore: ObservableObject {
         commitPerAppOffsets()
     }
 
+    func customizePerAppXInsets(bundleID: String) {
+        guard let idx = perAppOffsets.firstIndex(where: { $0.bundleID == bundleID }) else { return }
+        perAppOffsets[idx].xOffsets = TitleBarXOffsets(left: titleBarLeftInset, right: titleBarRightInset)
+        commitPerAppOffsets()
+    }
+
+    func resetPerAppXInsets(bundleID: String) {
+        guard let idx = perAppOffsets.firstIndex(where: { $0.bundleID == bundleID }) else { return }
+        perAppOffsets[idx].xOffsets = nil
+        commitPerAppOffsets()
+    }
+
+    func setPerAppXInset(bundleID: String, left: Bool, value: CGFloat) {
+        guard value.isFinite,
+              let idx = perAppOffsets.firstIndex(where: { $0.bundleID == bundleID }) else { return }
+        var offsets = perAppOffsets[idx].xOffsets
+            ?? TitleBarXOffsets(left: titleBarLeftInset, right: titleBarRightInset)
+        let range = left ? Preferences.titleBarLeftInsetRange : Preferences.titleBarRightInsetRange
+        let clamped = value.rounded().clamped(to: range)
+        if left { offsets.left = clamped } else { offsets.right = clamped }
+        perAppOffsets[idx].xOffsets = offsets
+        commitPerAppOffsets()
+    }
+
     func removePerAppOffset(bundleID: String) {
         guard perAppOffsets.contains(where: { $0.bundleID == bundleID }) else { return }
         perAppOffsets.removeAll { $0.bundleID == bundleID }
@@ -483,6 +539,9 @@ final class SettingsStore: ObservableObject {
             uniquingKeysWith: { _, last in last }
         )
         engine.setPerAppTitleBarYOffsets(map)
+        engine.setPerAppTitleBarXOffsets(Dictionary(
+            perAppOffsets.compactMap { item in item.xOffsets.map { (item.bundleID, $0) } },
+            uniquingKeysWith: { _, last in last }))
     }
 
     /// Best-effort icon for a bundle id: running instance, then on-disk bundle,
