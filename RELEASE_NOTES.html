@@ -1,3 +1,33 @@
+<h3>What's New in 26.10.120</h3>
+<ul>
+  <li><b>Snap Assist &amp; auto-fill for the opposite half when tiling left or right</b> — After you tile a window to the left or right half, AnyDrag can now fill the other half of that screen in two ways under <b>Settings → Middle-click action → Tile by direction → Opposite half when tiling left or right</b>:
+    <ul>
+      <li><b>Snap Assist (Pick window)</b> (default) — Shows a Windows 11–style glass picker in the empty half with the other open windows on that display; click any card or press <b>Return</b> to snap the first candidate into the opposite half, or press <b>Esc</b> / click outside to dismiss. Granting optional <b>Screen Recording</b> permission right from Settings enables live window thumbnails; without it, cards show a clean app icon and window title without ever prompting on their own.</li>
+      <li><b>Auto-fill with next window</b> — Immediately places the top-most remaining window on that screen into the other half — so tiling the frontmost window B to the left puts the second-most-recent window A on the right, and tiling a background window A to the left puts the frontmost window B on the right.</li>
+      <li><b>Off</b> — Leaves the other half untouched.</li>
+    </ul>
+    Both windows remember their original sizes for Restore and pair up for linked resize automatically. Thanks to X user goDavi（狗大V国际版） (<a href="https://x.com/corndogjpn2">@corndogjpn2</a>) for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/61">#61</a>).
+  </li>
+  <li><b>Tiled windows come to the front after you place them</b> — When you use the middle-button tile panel on a background window, holding the middle button leaves the window's layer untouched while you pick a spot; once you release on a tile zone (left, right, corners, center, or full), the tiled window is brought to the front and given focus at its new position. Thanks to X user goDavi（狗大V国际版） (<a href="https://x.com/corndogjpn2">@corndogjpn2</a>) for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/62">#62</a>).</li>
+  <li><b>Proportional cross-display move with whole-point coordinates</b> — Moving a window to another display via the center cell of that display's card now scales both its position and size proportionally to the destination screen's visible area and rounds <code>x</code>, <code>y</code>, <code>width</code>, and <code>height</code> to whole points — preventing windows and cell previews from overflowing when moving from a higher-resolution display (e.g. 2K/4K) to a lower-resolution display (e.g. 1080p).</li>
+  <li><b>Option + right-click resize no longer resizes symmetrically</b> — With Option set as your drag modifier, right-dragging to resize a window now strips the Option flag from the mouse stream so macOS apps don't treat it as an Option-resize from the window center (<a href="https://github.com/XueshiQiao/AnyDrag/issues/63">#63</a>).</li>
+</ul>
+
+<h3>26.10.120 更新内容</h3>
+<ul>
+  <li><b>左右分屏支持 Windows 11 风格 Snap Assist 选窗与自动补位</b> — 用中键平铺面板把窗口放到左半屏或右半屏后，现在可以在<b>「设置 → 鼠标中键动作 → 按方向平铺 → 左右分屏时对侧半屏」</b>中选择三种模式：
+    <ul>
+      <li><b>分屏助手（手动选择窗口）</b>（默认）— 在空出的半边屏幕上弹出毛玻璃选窗面板，列出当前屏幕上的其它打开窗口；点击任意卡片或按 <b>回车（Return）</b>即可将该窗口填入对侧半屏，按 <b>Esc</b> 或点击面板外部即可取消。可在设置页按需开启<b>屏幕录制权限</b>以显示实时窗口缩略图；未开启时默认不会主动弹窗打扰，直接展示简洁的应用图标与窗口标题卡片。</li>
+      <li><b>自动填入下一个窗口</b> — 自动把同一块屏幕上排在最前面的另一个窗口放到对侧半屏——把最前面的窗口 B 拖到左侧，倒数第二活跃的窗口 A 就会自动补到右侧；反过来把后面的窗口 A 拖到左侧，最前面的窗口 B 就会自动补到右侧。</li>
+      <li><b>关闭</b> — 保持对侧半屏原样不动。</li>
+    </ul>
+    成对的两个窗口都会记录原始尺寸以支持恢复，并自动组成可联动拖拽中间分割线的分屏对。感谢 X 用户 goDavi（狗大V国际版）（<a href="https://x.com/corndogjpn2">@corndogjpn2</a>）提出建议（<a href="https://github.com/XueshiQiao/AnyDrag/issues/61">#61</a>）。
+  </li>
+  <li><b>中键平铺落位后自动置顶窗口</b> — 在后台窗口上按住鼠标中键呼出平铺面板时，窗口保持原有层级不变（取消手势不会打乱窗口顺序）；当你选定具体平铺区域（左侧、右侧、四角、居中或全屏）松手挪过去之后，该窗口会自动激活并提到最前面获得焦点。感谢 X 用户 goDavi（狗大V国际版）（<a href="https://x.com/corndogjpn2">@corndogjpn2</a>）提出建议（<a href="https://github.com/XueshiQiao/AnyDrag/issues/62">#62</a>）。</li>
+  <li><b>跨显示器移动改为按比例映射并取整坐标</b> — 在多显示器平铺面板中，通过其它屏幕卡片的中间格子把窗口移过去时，现在会按目标屏幕可见区域等比例换算窗口的位置与宽高，并将转换后的 <code>x</code>、<code>y</code>、<code>width</code>、<code>height</code> 全部取整为整数点，彻底解决从高分辨率屏幕（如 2K/4K）移往低分辨率屏幕（如 1080P）时预览小块和窗口溢出的问题。</li>
+  <li><b>修复 Option + 右键缩放触发对称缩放的问题</b> — 当主修饰键包含 Option 时，右键拖动缩放窗口会自动剥离鼠标事件中的 Option 标记，避免部分原生应用将其识别为按住 Option 从中心对称缩放（<a href="https://github.com/XueshiQiao/AnyDrag/issues/63">#63</a>）。</li>
+</ul>
+
 <h3>What's New in 26.10.119</h3>
 <ul>
   <li><b>New option: auto-fill the opposite half when tiling left or right</b> — Turn on <b>Settings → Middle-click action → Tile by direction → Auto-fill opposite half</b> and tiling a window to the left or right half with the middle-button panel automatically places the top-most remaining window on that screen into the other half — so tiling the frontmost window B to the left puts the second-most-recent window A on the right, and tiling a background window A to the left puts the frontmost window B on the right. Both windows remember their original sizes for Restore and pair up for linked resize automatically. Thanks to X user goDavi（狗大V国际版） (<a href="https://x.com/corndogjpn2">@corndogjpn2</a>) for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/61">#61</a>).</li>
