@@ -26,7 +26,7 @@ struct DragStrategyCoordinatesTest {
                 for origin in [CGPoint(x: 100, y: 200), CGPoint(x: -1200, y: -100),
                                CGPoint(x: display.minX + 20, y: display.minY + 40)] {
                     for fraction: CGFloat in [0, 0.125, 0.453125, 0.828125] {
-                        let strategy = TitleBarDragStrategy(windowIsExposed: { _, _ in true })
+                        let strategy = TitleBarDragStrategy(coveringPID: { _, _ in nil })
                         strategy.useFixedTitleBarX = fixedX
                         let start = CGPoint(x: origin.x + 100 + fraction, y: origin.y + 150 + fraction)
                         let down = mouse(middleButton ? .otherMouseDown : .leftMouseDown, at: start)
@@ -72,7 +72,7 @@ struct DragStrategyCoordinatesTest {
         }
         // An app-specific override enables fixed X even when the global option is off.
         for middleButton in [false, true] {
-            let strategy = TitleBarDragStrategy(windowIsExposed: { _, _ in true })
+            let strategy = TitleBarDragStrategy(coveringPID: { _, _ in nil })
             strategy.titleBarLeftInset = 300
             let frame = CGRect(x: display.minX + 20, y: display.minY + 40, width: 586, height: 488)
             let start = CGPoint(x: frame.minX + 100.125, y: frame.minY + 150.125)

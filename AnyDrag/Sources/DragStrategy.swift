@@ -7,10 +7,10 @@ import ApplicationServices
 // we trick the window server into thinking the user is dragging the title bar:
 //
 // 1. modifier+mouseDown: suppress the event, raise and activate only the target window.
-// 2. First mouseDragged after the target is exposed: convert it into a mouseDown at its title bar
-//    (Y near the window top, X at the cursor or configured edge insets).
-//    The window server sees a title bar click and begins a native drag.
-//    Startup checks window order; it cancels if reordering doesn't finish within 250 ms.
+// 2. First mouseDragged once the target is exposed (or another app still covers it after
+//    250 ms): convert it into a mouseDown at its title bar (Y near the window top, X at the
+//    cursor or configured edge insets). The window server sees a title bar click and begins
+//    a native drag. The exposure check only delays the press; it never cancels the drag.
 // 3. Subsequent mouseDragged: translate coordinates by a fixed offset so the window
 //    server sees movement relative to the title bar click point.
 //    Coordinates are rounded consistently so the window follows the cursor on whole points.
@@ -31,33 +31,45 @@ final class TitleBarDragStrategy {
     private var needsInitialMouseDown = false
     private var rewriteToLeftButton = false
     private var pendingWindow: CGWindowID?
+    private var pendingPID: pid_t = 0
     private var startupDeadline: TimeInterval = 0
-    private var startupFailed = false
     private let activateApplication: (pid_t, NSApplication.ActivationOptions) -> Bool
-    private let windowIsExposed: (CGWindowID, CGPoint) -> Bool
+    private let coveringPID: (CGWindowID, CGPoint) -> pid_t?
     private let now: () -> TimeInterval
+
+    /// How long the synthetic press waits for the compositor to expose the
+    /// target before it is sent regardless.
+    static let startupGracePeriod: TimeInterval = 0.25
 
     init(activateApplication: @escaping (pid_t, NSApplication.ActivationOptions) -> Bool = {
         NSRunningApplication(processIdentifier: $0)?.activate(options: $1) ?? false
-    }, windowIsExposed: @escaping (CGWindowID, CGPoint) -> Bool = TitleBarDragStrategy.isWindowExposed,
+    }, coveringPID: @escaping (CGWindowID, CGPoint) -> pid_t? = TitleBarDragStrategy.coveringPID(of:at:),
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.activateApplication = activateApplication
-        self.windowIsExposed = windowIsExposed
+        self.coveringPID = coveringPID
         self.now = now
     }
 
-    private static func isWindowExposed(_ windowID: CGWindowID, at point: CGPoint) -> Bool {
-        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], 0)
-            as? [[CFString: Any]] else { return false }
+    /// The owner of the frontmost normal window that sits above `windowID` at
+    /// `point`, or nil when the target itself is exposed there.
+    ///
+    /// Lists only the windows in front of the target, so the per-event check
+    /// during startup costs a fraction of a full on-screen listing. Windows the
+    /// compositor cannot see (alpha 0) and non-normal layers do not count as
+    /// covering. If the target is no longer on screen the list is empty and the
+    /// press goes out as before.
+    private static func coveringPID(of windowID: CGWindowID, at point: CGPoint) -> pid_t? {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], windowID)
+            as? [[CFString: Any]] else { return nil }
         for window in windows {
             guard (window[kCGWindowLayer] as? Int) == 0,
                   (window[kCGWindowAlpha] as? Double ?? 1) > 0,
                   let bounds = window[kCGWindowBounds] as? [String: Any],
                   let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   frame.contains(point) else { continue }
-            return (window[kCGWindowNumber] as? CGWindowID) == windowID
+            return window[kCGWindowOwnerPID] as? pid_t ?? 0
         }
-        return false
+        return nil
     }
 
     /// Modifier flags stripped from injected/rewritten title-bar events.
@@ -169,13 +181,28 @@ final class TitleBarDragStrategy {
         xOffset = fixedX ? dragPoint.x - cursorPos.x : 0
         yOffset = dragPoint.y - cursorPos.y
 
-        // Select the intended main window before activating without all-windows.
-        // AXRaise can succeed without raising an inactive app above other apps
-        // (observed with 1Password), leaving the synthetic press hitting a window
-        // that still covers the anchor. AXFrontmost brings sibling windows up,
-        // so use AppKit activation without activateAllWindows instead.
-        // Suppress mouseDown and defer the synthetic press until a drag event
-        // confirms that the window is exposed at the intended title-bar point.
+        // Raise the window and activate its app. Activating the app is what
+        // makes the synthesized title-bar click land on the window we mean
+        // rather than on whatever covers it, and it matches what dragging a
+        // real title bar does. The mouseDown is suppressed and the actual click
+        // deferred to a later mouseDragged, once the window server has
+        // reordered (see `handleMouseDragged`).
+        //
+        // Activation goes through AppKit without `activateAllWindows`, so only
+        // the app's main window comes forward; the target is made main first so
+        // a sibling window cannot be the one that rises. (`kAXFrontmostAttribute`
+        // was used before and brings every window of the app up.) AXRaise alone
+        // is not enough: it can report success while an inactive app's window
+        // stays behind another app — observed with 1Password — which is why the
+        // press waits for the compositor to actually expose the target.
+        //
+        // Activation is skipped for a window with no title bar. Those are
+        // floating panels — the Codex "ask anything" popup, say — which macOS
+        // does not activate their owning app for when you click them, and which
+        // sit above other windows anyway, so the click reaches them without
+        // help. Forcing the app frontmost there pulls the app's *main* window
+        // out from behind whatever the user had in front, which is the
+        // complaint in issue #43. The window is still raised below.
         if pid == getpid() {
             // Same-process AX raise crashes here: AXUIElementPerformAction(kAXRaiseAction)
             // is dispatched in-process to -[NSWindow makeKeyAndOrderFront:], which is
@@ -196,20 +223,25 @@ final class TitleBarDragStrategy {
                 }
             }
         } else {
+            var selectedWindowReady = false
             if let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) {
-                let raiseResult = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-                var selectedWindowReady = raiseResult == .success
+                selectedWindowReady = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString) == .success
                 if activateApp || !selectedWindowReady {
-                    // AppKit brings main/key windows forward. Select this one
-                    // first so activation doesn't raise an unrelated main window.
+                    // Make the target the main window so activation brings it,
+                    // not a sibling, forward. Doubles as the fallback for apps
+                    // that don't support kAXRaiseAction (e.g. some Electron apps).
                     selectedWindowReady = AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue) == .success
                 }
-                // Never activate if we failed to select the target: doing so
-                // could bring a different main window forward. Floating panels
-                // retain their nonactivating behavior (issue #43).
-                if selectedWindowReady && activateApp {
-                    _ = activateApplication(pid, [])
-                }
+            }
+            // Activate only once the target is selected; otherwise a different
+            // main window could come forward. When selection fails, or the
+            // system declines the activation request — a background menu bar
+            // app activating another app is something newer macOS releases may
+            // refuse — fall back to the app-wide AXFrontmost that shipped
+            // before: sibling windows may rise, but the drag still works.
+            if activateApp, !(selectedWindowReady && activateApplication(pid, [])) {
+                let appElement = AXUIElementCreateApplication(pid)
+                AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             }
         }
 
@@ -217,8 +249,8 @@ final class TitleBarDragStrategy {
         didDrag = false
         needsInitialMouseDown = true
         pendingWindow = windowID
-        startupDeadline = now() + 0.25
-        startupFailed = false
+        pendingPID = pid
+        startupDeadline = now() + Self.startupGracePeriod
         self.rewriteToLeftButton = rewriteToLeftButton
         return nil  // suppress — the mouseDown will be sent on first drag
     }
@@ -227,12 +259,19 @@ final class TitleBarDragStrategy {
         didDrag = true
         event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         if needsInitialMouseDown {
-            if startupFailed { return nil }
-            if let window = pendingWindow, !windowIsExposed(window, dragPoint) {
+            if let window = pendingWindow, let coverer = coveringPID(window, dragPoint),
+               coverer != pendingPID, now() < startupDeadline {
                 // Activation/AXRaise success means a request was accepted, not
-                // that the compositor has reordered it. Never click the covering
-                // app. Retry on incoming drag events, with a bounded deadline.
-                if now() >= startupDeadline { startupFailed = true }
+                // that the compositor has reordered yet. While another app still
+                // covers the click point, hold the press and retry on the next
+                // drag event. A window of the target's own app over the point —
+                // a sheet, a child window, a transparent helper — is fine: the
+                // app gets the click either way, and such a window may never
+                // move, so waiting on it would only kill the drag. Past the
+                // grace period the press goes out regardless: that is the
+                // behaviour that shipped before this check existed, and it keeps
+                // a window draggable under an overlay the check cannot see
+                // through.
                 return nil
             }
             pendingWindow = nil
@@ -261,11 +300,12 @@ final class TitleBarDragStrategy {
 
     func handleMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
         if needsInitialMouseDown {
-            // No synthetic press was sent: a plain click, or startup never finished.
-            // For middle-button entry we suppress the up so the engine can replay
-            // a synthesized middle-click at the original location (preserving
-            // browser/IDE middle-click behavior). Suppress both buttons after an
-            // attempted drag so a failed startup can't leak an unmatched mouse-up.
+            // No synthetic press was sent: a plain click, or the press was still
+            // being held back when the button came up. For middle-button entry
+            // we suppress the up so the engine can replay a synthesized
+            // middle-click at the original location (preserving browser/IDE
+            // middle-click behavior). Suppress both buttons after an attempted
+            // drag so a held-back press can't leak an unmatched mouse-up.
             let suppressForReplay = rewriteToLeftButton || didDrag
             needsInitialMouseDown = false
             isActive = false
@@ -293,8 +333,8 @@ final class TitleBarDragStrategy {
         needsInitialMouseDown = false
         rewriteToLeftButton = false
         pendingWindow = nil
+        pendingPID = 0
         startupDeadline = 0
-        startupFailed = false
     }
 
     // MARK: - AX Window Lookup
