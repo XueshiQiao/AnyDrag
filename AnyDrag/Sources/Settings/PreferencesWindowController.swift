@@ -42,6 +42,10 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var modifiers: ModifierCombination
     @Published private(set) var leftResizeModifier: ModifierCombination
     @Published private(set) var dragEnabled: Bool
+    @Published private(set) var threeFingerDragEnabled: Bool
+    /// The macOS Accessibility three-finger-drag option, re-read whenever the
+    /// window regains focus so the setup hint clears once the user flips it.
+    @Published private(set) var systemThreeFingerDragEnabled: Bool
     @Published private(set) var maximizeEnabled: Bool
     @Published private(set) var tilingEnabled: Bool
     @Published private(set) var resizeTrigger: ResizeTrigger
@@ -86,6 +90,8 @@ final class SettingsStore: ObservableObject {
         modifiers = engine.modifiers
         leftResizeModifier = engine.leftResizeModifier
         dragEnabled = engine.dragEnabled
+        threeFingerDragEnabled = engine.threeFingerDragEnabled
+        systemThreeFingerDragEnabled = ThreeFingerTouchSource.systemThreeFingerDragEnabled
         maximizeEnabled = engine.maximizeEnabled
         tilingEnabled = engine.tilingEnabled
         resizeTrigger = engine.resizeTrigger
@@ -152,6 +158,13 @@ final class SettingsStore: ObservableObject {
         accessibilityGranted = AXIsProcessTrusted()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
+        systemThreeFingerDragEnabled = ThreeFingerTouchSource.systemThreeFingerDragEnabled
+    }
+
+    /// Jump to System Settings → Accessibility → Pointer Control, where
+    /// "Trackpad Options…" holds the three-finger-drag switch.
+    func openTrackpadDragSettings() {
+        NSWorkspace.shared.open(ThreeFingerTouchSource.systemSettingsURL)
     }
 
     // MARK: Primary modifier
@@ -274,6 +287,10 @@ final class SettingsStore: ObservableObject {
         if previous != value {
             Analytics.trackPreferenceChanged(key: "bento_tint", value: value.rawValue)
         }
+    }
+    func setThreeFingerDragEnabled(_ on: Bool) {
+        setBool(on, key: Preferences.Key.threeFingerDragEnabled, analytics: "three_finger_drag_enabled", current: \.threeFingerDragEnabled, write: { self.engine.threeFingerDragEnabled = $0 }, mirror: { self.threeFingerDragEnabled = $0 })
+        systemThreeFingerDragEnabled = ThreeFingerTouchSource.systemThreeFingerDragEnabled
     }
     func setTileDragOnly(_ on: Bool)    { setBool(on, key: Preferences.Key.tileDragOnly, analytics: "tile_drag_only", current: \.tileByDirectionDragOnly, write: { self.engine.tileByDirectionDragOnly = $0 }, mirror: { self.tileByDirectionDragOnly = $0 }) }
     func setLinkedResizeEnabled(_ on: Bool)   { setBool(on, key: Preferences.Key.linkedResizeEnabled, analytics: "linked_resize_enabled", current: \.linkedResizeEnabled, write: { self.engine.linkedResizeEnabled = $0 }, mirror: { self.linkedResizeEnabled = $0 }) }

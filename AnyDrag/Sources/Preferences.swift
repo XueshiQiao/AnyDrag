@@ -34,6 +34,9 @@ enum Preferences {
     enum Key {
         static let modifierFlags   = "AnyDragModifierFlags"
         static let dragEnabled     = "AnyDragDragEnabled"
+        // Three fingers on the trackpad act as the primary modifier for a
+        // left drag (needs the macOS three-finger-drag option). Absent = off.
+        static let threeFingerDragEnabled = "AnyDragThreeFingerDragEnabled"
         static let maximizeEnabled = "AnyDragMaximizeEnabled"
         static let tilingEnabled   = "AnyDragTilingEnabled"
         // How resize is triggered: "off" / "right" / "left" (ResizeTrigger).
@@ -373,6 +376,7 @@ enum Preferences {
         let d = UserDefaults.standard
 
         engine.dragEnabled      = d.object(forKey: Key.dragEnabled) as? Bool ?? true
+        engine.threeFingerDragEnabled = d.object(forKey: Key.threeFingerDragEnabled) as? Bool ?? false
         engine.maximizeEnabled  = d.object(forKey: Key.maximizeEnabled) as? Bool ?? true
         engine.tilingEnabled    = d.object(forKey: Key.tilingEnabled) as? Bool ?? true
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true

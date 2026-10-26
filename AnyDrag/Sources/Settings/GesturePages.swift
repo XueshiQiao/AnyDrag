@@ -45,6 +45,17 @@ struct WindowDragPage: View {
                 Toggle(isOn: Binding(get: { store.dragEnabled }, set: { store.setDragEnabled($0) })) {
                     featureLabel("hand.draw.fill", .blue, L("Drag window"), L("feature.drag.subtitle"))
                 }
+                // Three-finger drag stands in for the modifier on the left
+                // button. It only works with the macOS three-finger-drag
+                // option on, so say so up front, and point at the switch
+                // whenever the feature is on but the system option isn't.
+                Toggle(isOn: Binding(get: { store.threeFingerDragEnabled }, set: { store.setThreeFingerDragEnabled($0) })) {
+                    featureLabel("hand.raised.fingers.spread.fill", .orange, L("feature.threeFingerDrag"), threeFingerSubtitle)
+                }
+                .disabled(!store.dragEnabled)
+                if store.threeFingerDragEnabled && store.dragEnabled && !store.systemThreeFingerDragEnabled {
+                    threeFingerSetupHint
+                }
                 Toggle(isOn: Binding(get: { store.maximizeEnabled }, set: { store.setMaximizeEnabled($0) })) {
                     featureLabel("macwindow", .green, L("Maximize / Restore"), L("feature.maximize.subtitle"))
                 }
@@ -116,6 +127,38 @@ struct WindowDragPage: View {
         }
         .formStyle(.grouped)
         .navigationTitle(L("section.windowDrag"))
+    }
+
+    /// The setup path, plus the resize key while a resize trigger is on
+    /// (three fingers + that key resizes instead of moving).
+    private var threeFingerSubtitle: String {
+        var text = L("feature.threeFingerDrag.subtitle")
+        if store.resizeTrigger != .off {
+            text += "\n" + String(format: L("feature.threeFingerDrag.resizeHint"), store.leftResizeModifier.symbol)
+        }
+        return text
+    }
+
+    /// Shown while "Three-finger drag" is on but macOS's own three-finger-drag
+    /// option is off — the gesture emits no mouse events until it is enabled.
+    private var threeFingerSetupHint: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.system(size: 12))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("feature.threeFingerDrag.systemOff"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(L("feature.threeFingerDrag.openSettings")) {
+                    store.openTrackpadDragSettings()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     /// Fixed width of the "N pt" value label. Trailing-aligned within it so the
@@ -232,8 +275,11 @@ struct WindowResizePage: View {
                 Text(L("section.windowResize"))
             }
 
-            // Secondary modifier — only relevant for the left-drag trigger.
-            if store.resizeTrigger == .leftClick {
+            // Secondary modifier — for the left-drag trigger, and for the
+            // three-finger drag (three fingers + this key resizes) with any
+            // trigger that is on.
+            let threeFingerResize = store.threeFingerDragEnabled && store.resizeTrigger != .off
+            if store.resizeTrigger == .leftClick || threeFingerResize {
                 Section {
                     ModifierChipPicker(
                         selection: store.leftResizeModifier,
@@ -245,7 +291,11 @@ struct WindowResizePage: View {
                     }
                     .padding(.vertical, 4)
                 } header: {
-                    Text(L("leftResize.augment"))
+                    Text(L(store.resizeTrigger == .leftClick ? "leftResize.augment" : "threeFinger.resize.augment"))
+                } footer: {
+                    if threeFingerResize {
+                        Text(String(format: L("threeFinger.resize.note"), store.leftResizeModifier.symbol))
+                    }
                 }
             }
 
