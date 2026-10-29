@@ -314,6 +314,21 @@ final class DragEngine {
         set { strategy.titleBarYOffset = newValue }
     }
 
+    var useFixedTitleBarX: Bool {
+        get { strategy.useFixedTitleBarX }
+        set { strategy.useFixedTitleBarX = newValue }
+    }
+
+    var titleBarLeftInset: CGFloat {
+        get { strategy.titleBarLeftInset }
+        set { strategy.titleBarLeftInset = newValue }
+    }
+
+    var titleBarRightInset: CGFloat {
+        get { strategy.titleBarRightInset }
+        set { strategy.titleBarRightInset = newValue }
+    }
+
     var resizeCornerInset: CGFloat {
         get { resizeStrategy.cornerInset }
         set { resizeStrategy.cornerInset = newValue }
@@ -436,6 +451,8 @@ final class DragEngine {
     /// back to the global `strategy.titleBarYOffset`. Recomputed on main
     /// whenever the list changes or any app launches/terminates — sharing the
     /// same NSWorkspace observers as the blacklist.
+    private var perAppTitleBarXOffsetsByBundleID: [String: TitleBarXOffsets] = [:]
+    private let perAppTitleBarXOffsetPids = OSAllocatedUnfairLock<[pid_t: TitleBarXOffsets]>(initialState: [:])
     private var perAppTitleBarYOffsetsByBundleID: [String: CGFloat] = [:]
     private let perAppTitleBarYOffsetPids = OSAllocatedUnfairLock<[pid_t: CGFloat]>(initialState: [:])
 
@@ -650,7 +667,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) linkedResize=\(self.linkedResizeEnabled) overlayEdgeSafe=\(self.overlayEdgeSafeEnabled) yOffset=\(self.strategy.titleBarYOffset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) linkedResize=\(self.linkedResizeEnabled) overlayEdgeSafe=\(self.overlayEdgeSafeEnabled) yOffset=\(self.strategy.titleBarYOffset) fixedTitleBarX=\(self.strategy.useFixedTitleBarX) leftInset=\(self.strategy.titleBarLeftInset) rightInset=\(self.strategy.titleBarRightInset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) perAppXOffsets=\(self.perAppTitleBarXOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -1217,6 +1234,7 @@ final class DragEngine {
             windowFrame: windowInfo.frame,
             event: event,
             titleBarYOffset: offset,
+            titleBarXOffsets: perAppTitleBarXOffsetPids.withLock { $0[windowInfo.pid] },
             visibleTopInset: probe.inset,
             activateApp: probe.hasTitleBar,
             debugCaption: probe.summary
@@ -1595,6 +1613,7 @@ final class DragEngine {
                 event: event,
                 rewriteToLeftButton: true,
                 titleBarYOffset: middleOffset,
+                titleBarXOffsets: perAppTitleBarXOffsetPids.withLock { $0[windowInfo.pid] },
                 visibleTopInset: middleProbe.inset,
                 activateApp: middleProbe.hasTitleBar,
                 debugCaption: middleProbe.summary
@@ -2989,22 +3008,26 @@ final class DragEngine {
         recomputePerAppTitleBarYOffsetPids()
     }
 
-    /// Recompute which running pids have a custom offset. Main thread only —
-    /// reads NSWorkspace and writes the lock. Costs nothing when the map is
-    /// empty, keeping the feature free for users who never set it.
+    func setPerAppTitleBarXOffsets(_ map: [String: TitleBarXOffsets]) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        perAppTitleBarXOffsetsByBundleID = map
+        recomputePerAppTitleBarYOffsetPids()
+    }
+
+    /// Refresh both per-app maps on settings changes and app launch/termination.
+    /// The event tap only reads the derived PID maps; no Launch Services there.
     private func recomputePerAppTitleBarYOffsetPids() {
-        guard !perAppTitleBarYOffsetsByBundleID.isEmpty else {
-            perAppTitleBarYOffsetPids.withLock { $0 = [:] }
-            return
-        }
-        var map = [pid_t: CGFloat]()
-        for app in NSWorkspace.shared.runningApplications {
-            if let bundleID = app.bundleIdentifier,
-               let offset = perAppTitleBarYOffsetsByBundleID[bundleID] {
-                map[app.processIdentifier] = offset
+        var yMap = [pid_t: CGFloat]()
+        var xMap = [pid_t: TitleBarXOffsets]()
+        if !perAppTitleBarYOffsetsByBundleID.isEmpty || !perAppTitleBarXOffsetsByBundleID.isEmpty {
+            for app in NSWorkspace.shared.runningApplications {
+                guard let bundleID = app.bundleIdentifier else { continue }
+                yMap[app.processIdentifier] = perAppTitleBarYOffsetsByBundleID[bundleID]
+                xMap[app.processIdentifier] = perAppTitleBarXOffsetsByBundleID[bundleID]
             }
         }
-        perAppTitleBarYOffsetPids.withLock { $0 = map }
+        perAppTitleBarYOffsetPids.withLock { $0 = yMap }
+        perAppTitleBarXOffsetPids.withLock { $0 = xMap }
     }
 
     /// The effective title-bar Y offset for a window owned by `pid`: the app's
