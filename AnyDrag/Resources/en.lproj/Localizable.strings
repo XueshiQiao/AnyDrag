@@ -118,6 +118,14 @@
 "Maximize / Restore" = "Maximize / Restore";
 "Window tiling" = "Window tiling";
 "feature.drag.subtitle" = "Hold the primary modifier and drag anywhere on a window";
+"feature.threeFingerDrag" = "Three-finger drag";
+"feature.threeFingerDrag.subtitle" = "🖐️ Rest three fingers on the trackpad and drag anywhere on a window (no modifier needed)\n⚙️ Requires macOS Three Finger Drag: Accessibility → Pointer Control → Trackpad Options";
+"feature.threeFingerDrag.systemOff" = "macOS three-finger drag is off, so this gesture can't reach AnyDrag yet. Turn it on under Accessibility → Pointer Control → Trackpad Options → “Use trackpad for dragging” → Three Finger Drag.";
+"feature.threeFingerDrag.openSettings" = "Open Pointer Control Settings…";
+/* %@ = the resize modifier symbol (e.g. ⇧) */
+"feature.threeFingerDrag.resizeHint" = "📐 Hold %@ while three-finger dragging to resize instead";
+"threeFinger.resize.augment" = "Three-finger Resize Modifier";
+"threeFinger.resize.note" = "Three-finger drag + %@ resizes the window from its nearest corner.";
 "feature.maximize.subtitle" = "Hold the primary modifier and double-click to maximize or restore";
 "feature.tiling.subtitle" = "Hold the primary modifier and right-click to open the tiling panel";
 

@@ -118,6 +118,14 @@
 "Maximize / Restore" = "最大化 / 恢复";
 "Window tiling" = "窗口平铺";
 "feature.drag.subtitle" = "按住主修饰键,在窗口任意处拖动";
+"feature.threeFingerDrag" = "三指拖移";
+"feature.threeFingerDrag.subtitle" = "🖐️ 三指按在触控板上，在窗口任意处拖动即可移动窗口（无需修饰键）\n⚙️ 需开启 macOS 三指拖移：辅助功能 → 指针控制 → 触控板选项 → 三指拖移";
+"feature.threeFingerDrag.systemOff" = "macOS 三指拖移尚未开启,该手势目前无法传递给 AnyDrag。请在 辅助功能 → 指针控制 → 触控板选项 → “使用触控板进行拖移” 中选择“三指拖移”。";
+"feature.threeFingerDrag.openSettings" = "打开指针控制设置…";
+/* %@ = 缩放修饰键符号(如 ⇧) */
+"feature.threeFingerDrag.resizeHint" = "📐 三指拖动时按住 %@ 则改为缩放窗口";
+"threeFinger.resize.augment" = "三指缩放修饰键";
+"threeFinger.resize.note" = "三指拖动 + %@ 从最近的窗口角缩放窗口。";
 "feature.maximize.subtitle" = "按住主修饰键,双击窗口最大化或恢复";
 "feature.tiling.subtitle" = "按住主修饰键,右键打开平铺面板";
 

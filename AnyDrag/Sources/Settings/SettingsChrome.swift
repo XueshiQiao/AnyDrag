@@ -139,6 +139,7 @@ func featureLabel(_ symbol: String, _ color: Color, _ title: String, _ subtitle:
             Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

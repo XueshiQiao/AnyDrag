@@ -50,6 +50,8 @@ Hold your **primary modifier** (Option by default) and:
 | **Modifier + double-click** | Maximize the window; double-click again to restore its original size |
 | **Modifier + right-click** | Open the **tiling panel** |
 
+**Three-finger drag** (optional, Settings → Window Drag): rest three fingers on the trackpad and drag anywhere on a window to move it — no modifier at all. It builds on macOS's own three-finger drag, so turn that on first under *System Settings → Accessibility → Pointer Control → Trackpad Options → Use trackpad for dragging → Three Finger Drag*. Hold the **left-drag resize modifier** (Shift by default, set on the Window Resize page) during a three-finger drag to resize from the nearest corner instead. Note that while it's on, a three-finger drag that starts on a window moves the window rather than selecting text.
+
 ### 🗂️ Tiling panel
 
 Modifier + right-click opens a panel to quickly arrange the window:

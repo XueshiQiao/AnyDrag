@@ -222,6 +222,18 @@ final class DragEngine {
     /// listening and the liveness watchdog; consulted via `isHeld` on the tap
     /// thread. Active only while `.hyper` is selected.
     let hyperCapslockSource = HyperCapslockCapsHoldSource()
+    /// Three fingers resting on the trackpad at a left mouse-down count as the
+    /// primary modifier for the left-button gestures (move; double-press
+    /// maximize). Rides on the macOS Accessibility three-finger-drag option,
+    /// which emits the gesture as an ordinary left drag — see
+    /// `ThreeFingerTouchSource`. Off by default: it claims every three-finger
+    /// drag that starts on a window, including text selection.
+    var threeFingerDragEnabled: Bool = false {
+        didSet { threeFingerSource.setEnabled(threeFingerDragEnabled) }
+    }
+    /// Contact-count source behind `threeFingerDragEnabled`; consulted via
+    /// `isHeld` on the tap thread, toggled on main like the Hyper source.
+    let threeFingerSource = ThreeFingerTouchSource()
     var dragEnabled: Bool = true
     var maximizeEnabled: Bool = true
     var tilingEnabled: Bool = true
@@ -667,7 +679,7 @@ final class DragEngine {
         startBackstopTimer()
 
         Self.log.info("start(): tap created OK")
-        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) linkedResize=\(self.linkedResizeEnabled) overlayEdgeSafe=\(self.overlayEdgeSafeEnabled) yOffset=\(self.strategy.titleBarYOffset) fixedTitleBarX=\(self.strategy.useFixedTitleBarX) leftInset=\(self.strategy.titleBarLeftInset) rightInset=\(self.strategy.titleBarRightInset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) perAppXOffsets=\(self.perAppTitleBarXOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
+        Self.log.info("config: modifier=\(self.modifiers.symbol) drag=\(self.dragEnabled) threeFinger=\(self.threeFingerDragEnabled) max=\(self.maximizeEnabled) tile=\(self.tilingEnabled) resizeTrigger=\(self.resizeTrigger.rawValue)/\(self.leftResizeModifier.symbol) middle=\(self.middleAction.rawValue) tileDragOnly=\(self.tileByDirectionDragOnly) linkedResize=\(self.linkedResizeEnabled) overlayEdgeSafe=\(self.overlayEdgeSafeEnabled) yOffset=\(self.strategy.titleBarYOffset) fixedTitleBarX=\(self.strategy.useFixedTitleBarX) leftInset=\(self.strategy.titleBarLeftInset) rightInset=\(self.strategy.titleBarRightInset) perAppYOffsets=\(self.perAppTitleBarYOffsetsByBundleID.count) perAppXOffsets=\(self.perAppTitleBarXOffsetsByBundleID.count) debugDot=\(self.strategy.showDebugDot)")
     }
 
     func stop() {
@@ -1142,6 +1154,13 @@ final class DragEngine {
         if matchesLeftResizeModifier(event.flags) {
             return beginLeftResize(event: event)
         }
+        // Three fingers + the resize modifier resize instead of move, through
+        // the same left-button resize path — the gesture *is* a left drag.
+        let threeFingerPress = threeFingerPressed()
+        if threeFingerPress && matchesThreeFingerResizeModifier(event.flags) {
+            Self.log.info("three-finger resize press at (\(Int(event.location.x)), \(Int(event.location.y))) keys=\(self.leftResizeModifier.symbol)")
+            return beginLeftResize(event: event)
+        }
 
         // Not a left-resize press. A leftMouseDown can't be continuing an
         // in-flight gesture (the button was up), so a resize strategy still
@@ -1170,9 +1189,15 @@ final class DragEngine {
         // Check if the configured modifier key is held.
         // We also allow an extra Option key for non-Option shortcuts so
         // macOS native tiling can still kick in during an AnyDrag drag.
-        guard matchesConfiguredModifier(event.flags) else {
+        // Three fingers on the trackpad stand in for the modifier when that
+        // option is on (left button only — the system's three-finger drag
+        // never produces a right or middle press).
+        guard threeFingerPress || matchesConfiguredModifier(event.flags) else {
             logModifierMiss(flags: event.flags, button: "left")
             return Unmanaged.passUnretained(event)
+        }
+        if threeFingerPress {
+            Self.log.info("three-finger press at (\(Int(event.location.x)), \(Int(event.location.y)))")
         }
 
         let screenPoint = event.location
@@ -2288,6 +2313,34 @@ final class DragEngine {
         // Allow base shortcut + Option so users can combine AnyDrag with
         // the macOS "Hold Option key while dragging windows to tile" feature.
         return activeModifiers == targetModifiers.union(.maskAlternate)
+    }
+
+    /// Virtual modifier for the three-finger drag: the option is on, "Drag
+    /// window" is on (Settings greys the toggle out without it, so the engine
+    /// must agree or a three-finger double-press would still maximize), a
+    /// primary modifier is configured (an empty selection means "AnyDrag is
+    /// off" and should stay off), and the trackpad reports three contacts
+    /// right now. Only needs to hold at the instant of mouse-down, same as
+    /// Hyper: the system's drag-lock lets fingers lift mid-drag and the
+    /// strategy doesn't care.
+    private func threeFingerPressed() -> Bool {
+        threeFingerDragEnabled && dragEnabled && !modifiers.isEmpty && threeFingerSource.isHeld
+    }
+
+    /// Three-finger counterpart of `matchesLeftResizeModifier`: with three
+    /// fingers down, holding exactly the left-drag resize modifier resizes
+    /// instead of moving. Unlike the keyboard path it doesn't need the
+    /// left-drag trigger — a right-drag user has no other way to resize by
+    /// touch — but "Off" still means off. The augment must be valid for the
+    /// base so the move and resize gestures can't collide.
+    private func matchesThreeFingerResizeModifier(_ flags: CGEventFlags) -> Bool {
+        guard resizeTrigger != .off, !modifiers.isEmpty else { return false }
+        let augment = leftResizeModifier
+        guard augment.isValidAugment(for: modifiers) else { return false }
+        let augmentFlags = augment.eventFlags
+        guard !augmentFlags.isEmpty else { return false }
+        let active = flags.subtracting(.maskNonCoalesced).intersection(Self.relevantModifierMask)
+        return active == augmentFlags
     }
 
     /// True while the configured primary modifier is still physically held.
