@@ -115,21 +115,8 @@ AnyDrag 采用不同的方案：在 **window server 层面模拟原生标题栏�
 ### Homebrew
 
 ```bash
-brew install --cask XueshiQiao/tap/anydrag
-```
-
-<details>
-<summary>想用两步式写法？</summary>
-
-```bash
-brew tap XueshiQiao/tap
-brew trust XueshiQiao/tap   # Homebrew 6.0 起需要；更早的版本可以跳过这一行
 brew install --cask anydrag
 ```
-
-Homebrew 从 6.0 开始，第三方 tap 里的 cask 必须先被信任过一次才能加载——除非你把完整名字
-写在命令行里，也就是上面那条一行式命令做的事。所以一行式不需要 `brew trust`，两步式需要。
-</details>
 
 或者从 [GitHub Releases](https://github.com/XueshiQiao/AnyDrag/releases) 下载最新 `.dmg`，打开后将 AnyDrag 拖到应用程序文件夹。
 
