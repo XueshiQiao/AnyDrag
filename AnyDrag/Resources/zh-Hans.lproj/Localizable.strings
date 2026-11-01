@@ -118,8 +118,15 @@
 "Maximize / Restore" = "最大化 / 恢复";
 "Window tiling" = "窗口平铺";
 "feature.drag.subtitle" = "按住主修饰键,在窗口任意处拖动";
-"feature.threeFingerDrag" = "三指拖移";
-"feature.threeFingerDrag.subtitle" = "🖐️ 三指按在触控板上，在窗口任意处拖动即可移动窗口（无需修饰键）\n⚙️ 需开启 macOS 三指拖移：辅助功能 → 指针控制 → 触控板选项 → 三指拖移";
+"section.threeFinger" = "触控板三指拖移";
+/* %@ = 主修饰键符号和名称(如 ⌥ Option) */
+"feature.threeFingerDrag" = "不用按主修饰键(%@)";
+"feature.threeFingerDrag.noModifier" = "不用按主修饰键";
+"feature.threeFingerDrag.subtitle.none" = "先在上面选择主修饰键";
+"feature.threeFingerDrag.subtitle.on" = "三指按在触控板上，在窗口任意处拖动即可移动窗口，不用按任何键";
+/* %@ = 主修饰键符号(如 ⌥) */
+"feature.threeFingerDrag.subtitle.off" = "需要先按住 %@，再三指拖动，才会移动窗口";
+"feature.threeFingerDrag.requires" = "三指拖移依赖 macOS 的「辅助功能 → 指针控制 → 触控板选项 → 三指拖移」。";
 "feature.threeFingerDrag.systemOff" = "macOS 三指拖移尚未开启,该手势目前无法传递给 AnyDrag。请在 辅助功能 → 指针控制 → 触控板选项 → “使用触控板进行拖移” 中选择“三指拖移”。";
 "feature.threeFingerDrag.openSettings" = "打开指针控制设置…";
 /* %@ = 缩放修饰键符号(如 ⇧) */

@@ -118,8 +118,15 @@
 "Maximize / Restore" = "Maximize / Restore";
 "Window tiling" = "Window tiling";
 "feature.drag.subtitle" = "Hold the primary modifier and drag anywhere on a window";
-"feature.threeFingerDrag" = "Three-finger drag";
-"feature.threeFingerDrag.subtitle" = "🖐️ Rest three fingers on the trackpad and drag anywhere on a window (no modifier needed)\n⚙️ Requires macOS Three Finger Drag: Accessibility → Pointer Control → Trackpad Options";
+"section.threeFinger" = "Trackpad Three-finger Drag";
+/* %@ = the primary modifier symbol and name (e.g. ⌥ Option) */
+"feature.threeFingerDrag" = "No need to hold the primary modifier (%@)";
+"feature.threeFingerDrag.noModifier" = "No need to hold the primary modifier";
+"feature.threeFingerDrag.subtitle.none" = "Choose a primary modifier above first";
+"feature.threeFingerDrag.subtitle.on" = "Rest three fingers on the trackpad and drag anywhere on a window — no key needed";
+/* %@ = the primary modifier symbol (e.g. ⌥) */
+"feature.threeFingerDrag.subtitle.off" = "Hold %@ first, then drag with three fingers to move the window";
+"feature.threeFingerDrag.requires" = "Three-finger drag relies on macOS: Accessibility → Pointer Control → Trackpad Options → Three Finger Drag.";
 "feature.threeFingerDrag.systemOff" = "macOS three-finger drag is off, so this gesture can't reach AnyDrag yet. Turn it on under Accessibility → Pointer Control → Trackpad Options → “Use trackpad for dragging” → Three Finger Drag.";
 "feature.threeFingerDrag.openSettings" = "Open Pointer Control Settings…";
 /* %@ = the resize modifier symbol (e.g. ⇧) */

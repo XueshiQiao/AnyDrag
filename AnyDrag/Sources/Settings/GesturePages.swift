@@ -20,6 +20,7 @@ struct WindowDragPage: View {
 
     var body: some View {
         Form {
+            // ─── Primary modifier + the three things it triggers ──────────────
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     ModifierChipPicker(selection: store.modifiers) { proposed in
@@ -37,31 +38,44 @@ struct WindowDragPage: View {
                     }
                 }
                 .padding(.vertical, 4)
+
+                // Greyed out while no modifier is chosen (AnyDrag is off); the
+                // picker above must stay usable, so disable row by row.
+                Group {
+                    Toggle(isOn: Binding(get: { store.dragEnabled }, set: { store.setDragEnabled($0) })) {
+                        featureLabel("hand.draw.fill", .blue, L("Drag window"), L("feature.drag.subtitle"))
+                    }
+                    Toggle(isOn: Binding(get: { store.maximizeEnabled }, set: { store.setMaximizeEnabled($0) })) {
+                        featureLabel("macwindow", .green, L("Maximize / Restore"), L("feature.maximize.subtitle"))
+                    }
+                    Toggle(isOn: Binding(get: { store.tilingEnabled }, set: { store.setTilingEnabled($0) })) {
+                        featureLabel("square.grid.2x2.fill", .purple, L("Window tiling"), L("feature.tiling.subtitle"))
+                    }
+                }
+                .disabled(store.modifiers.isEmpty)
             } header: {
                 Text(L("label.primaryModifier"))
             }
 
+            // ─── Trackpad three-finger drag ───────────────────────────────────
+            // A three-finger drag is a plain left drag to macOS, so it moves a
+            // window with the primary modifier held whatever this switch says.
+            // The switch only decides whether the modifier can be skipped.
             Section {
-                Toggle(isOn: Binding(get: { store.dragEnabled }, set: { store.setDragEnabled($0) })) {
-                    featureLabel("hand.draw.fill", .blue, L("Drag window"), L("feature.drag.subtitle"))
-                }
-                // Three-finger drag stands in for the modifier on the left
-                // button. It only works with the macOS three-finger-drag
-                // option on, so say so up front, and point at the switch
-                // whenever the feature is on but the system option isn't.
                 Toggle(isOn: Binding(get: { store.threeFingerDragEnabled }, set: { store.setThreeFingerDragEnabled($0) })) {
-                    featureLabel("hand.raised.fingers.spread.fill", .orange, L("feature.threeFingerDrag"), threeFingerSubtitle)
+                    featureLabel("hand.raised.fingers.spread.fill", .orange, threeFingerTitle, threeFingerSubtitle)
                 }
                 .disabled(!store.dragEnabled)
-                if store.threeFingerDragEnabled && store.dragEnabled && !store.systemThreeFingerDragEnabled {
+                if store.systemThreeFingerDragEnabled {
+                    Text(L("feature.threeFingerDrag.requires"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
                     threeFingerSetupHint
                 }
-                Toggle(isOn: Binding(get: { store.maximizeEnabled }, set: { store.setMaximizeEnabled($0) })) {
-                    featureLabel("macwindow", .green, L("Maximize / Restore"), L("feature.maximize.subtitle"))
-                }
-                Toggle(isOn: Binding(get: { store.tilingEnabled }, set: { store.setTilingEnabled($0) })) {
-                    featureLabel("square.grid.2x2.fill", .purple, L("Window tiling"), L("feature.tiling.subtitle"))
-                }
+            } header: {
+                Text(L("section.threeFinger"))
             }
             .disabled(store.modifiers.isEmpty)
 
@@ -129,18 +143,34 @@ struct WindowDragPage: View {
         .navigationTitle(L("section.windowDrag"))
     }
 
-    /// The setup path, plus the resize key while a resize trigger is on
-    /// (three fingers + that key resizes instead of moving).
+    /// "Don't need the primary modifier (⌥ Option)", naming the modifier that
+    /// is currently chosen. With none chosen there is nothing to name.
+    private var threeFingerTitle: String {
+        let combo = store.modifiers
+        if combo.isEmpty { return L("feature.threeFingerDrag.noModifier") }
+        return String(format: L("feature.threeFingerDrag"), "\(combo.symbol) \(combo.displayName)")
+    }
+
+    /// What three fingers do right now: with the switch on they move the
+    /// window alone; with it off the primary modifier must be held too.
+    /// Plus the resize key when three fingers + that key really resize: the
+    /// left-click trigger does it with the switch either way (a three-finger
+    /// drag is a left drag), the right-click trigger only with the switch on.
     private var threeFingerSubtitle: String {
-        var text = L("feature.threeFingerDrag.subtitle")
-        if store.resizeTrigger != .off {
+        if store.modifiers.isEmpty { return L("feature.threeFingerDrag.subtitle.none") }
+        var text = store.threeFingerDragEnabled
+            ? L("feature.threeFingerDrag.subtitle.on")
+            : String(format: L("feature.threeFingerDrag.subtitle.off"), store.modifiers.symbol)
+        let resizesByThreeFingers = store.resizeTrigger == .leftClick
+            || (store.threeFingerDragEnabled && store.resizeTrigger != .off)
+        if resizesByThreeFingers {
             text += "\n" + String(format: L("feature.threeFingerDrag.resizeHint"), store.leftResizeModifier.symbol)
         }
         return text
     }
 
-    /// Shown while "Three-finger drag" is on but macOS's own three-finger-drag
-    /// option is off — the gesture emits no mouse events until it is enabled.
+    /// Shown while macOS's own three-finger-drag option is off — the gesture
+    /// emits no mouse events until it is enabled, with or without the switch.
     private var threeFingerSetupHint: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
