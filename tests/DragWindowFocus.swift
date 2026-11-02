@@ -26,6 +26,9 @@ private var raises: [AXUIElement] = []
 private var failRaise = false
 private var missingWindow = false
 private var failMain = false
+private var timeouts: [(AXUIElement, Float)] = []
+private var hangPositionReads = false
+private var positionReads = 0
 
 func AXUIElementCreateApplication(_ pid: pid_t) -> AXUIElement { app }
 
@@ -36,6 +39,8 @@ func AXUIElementCopyAttributeValue(_ element: AXUIElement, _ attribute: CFString
     case kAXWindowsAttribute:
         value.pointee = (missingWindow ? [] : [sibling, selected]) as CFArray
     case kAXPositionAttribute:
+        positionReads += 1
+        if hangPositionReads { return .cannotComplete }
         var origin = CFEqual(element, selected) ? selectedOrigin : CGPoint(x: 700, y: 200)
         value.pointee = AXValueCreate(.cgPoint, &origin)
     default:
@@ -49,6 +54,12 @@ func AXUIElementSetAttributeValue(_ element: AXUIElement, _ attribute: CFString,
                                  _ value: CFTypeRef) -> AXError {
     writes.append((element, attribute as String))
     return failMain ? .cannotComplete : .success
+}
+
+@discardableResult
+func AXUIElementSetMessagingTimeout(_ element: AXUIElement, _ timeout: Float) -> AXError {
+    timeouts.append((element, timeout))
+    return .success
 }
 
 func AXUIElementPerformAction(_ element: AXUIElement, _ action: CFString) -> AXError {
@@ -218,8 +229,44 @@ struct DragWindowFocusTest {
                 failMain = false
             }
         }
+        // AX calls made on the event-tap thread must be bounded: a hung target
+        // app would otherwise stall every mouse and keyboard event system-wide.
+        // Every element the strategy touches carries the messaging timeout, and
+        // an app that doesn't answer is given up on at the first read, not once
+        // per window, with the app-wide AXFrontmost as the fallback.
+        for hung in [false, true] {
+            cases += 1
+            writes = []
+            raises = []
+            timeouts = []
+            positionReads = 0
+            missingWindow = false
+            failRaise = false
+            failMain = false
+            hangPositionReads = hung
+            let strategy = TitleBarDragStrategy(activateApplication: { _, _ in true },
+                                                coveringPID: { _, _ in nil })
+            _ = strategy.handleMouseDown(pid: 900001, windowID: 42, windowFrame: frame,
+                event: mouse(.leftMouseDown, start), activateApp: true)
+            let bounded = { (element: AXUIElement) in
+                timeouts.contains { CFEqual($0.0, element) && $0.1 == TapThreadAX.messagingTimeout }
+            }
+            check(bounded(app), "app element used on the tap thread has no messaging timeout")
+            if hung {
+                check(positionReads == 1, "a hung app is probed once per window instead of giving up at the first timeout")
+                check(raises.isEmpty && !writes.contains { !CFEqual($0.0, app) },
+                      "windows of a hung app are raised or written")
+                check(writes.contains { CFEqual($0.0, app) && $0.1 == kAXFrontmostAttribute },
+                      "no app-wide AXFrontmost fallback after the hung lookup")
+            } else {
+                check(bounded(sibling) && bounded(selected), "window element used on the tap thread has no messaging timeout")
+                check(raises.count == 1 && CFEqual(raises[0], selected), "healthy app no longer raises the selected window")
+            }
+            _ = strategy.handleMouseUp(event: mouse(.leftMouseUp, start))
+            hangPositionReads = false
+        }
         guard failures == 0 else { exit(1) }
-        print("PASS: \(cases) focus cases cover selected-window activation, panels, delayed exposure, same-app cover, grace-period fallback and activation fallback")
+        print("PASS: \(cases) focus cases cover selected-window activation, panels, delayed exposure, same-app cover, grace-period fallback, activation fallback and bounded AX calls")
     }
 
     static func mouse(_ type: CGEventType, _ point: CGPoint) -> CGEvent {
