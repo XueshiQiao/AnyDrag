@@ -2277,7 +2277,7 @@ final class DragEngine {
 
         // Main thread (both call sites dispatch here), so reading `savedFrames`
         // is safe. No record → nothing to restore → the button renders disabled.
-        let panel = TilingPanel(canRestore: savedFrame(windowID: windowInfo.windowID, pid: windowInfo.pid) != nil)
+        let panel = TilingPanel(canRestore: savedFrame(windowID: windowInfo.windowID, pid: windowInfo.pid, currentFrame: windowInfo.frame) != nil)
         panel.onAction = { [weak self] action in
             self?.performTileAction(action, windowInfo: windowInfo)
         }
@@ -2402,7 +2402,8 @@ final class DragEngine {
         // worth remembering.
         switch action {
         case .restoreOriginal:
-            restoreOriginalFrame(axWindow, windowID: windowInfo.windowID, pid: windowInfo.pid, app: windowInfo.app)
+            restoreOriginalFrame(axWindow, windowID: windowInfo.windowID, pid: windowInfo.pid, app: windowInfo.app,
+                                 currentFrame: windowInfo.frame)
             return
         case .minimize:
             // Only drop it from linked-resize tracking if it really did
@@ -2589,7 +2590,7 @@ final class DragEngine {
         AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
 
-        if let savedFrame = savedFrame(windowID: windowID, pid: pid) {
+        if let savedFrame = savedFrame(windowID: windowID, pid: pid, currentFrame: windowFrame) {
             // Restore to original frame
             setWindowFrame(axWindow, frame: savedFrame)
             savedFrames.removeValue(forKey: windowID)
@@ -2627,10 +2628,21 @@ final class DragEngine {
     /// The remembered pre-AnyDrag frame for a window, or nil when there is none
     /// to go back to. A record left behind by a different process's window is
     /// dropped here rather than being handed out.
-    private func savedFrame(windowID: CGWindowID, pid: pid_t) -> CGRect? {
+    ///
+    /// `currentFrame` is where the window is now. A record whose frame is on a
+    /// different display (or on a display that is no longer connected) is also
+    /// dropped: restoring to it would throw the window back to that display, e.g.
+    /// after a middle-drag tile onto a second display.
+    private func savedFrame(windowID: CGWindowID, pid: pid_t, currentFrame: CGRect) -> CGRect? {
         guard let record = savedFrames[windowID] else { return nil }
         guard record.pid == pid else {
             Self.log.info("savedFrame: dropping stale record for wid=\(windowID) (recorded pid=\(record.pid), now pid=\(pid))")
+            savedFrames.removeValue(forKey: windowID)
+            return nil
+        }
+        guard let recordScreen = screenFor(cgRect: record.frame),
+              recordScreen === screenFor(cgRect: currentFrame) else {
+            Self.log.info("savedFrame: dropping record from another display for wid=\(windowID)")
             savedFrames.removeValue(forKey: windowID)
             return nil
         }
@@ -2644,8 +2656,9 @@ final class DragEngine {
     /// the no-record path here is only reachable if the record disappeared
     /// between the panel opening and the click. Log it and leave the window
     /// alone rather than guessing at a size.
-    private func restoreOriginalFrame(_ axWindow: AXUIElement, windowID: CGWindowID, pid: pid_t, app: String) {
-        guard let saved = savedFrame(windowID: windowID, pid: pid) else {
+    private func restoreOriginalFrame(_ axWindow: AXUIElement, windowID: CGWindowID, pid: pid_t, app: String,
+                                      currentFrame: CGRect) {
+        guard let saved = savedFrame(windowID: windowID, pid: pid, currentFrame: currentFrame) else {
             Self.log.info("restore: nothing recorded for app=\"\(app)\" wid=\(windowID) — leaving the window as is")
             return
         }
@@ -2810,15 +2823,21 @@ final class DragEngine {
         return CGRect(origin: pos, size: size)
     }
 
+    /// The screen containing the center of a rect given in CG coordinates
+    /// (top-left origin), or nil when the center is on no connected screen
+    /// (e.g. the display it was on has been unplugged).
+    private func screenFor(cgRect: CGRect) -> NSScreen? {
+        guard let mainScreen = NSScreen.screens.first else { return nil }
+        let centerNS = NSPoint(x: cgRect.midX, y: mainScreen.frame.height - cgRect.midY)
+        return NSScreen.screens.first { $0.frame.contains(centerNS) }
+    }
+
     /// Returns the screen's visible area (excluding menu bar and Dock) in CG coordinates
     /// for the screen that contains the given window frame.
     private func screenVisibleFrame(for windowFrame: CGRect) -> CGRect? {
         guard let mainScreen = NSScreen.screens.first else { return nil }
+        let screen = screenFor(cgRect: windowFrame) ?? mainScreen
         let mainHeight = mainScreen.frame.height
-
-        // Find which screen contains the window center (convert CG → NS coordinates)
-        let centerNS = NSPoint(x: windowFrame.midX, y: mainHeight - windowFrame.midY)
-        let screen = NSScreen.screens.first { $0.frame.contains(centerNS) } ?? mainScreen
 
         // Convert NSScreen visibleFrame (bottom-left origin) → CG coordinates (top-left origin)
         let vf = screen.visibleFrame
