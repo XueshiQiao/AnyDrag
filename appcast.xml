@@ -8,13 +8,13 @@
       <title>Version 26.11.122</title>
       <description><![CDATA[<h3>What's New in 26.11.122</h3>
 <ul>
-  <li><b>Double-clicking a window you tiled onto another display no longer sends it back</b> — If you middle-drag a window onto a second display (tiling it there) and then Modifier + double-click it, the window used to jump back to the first display. Now the double-click fills the display the window is on, and a second double-click restores it. The tiling panel's <b>Restore</b> button follows the same rule: it is greyed out when the only remembered size belongs to a different display. (<a href="https://github.com/XueshiQiao/AnyDrag/issues/66">#66</a>)</li>
+  <li><b>Double-clicking a window you tiled onto another display no longer sends it back</b> — If you middle-drag a window onto a second display (tiling it there) and then Modifier + double-click it, the window used to jump back to the first display. Now the double-click fills the display the window is on, and a second double-click restores it. The tiling panel's <b>Restore</b> button follows the same rule: it is greyed out when the only remembered size belongs to a different display. Thanks to <a href="https://github.com/kilianmuster">@kilianmuster</a> for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/66">#66</a>).</li>
   <li><b>Three-finger drag now has its own section in Settings</b> — The three-finger drag options are grouped in their own section under <b>Settings → Window Drag</b>, with clearer wording.</li>
 </ul>
 
 <h3>26.11.122 更新内容</h3>
 <ul>
-  <li><b>修复：把平铺后的窗口拖到另一块显示器后，双击会让窗口跳回原来的显示器</b> — 之前用中键把窗口平铺到第二块显示器后，再按修饰键双击窗口，窗口会跳回第一块显示器。现在双击会填满窗口当前所在的显示器，再双击一次则恢复原来的大小。平铺面板里的<b>「恢复」</b>按钮也遵循同样的规则：如果记住的窗口大小属于另一块显示器，按钮会变灰。（<a href="https://github.com/XueshiQiao/AnyDrag/issues/66">#66</a>）</li>
+  <li><b>修复：把平铺后的窗口拖到另一块显示器后，双击会让窗口跳回原来的显示器</b> — 之前用中键把窗口平铺到第二块显示器后，再按修饰键双击窗口，窗口会跳回第一块显示器。现在双击会填满窗口当前所在的显示器，再双击一次则恢复原来的大小。平铺面板里的<b>「恢复」</b>按钮也遵循同样的规则：如果记住的窗口大小属于另一块显示器，按钮会变灰。感谢 <a href="https://github.com/kilianmuster">@kilianmuster</a> 反馈（<a href="https://github.com/XueshiQiao/AnyDrag/issues/66">#66</a>）。</li>
   <li><b>三指拖移在设置里有了单独的分区</b> — 三指拖移的选项现在集中放在<b>「设置 → 窗口拖动」</b>下的单独分区里，文案也更清楚。</li>
 </ul>
 
