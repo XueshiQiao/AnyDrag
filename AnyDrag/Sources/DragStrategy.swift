@@ -19,6 +19,58 @@ import ApplicationServices
 // Result: zero per-frame IPC. The window server moves the window directly at compositor level,
 // identical in performance to manually dragging a title bar.
 
+/// Accessibility calls made on the event-tap thread.
+///
+/// The tap is an active filter at the head of the session's event stream, so
+/// while the callback waits on an AX reply, the window server cannot deliver
+/// any mouse or keyboard event to anything. An app that is hung or
+/// beach-balling never answers, and without a timeout the wait lasts until the
+/// system disables the tap. Every AX element used from that thread is
+/// therefore created through here, with a messaging timeout set on it
+/// (`AXUIElementSetMessagingTimeout` binds to one element object, so each
+/// element needs its own).
+///
+/// 0.15 s rather than the 0.05 s the edge probes use: a raise on a slow but
+/// healthy app (Electron, say) can legitimately take longer than 50 ms, and a
+/// raise that times out leaves the window behind its neighbours.
+enum TapThreadAX {
+    static let messagingTimeout: Float = 0.15
+
+    static func appElement(pid: pid_t) -> AXUIElement {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, messagingTimeout)
+        return app
+    }
+
+    /// The AX window of `pid` whose top-left corner is within 5 pt of
+    /// `windowFrame`'s. The returned element carries the timeout, so later
+    /// reads, raises and writes on it are bounded too.
+    ///
+    /// Gives up (nil) at the first timeout instead of trying the remaining
+    /// windows, so an unresponsive app costs one timeout, not one per window.
+    static func findWindow(pid: pid_t, windowFrame: CGRect) -> AXUIElement? {
+        let app = appElement(pid: pid)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement]
+        else { return nil }
+
+        for axWin in windows {
+            AXUIElementSetMessagingTimeout(axWin, messagingTimeout)
+            var posRef: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(axWin, kAXPositionAttribute as CFString, &posRef)
+            if result == .cannotComplete { return nil }
+            guard let posVal = posRef, CFGetTypeID(posVal) == AXValueGetTypeID() else { continue }
+            var pos = CGPoint.zero
+            AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
+            if abs(pos.x - windowFrame.origin.x) < 5 && abs(pos.y - windowFrame.origin.y) < 5 {
+                return axWin
+            }
+        }
+        return nil
+    }
+}
+
 /// Rewrites mouse event coordinates to the window's title bar region.
 /// The window server handles movement natively — same speed as dragging a title bar by hand.
 final class TitleBarDragStrategy {
@@ -224,7 +276,7 @@ final class TitleBarDragStrategy {
             }
         } else {
             var selectedWindowReady = false
-            if let axWindow = findAXWindow(pid: pid, windowFrame: windowFrame) {
+            if let axWindow = TapThreadAX.findWindow(pid: pid, windowFrame: windowFrame) {
                 selectedWindowReady = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString) == .success
                 if activateApp || !selectedWindowReady {
                     // Make the target the main window so activation brings it,
@@ -240,7 +292,7 @@ final class TitleBarDragStrategy {
             // refuse — fall back to the app-wide AXFrontmost that shipped
             // before: sibling windows may rise, but the drag still works.
             if activateApp, !(selectedWindowReady && activateApplication(pid, [])) {
-                let appElement = AXUIElementCreateApplication(pid)
+                let appElement = TapThreadAX.appElement(pid: pid)
                 AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             }
         }
@@ -335,26 +387,5 @@ final class TitleBarDragStrategy {
         pendingWindow = nil
         pendingPID = 0
         startupDeadline = 0
-    }
-
-    // MARK: - AX Window Lookup
-
-    /// Finds the AXUIElement for the window matching the given frame.
-    /// Used only to raise the target on mouseDown — not called during drag.
-    private func findAXWindow(pid: pid_t, windowFrame: CGRect) -> AXUIElement? {
-        let app = AXUIElementCreateApplication(pid)
-        var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement]
-        else { return nil }
-
-        return windows.first { axWin in
-            var posRef: CFTypeRef?
-            AXUIElementCopyAttributeValue(axWin, kAXPositionAttribute as CFString, &posRef)
-            guard let posVal = posRef, CFGetTypeID(posVal) == AXValueGetTypeID() else { return false }
-            var pos = CGPoint.zero
-            AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
-            return abs(pos.x - windowFrame.origin.x) < 5 && abs(pos.y - windowFrame.origin.y) < 5
-        }
     }
 }

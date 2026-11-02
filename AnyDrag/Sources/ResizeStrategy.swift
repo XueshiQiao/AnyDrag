@@ -225,13 +225,13 @@ final class ResizeStrategy {
             // corner bracket would freeze at the start frame when resizing
             // AnyDrag's own windows (only the cross-app branch below set it).
             if cornerBracketEnabled {
-                axWindow = ResizeStrategy.findAXWindow(pid: pid, windowFrame: windowFrame)
+                axWindow = TapThreadAX.findWindow(pid: pid, windowFrame: windowFrame)
             }
         } else {
-            let appElement = AXUIElementCreateApplication(pid)
+            let appElement = TapThreadAX.appElement(pid: pid)
             AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
 
-            if let foundAXWindow = ResizeStrategy.findAXWindow(pid: pid, windowFrame: windowFrame) {
+            if let foundAXWindow = TapThreadAX.findWindow(pid: pid, windowFrame: windowFrame) {
                 let raiseResult = AXUIElementPerformAction(foundAXWindow, kAXRaiseAction as CFString)
                 if raiseResult != .success {
                     AXUIElementSetAttributeValue(foundAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
@@ -248,7 +248,7 @@ final class ResizeStrategy {
         // `axPollInterval` into the gesture (gives the resize a moment to
         // engage natively before we start reading back).
         //
-        // Only seed when we actually got an AX handle to poll. If `findAXWindow`
+        // Only seed when we actually got an AX handle to poll. If `TapThreadAX.findWindow`
         // failed (`axWindow == nil`), leaving `observedFrame` nil lets
         // `handleMouseDragged` fall back to cursor-delta prediction — otherwise
         // the seeded start frame would make the bracket freeze (the very bug
@@ -285,8 +285,17 @@ final class ResizeStrategy {
         let now = Date()
         if let win = axWindow, now.timeIntervalSince(lastAXPoll) >= Self.axPollInterval {
             lastAXPoll = now
-            if let actual = Self.readAXFrame(win) {
+            switch Self.readAXFrame(win) {
+            case .frame(let actual):
                 observedFrame = actual
+            case .unavailable:
+                break
+            case .timedOut:
+                // The app stopped answering mid-drag. Each further poll would
+                // block the tap thread for another timeout, so stop polling for
+                // the rest of this gesture and track the cursor by prediction.
+                axWindow = nil
+                observedFrame = nil
             }
         }
 
@@ -294,7 +303,7 @@ final class ResizeStrategy {
         if let observed = observedFrame {
             bracketFrame = observed
         } else {
-            // No AX window (rare — findAXWindow failed). Fall back to
+            // No AX window (rare — TapThreadAX.findWindow failed). Fall back to
             // geometry prediction + screen clamp.
             let raw = activeCorner.predictedFrame(startFrame: startFrame, cursorDelta: cursorDelta)
             bracketFrame = Self.clampToVisibleScreen(frame: raw, corner: activeCorner)
@@ -384,12 +393,6 @@ final class ResizeStrategy {
         }
     }
 
-    // MARK: - AX Window Lookup
-    //
-    // (Duplicated from TitleBarDragStrategy for now — used only for the
-    // one-shot raise on mouseDown, never during drag. Refactor to a shared
-    // helper if a third strategy ever needs it.)
-
     /// Fallback clamp used only when we couldn't acquire an AX handle on
     /// the target window (rare). Clamps each moving edge to the host
     /// screen's *visible* frame — i.e. excludes the menu bar at the top
@@ -432,40 +435,35 @@ final class ResizeStrategy {
         )
     }
 
-    /// Read the target window's current position + size via AX, returning
-    /// a CG-coord frame. nil if either attribute is missing or malformed.
-    /// Synchronous; called on the tap thread at the throttled poll rate.
-    /// AX read calls are documented thread-safe.
-    private static func readAXFrame(_ axWindow: AXUIElement) -> CGRect? {
+    private enum AXFrameRead {
+        case frame(CGRect)
+        /// The attribute is missing or malformed; the app is still answering.
+        case unavailable
+        /// The app did not answer within the messaging timeout.
+        case timedOut
+    }
+
+    /// Read the target window's current position + size via AX, as a CG-coord
+    /// frame. Synchronous; called on the tap thread at the throttled poll rate.
+    /// Stops after the first failed read, so an unresponsive app costs one
+    /// timeout per call rather than two.
+    private static func readAXFrame(_ axWindow: AXUIElement) -> AXFrameRead {
         var posRef: CFTypeRef?
-        var sizeRef: CFTypeRef?
         let r1 = AXUIElementCopyAttributeValue(axWindow, kAXPositionAttribute as CFString, &posRef)
+        if r1 == .cannotComplete { return .timedOut }
+        guard r1 == .success else { return .unavailable }
+        var sizeRef: CFTypeRef?
         let r2 = AXUIElementCopyAttributeValue(axWindow, kAXSizeAttribute as CFString, &sizeRef)
-        guard r1 == .success, r2 == .success,
+        if r2 == .cannotComplete { return .timedOut }
+        guard r2 == .success,
               let posVal = posRef, let sizeVal = sizeRef,
               CFGetTypeID(posVal) == AXValueGetTypeID(),
               CFGetTypeID(sizeVal) == AXValueGetTypeID()
-        else { return nil }
+        else { return .unavailable }
         var pos = CGPoint.zero, size = CGSize.zero
         AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
         AXValueGetValue(sizeVal as! AXValue, .cgSize, &size)
-        return CGRect(origin: pos, size: size)
-    }
-
-    private static func findAXWindow(pid: pid_t, windowFrame: CGRect) -> AXUIElement? {
-        let app = AXUIElementCreateApplication(pid)
-        var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement]
-        else { return nil }
-        return windows.first { axWin in
-            var posRef: CFTypeRef?
-            AXUIElementCopyAttributeValue(axWin, kAXPositionAttribute as CFString, &posRef)
-            guard let posVal = posRef, CFGetTypeID(posVal) == AXValueGetTypeID() else { return false }
-            var pos = CGPoint.zero
-            AXValueGetValue(posVal as! AXValue, .cgPoint, &pos)
-            return abs(pos.x - windowFrame.origin.x) < 5 && abs(pos.y - windowFrame.origin.y) < 5
-        }
+        return .frame(CGRect(origin: pos, size: size))
     }
 }
 
