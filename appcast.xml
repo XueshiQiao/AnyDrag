@@ -5,8 +5,32 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.11.122</title>
-      <description><![CDATA[<h3>What's New in 26.11.122</h3>
+      <title>Version 26.11.124</title>
+      <description><![CDATA[<h3>What's New in 26.11.124</h3>
+<ul>
+  <li><b>Moving, resizing, maximizing or tiling a window no longer pulls the app's other windows to the front</b> — If an app was in the background and you dragged, right-drag resized, double-click maximized or tiled one of its windows, all of that app's windows jumped in front of your other apps. Now only the window you touched comes forward and the app's other windows stay where they were, the same as when you click a window directly. If macOS ever stops allowing this, AnyDrag falls back to the previous behavior. Thanks to <a href="https://github.com/jwcacces">@jwcacces</a> for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/67">#67</a>).</li>
+</ul>
+
+<h3>26.11.124 更新内容</h3>
+<ul>
+  <li><b>修复：拖动、缩放、最大化或平铺一个窗口时，同一个应用的其他窗口也被带到最前面</b> — 之前如果这个应用在后台，你拖动它的窗口、用右键缩放、双击最大化或者平铺，这个应用的所有窗口都会一起跳到其他应用前面。现在只有你操作的那一个窗口会到前面，这个应用的其他窗口留在原来的位置，和你直接点击窗口时一样。如果以后 macOS 不再允许这种做法，AnyDrag 会退回到之前的行为。感谢 <a href="https://github.com/jwcacces">@jwcacces</a> 反馈（<a href="https://github.com/XueshiQiao/AnyDrag/issues/67">#67</a>）。</li>
+</ul>
+
+<h3>What's New in 26.11.123</h3>
+<ul>
+  <li><b>A frozen app can no longer freeze your mouse and keyboard</b> — When you held the modifier and pressed or dragged on a window whose app was hung or beach-balling, AnyDrag waited for that app to answer, and while it waited, mouse and keyboard input stopped system-wide. AnyDrag now gives up on an unresponsive app after a fraction of a second and carries on, so the worst case is that one window doesn't come to the front. (<a href="https://github.com/XueshiQiao/AnyDrag/issues/56">#56</a>)</li>
+  <li><b>Double-clicking a window you tiled onto another display no longer sends it back</b> — If you middle-drag a window onto a second display (tiling it there) and then Modifier + double-click it, the window used to jump back to the first display. Now the double-click fills the display the window is on, and a second double-click restores it. The tiling panel's <b>Restore</b> button follows the same rule: it is greyed out when the only remembered size belongs to a different display. Thanks to <a href="https://github.com/kilianmuster">@kilianmuster</a> for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/66">#66</a>).</li>
+  <li><b>Three-finger drag now has its own section in Settings</b> — The three-finger drag options are grouped in their own section under <b>Settings → Window Drag</b>, with clearer wording.</li>
+</ul>
+
+<h3>26.11.123 更新内容</h3>
+<ul>
+  <li><b>修复：某个应用卡死时，整台电脑的鼠标和键盘跟着卡住</b> — 之前按住修饰键去点击或拖动一个已经卡死（转彩虹球）的应用的窗口时，AnyDrag 会一直等那个应用回应，等的这段时间里，全系统的鼠标和键盘输入都会停住。现在 AnyDrag 等一小会儿没有回应就放弃，继续往下走，最坏的结果只是这一个窗口没有被抬到最前面。（<a href="https://github.com/XueshiQiao/AnyDrag/issues/56">#56</a>）</li>
+  <li><b>修复：把平铺后的窗口拖到另一块显示器后，双击会让窗口跳回原来的显示器</b> — 之前用中键把窗口平铺到第二块显示器后，再按修饰键双击窗口，窗口会跳回第一块显示器。现在双击会填满窗口当前所在的显示器，再双击一次则恢复原来的大小。平铺面板里的<b>「恢复」</b>按钮也遵循同样的规则：如果记住的窗口大小属于另一块显示器，按钮会变灰。感谢 <a href="https://github.com/kilianmuster">@kilianmuster</a> 反馈（<a href="https://github.com/XueshiQiao/AnyDrag/issues/66">#66</a>）。</li>
+  <li><b>三指拖移在设置里有了单独的分区</b> — 三指拖移的选项现在集中放在<b>「设置 → 窗口拖动」</b>下的单独分区里，文案也更清楚。</li>
+</ul>
+
+<h3>What's New in 26.11.122</h3>
 <ul>
   <li><b>Double-clicking a window you tiled onto another display no longer sends it back</b> — If you middle-drag a window onto a second display (tiling it there) and then Modifier + double-click it, the window used to jump back to the first display. Now the double-click fills the display the window is on, and a second double-click restores it. The tiling panel's <b>Restore</b> button follows the same rule: it is greyed out when the only remembered size belongs to a different display. Thanks to <a href="https://github.com/kilianmuster">@kilianmuster</a> for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/66">#66</a>).</li>
   <li><b>Three-finger drag now has its own section in Settings</b> — The three-finger drag options are grouped in their own section under <b>Settings → Window Drag</b>, with clearer wording.</li>
@@ -389,11 +413,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Mon, 02 Nov 2026 08:44:11 +0000</pubDate>
-      <sparkle:version>122</sparkle:version>
-      <sparkle:shortVersionString>26.11.122</sparkle:shortVersionString>
+      <pubDate>Thu, 05 Nov 2026 05:16:50 +0000</pubDate>
+      <sparkle:version>124</sparkle:version>
+      <sparkle:shortVersionString>26.11.124</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.122/AnyDrag.dmg" length="4380950" type="application/octet-stream" sparkle:edSignature="WZV+RUfEQjtI43o1NID+6bw/HK2/JmuGgFuQJdQRo386cPXgNyLe0bCuo9999NSsoyQ/FvHnCbtc0nfk4HpGDw==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.124/AnyDrag.dmg" length="4385163" type="application/octet-stream" sparkle:edSignature="fqeWzYdDn0yyI+w3AF6IxU8zRMI8mJZXkgF++KqNRcQzBDxL4JTvm7rktUXik9pQoK1wsTxx01wuQ7LKZi7LCA==" />
     </item>
   </channel>
 </rss>
