@@ -228,19 +228,14 @@ final class ResizeStrategy {
                 axWindow = TapThreadAX.findWindow(pid: pid, windowFrame: windowFrame)
             }
         } else {
-            let appElement = TapThreadAX.appElement(pid: pid)
-            AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-
-            if let foundAXWindow = TapThreadAX.findWindow(pid: pid, windowFrame: windowFrame) {
-                let raiseResult = AXUIElementPerformAction(foundAXWindow, kAXRaiseAction as CFString)
-                if raiseResult != .success {
-                    AXUIElementSetAttributeValue(foundAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-                }
-                // Only cache the window for polling if the bracket is
-                // actually going to use it — keeps the AX poll loop
-                // dormant when the user has the overlay turned off.
-                if cornerBracketEnabled { axWindow = foundAXWindow }
-            }
+            let foundAXWindow = TapThreadAX.findWindow(pid: pid, windowFrame: windowFrame)
+            // Raise only the window being resized; activating the whole app
+            // would bring its other windows forward too (issue #67).
+            TapThreadAX.bringForward(pid: pid, axWindow: foundAXWindow, windowID: windowID)
+            // Only cache the window for polling if the bracket is
+            // actually going to use it — keeps the AX poll loop
+            // dormant when the user has the overlay turned off.
+            if cornerBracketEnabled { axWindow = foundAXWindow }
         }
         // Seed the observed frame with the input frame so the very first
         // drag event has something to render before the AX poll kicks in.

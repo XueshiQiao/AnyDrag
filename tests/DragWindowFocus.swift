@@ -229,6 +229,34 @@ struct DragWindowFocusTest {
                 failMain = false
             }
         }
+        // When the window server fronts the single window, neither the AppKit
+        // activation nor the app-wide AXFrontmost (which raises every window
+        // of the app, issue #67) is used.
+        for middleButton in [false, true] {
+            cases += 1
+            writes = []
+            raises = []
+            missingWindow = false
+            failRaise = false
+            failMain = false
+            var focused: [(pid_t, CGWindowID)] = []
+            var activationCount = 0
+            let strategy = TitleBarDragStrategy(activateApplication: { _, _ in
+                activationCount += 1
+                return true
+            }, focusWindow: { pid, wid in
+                focused.append((pid, wid))
+                return true
+            }, coveringPID: { _, _ in nil })
+            _ = strategy.handleMouseDown(pid: 900001, windowID: 42, windowFrame: frame,
+                event: mouse(.leftMouseDown, start), rewriteToLeftButton: middleButton)
+            check(focused.count == 1 && focused[0].0 == 900001 && focused[0].1 == 42,
+                  "the window server is not asked to front the target window")
+            check(activationCount == 0, "AppKit activation requested after the window server fronted the window")
+            check(!writes.contains { CFEqual($0.0, app) && $0.1 == kAXFrontmostAttribute },
+                  "app-wide AXFrontmost used after the window server fronted the window")
+            _ = strategy.handleMouseUp(event: mouse(.leftMouseUp, start))
+        }
         // AX calls made on the event-tap thread must be bounded: a hung target
         // app would otherwise stall every mouse and keyboard event system-wide.
         // Every element the strategy touches carries the messaging timeout, and

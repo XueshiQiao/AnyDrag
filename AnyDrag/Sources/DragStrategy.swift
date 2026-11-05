@@ -19,6 +19,55 @@ import ApplicationServices
 // Result: zero per-frame IPC. The window server moves the window directly at compositor level,
 // identical in performance to manually dragging a title bar.
 
+// Private window-server calls (the same ones AltTab and yabai use) that bring
+// a single window to the front and give it keyboard focus, without activating
+// the app's other windows. They are looked up with dlsym at first use rather
+// than linked, so if a future macOS removes one the lookup returns nil and
+// `bringForward` falls back to the public APIs instead of failing to launch.
+@_silgen_name("GetProcessForPID")
+private func GetProcessForPID(_ pid: pid_t, _ psn: UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+
+enum WindowServerFocus {
+    private typealias SetFrontFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UInt32, UInt32) -> CGError
+    private typealias PostEventFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UnsafeMutablePointer<UInt8>) -> CGError
+
+    private static let userGenerated: UInt32 = 0x200
+
+    private static let setFront: SetFrontFn? = lookup("_SLPSSetFrontProcessWithOptions")
+    private static let postEvent: PostEventFn? = lookup("SLPSPostEventRecordTo")
+
+    private static func lookup<T>(_ name: String) -> T? {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY),
+              let sym = dlsym(handle, name)
+        else { return nil }
+        return unsafeBitCast(sym, to: T.self)
+    }
+
+    /// Makes `windowID` (owned by `pid`) the frontmost window and the key
+    /// window. Returns false when the private calls are unavailable, the
+    /// process could not be found, or the window server refused.
+    static func focus(pid: pid_t, windowID: CGWindowID) -> Bool {
+        guard let setFront, let postEvent else { return false }
+        var psn = ProcessSerialNumber()
+        guard GetProcessForPID(pid, &psn) == noErr else { return false }
+        guard setFront(&psn, windowID, userGenerated) == .success else { return false }
+        // Tell the app the window became key (event record 0x01 = key down
+        // of the window, 0x02 = key up), so it takes keyboard focus too.
+        var bytes = [UInt8](repeating: 0, count: 0xf8)
+        bytes[0x04] = 0xf8
+        bytes[0x3a] = 0x10
+        withUnsafeBytes(of: windowID) { raw in
+            for k in 0..<4 { bytes[0x3c + k] = raw[k] }
+        }
+        for k in 0x20..<0x30 { bytes[k] = 0xff }
+        bytes[0x08] = 0x01
+        _ = postEvent(&psn, &bytes)
+        bytes[0x08] = 0x02
+        _ = postEvent(&psn, &bytes)
+        return true
+    }
+}
+
 /// Accessibility calls made on the event-tap thread.
 ///
 /// The tap is an active filter at the head of the session's event stream, so
@@ -40,6 +89,46 @@ enum TapThreadAX {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, messagingTimeout)
         return app
+    }
+
+    private static let log = FileLog("BringForward")
+
+    /// Brings one window to the front and makes it the app's key window,
+    /// without pulling the app's other windows forward (issue #67).
+    ///
+    /// Steps, in order:
+    /// 1. If `axWindow` is known, raise it and make it the main window.
+    /// 2. If `windowID` is known, ask the window server to make that single
+    ///    window frontmost and key (`WindowServerFocus`). This works even
+    ///    while the owning app is in the background, which is when the AppKit
+    ///    request below is refused (AnyDrag is itself a background app).
+    /// 3. Otherwise, or if that fails, activate the app through AppKit
+    ///    without `activateAllWindows`.
+    /// 4. Last resort: `kAXFrontmostAttribute`, which raises every window of
+    ///    the app.
+    static func bringForward(pid: pid_t, axWindow: AXUIElement?, windowID: CGWindowID? = nil) {
+        var raised: AXError = .failure
+        var mainSet: AXError = .failure
+        if let axWindow {
+            raised = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+            mainSet = AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
+        }
+
+        var psnOK = false
+        if let windowID {
+            psnOK = WindowServerFocus.focus(pid: pid, windowID: windowID)
+        }
+        var activated: Bool?
+        if !psnOK, mainSet == .success {
+            activated = NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+        }
+        log.info("pid=\(pid) wid=\(windowID.map(String.init) ?? "-") raise=\(raised.rawValue) setMain=\(mainSet.rawValue) windowServerFocus=\(psnOK) activate=\(String(describing: activated))")
+        if psnOK || activated == true { return }
+
+        log.info("pid=\(pid) falling back to kAXFrontmost")
+        AXUIElementSetAttributeValue(appElement(pid: pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        // The app-wide raise above can put a sibling on top; raise the target again.
+        if let axWindow { _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString) }
     }
 
     /// The AX window of `pid` whose top-left corner is within 5 pt of
@@ -86,6 +175,7 @@ final class TitleBarDragStrategy {
     private var pendingPID: pid_t = 0
     private var startupDeadline: TimeInterval = 0
     private let activateApplication: (pid_t, NSApplication.ActivationOptions) -> Bool
+    private let focusWindow: (pid_t, CGWindowID) -> Bool
     private let coveringPID: (CGWindowID, CGPoint) -> pid_t?
     private let now: () -> TimeInterval
 
@@ -95,9 +185,11 @@ final class TitleBarDragStrategy {
 
     init(activateApplication: @escaping (pid_t, NSApplication.ActivationOptions) -> Bool = {
         NSRunningApplication(processIdentifier: $0)?.activate(options: $1) ?? false
-    }, coveringPID: @escaping (CGWindowID, CGPoint) -> pid_t? = TitleBarDragStrategy.coveringPID(of:at:),
+    }, focusWindow: @escaping (pid_t, CGWindowID) -> Bool = WindowServerFocus.focus(pid:windowID:),
+         coveringPID: @escaping (CGWindowID, CGPoint) -> pid_t? = TitleBarDragStrategy.coveringPID(of:at:),
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.activateApplication = activateApplication
+        self.focusWindow = focusWindow
         self.coveringPID = coveringPID
         self.now = now
     }
@@ -291,7 +383,13 @@ final class TitleBarDragStrategy {
             // app activating another app is something newer macOS releases may
             // refuse — fall back to the app-wide AXFrontmost that shipped
             // before: sibling windows may rise, but the drag still works.
-            if activateApp, !(selectedWindowReady && activateApplication(pid, [])) {
+            //
+            // The window server is asked first to front just this window:
+            // unlike the AppKit request, it is not refused while the owning
+            // app is in the background, which is when the fallback below
+            // would raise every window of the app (issue #67).
+            if activateApp, !focusWindow(pid, windowID),
+               !(selectedWindowReady && activateApplication(pid, [])) {
                 let appElement = TapThreadAX.appElement(pid: pid)
                 AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             }

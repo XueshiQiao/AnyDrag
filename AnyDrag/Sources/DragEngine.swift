@@ -1703,15 +1703,8 @@ final class DragEngine {
             return
         }
 
-        let appElement = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(appElement, Self.axProbeTimeout)
         AXUIElementSetMessagingTimeout(axWindow, Self.axProbeTimeout)
-        AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-        _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
-        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-        if AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString) != .success {
-            AXUIElementSetAttributeValue(axWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-        }
+        TapThreadAX.bringForward(pid: pid, axWindow: axWindow, windowID: windowID)
         Self.log.info("tile commit activated window: app=\"\(app)\" wid=\(windowID)")
     }
 
@@ -1988,6 +1981,7 @@ final class DragEngine {
                         self.setWindowFrame(next.axWindow, frame: oppositeCGRect)
                         self.raisePairedWindowKeepingPrimaryFrontmost(
                             pairedPid: next.pid,
+                            pairedWindowID: next.windowID,
                             pairedAXWindow: next.axWindow,
                             primaryPid: target.pid,
                             primaryWindowID: target.windowID,
@@ -2586,9 +2580,8 @@ final class DragEngine {
         }
 
         // Activate the target app and raise the window
-        let appElement = AXUIElementCreateApplication(pid)
-        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-        AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+        AXUIElementSetMessagingTimeout(axWindow, Self.axProbeTimeout)
+        TapThreadAX.bringForward(pid: pid, axWindow: axWindow, windowID: windowID)
 
         if let savedFrame = savedFrame(windowID: windowID, pid: pid, currentFrame: windowFrame) {
             // Restore to original frame
@@ -2998,6 +2991,7 @@ final class DragEngine {
     /// half, while keeping `primaryAXWindow` frontmost and focused.
     private func raisePairedWindowKeepingPrimaryFrontmost(
         pairedPid: pid_t,
+        pairedWindowID: CGWindowID,
         pairedAXWindow: AXUIElement,
         primaryPid: pid_t,
         primaryWindowID: CGWindowID,
@@ -3005,11 +2999,7 @@ final class DragEngine {
     ) {
         AXUIElementSetMessagingTimeout(pairedAXWindow, Self.axProbeTimeout)
         if pairedPid != primaryPid {
-            let pairedApp = AXUIElementCreateApplication(pairedPid)
-            AXUIElementSetMessagingTimeout(pairedApp, Self.axProbeTimeout)
-            AXUIElementSetAttributeValue(pairedAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-            _ = AXUIElementPerformAction(pairedAXWindow, kAXRaiseAction as CFString)
-            AXUIElementSetAttributeValue(pairedApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            TapThreadAX.bringForward(pid: pairedPid, axWindow: pairedAXWindow, windowID: pairedWindowID)
         } else {
             _ = AXUIElementPerformAction(pairedAXWindow, kAXRaiseAction as CFString)
         }
@@ -3021,15 +3011,8 @@ final class DragEngine {
                 window.makeKeyAndOrderFront(nil)
             }
         } else {
-            let primaryApp = AXUIElementCreateApplication(primaryPid)
-            AXUIElementSetMessagingTimeout(primaryApp, Self.axProbeTimeout)
             AXUIElementSetMessagingTimeout(primaryAXWindow, Self.axProbeTimeout)
-            AXUIElementSetAttributeValue(primaryAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-            _ = AXUIElementPerformAction(primaryAXWindow, kAXRaiseAction as CFString)
-            AXUIElementSetAttributeValue(primaryApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-            if AXUIElementPerformAction(primaryAXWindow, kAXRaiseAction as CFString) != .success {
-                AXUIElementSetAttributeValue(primaryAXWindow, kAXMainAttribute as CFString, kCFBooleanTrue)
-            }
+            TapThreadAX.bringForward(pid: primaryPid, axWindow: primaryAXWindow, windowID: primaryWindowID)
         }
     }
 
