@@ -1,3 +1,13 @@
+<h3>What's New in 26.11.124</h3>
+<ul>
+  <li><b>Moving, resizing, maximizing or tiling a window no longer pulls the app's other windows to the front</b> — If an app was in the background and you dragged, right-drag resized, double-click maximized or tiled one of its windows, all of that app's windows jumped in front of your other apps. Now only the window you touched comes forward and the app's other windows stay where they were, the same as when you click a window directly. If macOS ever stops allowing this, AnyDrag falls back to the previous behavior. Thanks to <a href="https://github.com/jwcacces">@jwcacces</a> for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/67">#67</a>).</li>
+</ul>
+
+<h3>26.11.124 更新内容</h3>
+<ul>
+  <li><b>修复：拖动、缩放、最大化或平铺一个窗口时，同一个应用的其他窗口也被带到最前面</b> — 之前如果这个应用在后台，你拖动它的窗口、用右键缩放、双击最大化或者平铺，这个应用的所有窗口都会一起跳到其他应用前面。现在只有你操作的那一个窗口会到前面，这个应用的其他窗口留在原来的位置，和你直接点击窗口时一样。如果以后 macOS 不再允许这种做法，AnyDrag 会退回到之前的行为。感谢 <a href="https://github.com/jwcacces">@jwcacces</a> 反馈（<a href="https://github.com/XueshiQiao/AnyDrag/issues/67">#67</a>）。</li>
+</ul>
+
 <h3>What's New in 26.11.123</h3>
 <ul>
   <li><b>A frozen app can no longer freeze your mouse and keyboard</b> — When you held the modifier and pressed or dragged on a window whose app was hung or beach-balling, AnyDrag waited for that app to answer, and while it waited, mouse and keyboard input stopped system-wide. AnyDrag now gives up on an unresponsive app after a fraction of a second and carries on, so the worst case is that one window doesn't come to the front. (<a href="https://github.com/XueshiQiao/AnyDrag/issues/56">#56</a>)</li>
