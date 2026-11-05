@@ -68,6 +68,8 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var titleBarYOffset: CGFloat
     @Published private(set) var resizeCornerInset: CGFloat
     @Published private(set) var showDebugDot: Bool
+    @Published private(set) var keyboardShortcutsEnabled: Bool
+    @Published private(set) var keyboardShortcuts: [TileAction: KeyShortcut]
 
     // ─── Non-engine ──────────────────────────────────────────────────
     @Published private(set) var launchAtLogin: Bool
@@ -114,6 +116,8 @@ final class SettingsStore: ObservableObject {
         titleBarYOffset = engine.titleBarYOffset
         resizeCornerInset = engine.resizeCornerInset
         showDebugDot = engine.showDebugDot
+        keyboardShortcutsEnabled = engine.keyboardShortcutsEnabled
+        keyboardShortcuts = engine.keyboardShortcutTable
 
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
         accessibilityGranted = AXIsProcessTrusted()
@@ -315,6 +319,49 @@ final class SettingsStore: ObservableObject {
         if previous != on {
             Analytics.trackPreferenceChanged(key: analytics, value: String(on))
         }
+    }
+
+    // MARK: Keyboard shortcuts (issue #40)
+
+    func setKeyboardShortcutsEnabled(_ on: Bool) {
+        let previous = keyboardShortcutsEnabled
+        keyboardShortcutsEnabled = on
+        engine.setKeyboardShortcuts(keyboardShortcuts, enabled: on)
+        UserDefaults.standard.set(on, forKey: Preferences.Key.keyboardShortcutsEnabled)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "keyboard_shortcuts_enabled", value: String(on))
+        }
+    }
+
+    /// Bind `shortcut` to `action`, or clear the action when `shortcut` is nil.
+    /// A shortcut can run only one action, so another action that had the same
+    /// keys loses them.
+    func setKeyboardShortcut(_ shortcut: KeyShortcut?, for action: TileAction) {
+        var table = keyboardShortcuts
+        if let shortcut {
+            for (other, existing) in table where existing == shortcut { table[other] = nil }
+            table[action] = shortcut
+        } else {
+            table[action] = nil
+        }
+        applyKeyboardShortcutTable(table)
+    }
+
+    func applyShortcutPreset(_ preset: ShortcutPreset) {
+        applyKeyboardShortcutTable(preset.table)
+        Analytics.trackPreferenceChanged(key: "keyboard_shortcut_preset", value: preset.rawValue)
+    }
+
+    private func applyKeyboardShortcutTable(_ table: [TileAction: KeyShortcut]) {
+        keyboardShortcuts = table
+        engine.setKeyboardShortcuts(table, enabled: keyboardShortcutsEnabled)
+        KeyboardShortcutStore.save(table)
+    }
+
+    /// While a recorder is waiting for a key press, the global shortcuts step
+    /// aside so the press reaches the recorder.
+    func setShortcutRecording(_ recording: Bool) {
+        engine.setKeyboardShortcutsPaused(recording)
     }
 
     // MARK: Diagnostics

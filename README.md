@@ -88,6 +88,10 @@ Choose your primary modifier — or a combo:
 
 > If macOS "Hold ⌥ to tile windows while dragging" is enabled and AnyDrag's modifier is **not** Option, you can hold Option as an extra key for native tiling. For example, with AnyDrag set to `fn`, `fn + option + drag` starts a native drag from anywhere in the window and still triggers system tiling.
 
+### ⌨️ Keyboard shortcuts (optional)
+
+Turn on **Settings → Keyboard Shortcuts** to tile the focused window without the mouse. It is off by default. The default keys follow Rectangle and Magnet: `⌃⌥←/→/↑/↓` for halves, `⌃⌥↩` to fill the screen, `⌃⌥C` to center, `⌃⌥U/I/J/K` for the four corners, `⌃⌥⌫` to restore. A Spectacle layout (`⌘⌥`) is one click away, and every action can be re-recorded or cleared. Apps in *Excluded Apps* keep their own keys.
+
 ### 🛠️ More
 
 - **Excluded apps** — list apps where AnyDrag never engages at all.

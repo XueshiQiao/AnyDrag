@@ -672,6 +672,10 @@ final class DragEngine {
         // Lift the bar a previous `stop()` put up (no-op on a first start).
         flagScrubber.resume()
 
+        // The keyboard tap rides on this thread's run loop, so it can only be
+        // created now.
+        refreshKeyboardTap()
+
         cbState.withLock { $0.eventCounter = 0 }
         eventCounterStart = Date()
         tapDisableWindowStart = nil
@@ -692,6 +696,9 @@ final class DragEngine {
         // The bar matters because a gesture may be building one right now on that
         // thread — `resume()` in `start()` lifts it.
         flagScrubber.shutdown()
+
+        // Same for the keyboard tap: it is serviced by the thread being stopped.
+        teardownKeyboardTap()
 
         // Atomically pull the tap and run loop out of the shared state.
         // After this exits the lock, the cbState reflects "no tap running"
@@ -2271,7 +2278,9 @@ final class DragEngine {
 
         // Main thread (both call sites dispatch here), so reading `savedFrames`
         // is safe. No record → nothing to restore → the button renders disabled.
-        let panel = TilingPanel(canRestore: savedFrame(windowID: windowInfo.windowID, pid: windowInfo.pid, currentFrame: windowInfo.frame) != nil)
+        let panel = TilingPanel(
+            canRestore: savedFrame(windowID: windowInfo.windowID, pid: windowInfo.pid, currentFrame: windowInfo.frame) != nil,
+            shortcutLabels: keyboardShortcutLabels)
         panel.onAction = { [weak self] action in
             self?.performTileAction(action, windowInfo: windowInfo)
         }
@@ -2382,10 +2391,11 @@ final class DragEngine {
         return activeModifiers == augmentFlags
     }
 
-    private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String)) {
+    private func performTileAction(_ action: TileAction, windowInfo: (pid: pid_t, windowID: CGWindowID, frame: CGRect, app: String),
+                                   trigger: Analytics.TileTrigger = .panel, axWindow knownAXWindow: AXUIElement? = nil) {
         guard axGuardOrAbort("performTileAction") else { return }
-        Analytics.trackTile(tile: action.analyticsKey, trigger: .panel)
-        guard let axWindow = findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else {
+        Analytics.trackTile(tile: action.analyticsKey, trigger: trigger)
+        guard let axWindow = knownAXWindow ?? findAXWindow(pid: windowInfo.pid, windowFrame: windowInfo.frame) else {
             Self.log.warn("performTileAction: findAXWindow returned nil for pid=\(windowInfo.pid) wid=\(windowInfo.windowID)")
             return
         }
@@ -3016,6 +3026,189 @@ final class DragEngine {
         }
     }
 
+    // MARK: - Keyboard shortcuts (issue #40)
+
+    /// What the keyboard tap thread reads. Written on main, read on the tap
+    /// thread, so it lives behind a lock (never nested with `cbState`).
+    private struct KeyboardTapState {
+        /// Shortcut → the action it runs.
+        var table: [KeyShortcut: TileAction] = [:]
+        /// Pid of the frontmost app, kept current by `NSWorkspace` on main so
+        /// the tap thread never has to ask Launch Services.
+        var frontPid: pid_t = 0
+        /// True while a Settings recorder is waiting for the user to press a
+        /// new shortcut: the key must reach the recorder, not trigger an action.
+        var paused = false
+        var tap: CFMachPort?
+    }
+    private let keyboardState = OSAllocatedUnfairLock<KeyboardTapState>(initialState: KeyboardTapState())
+    private(set) var keyboardShortcutsEnabled = false
+    private(set) var keyboardShortcutTable: [TileAction: KeyShortcut] = [:]
+    private var keyboardTapSource: CFRunLoopSource?
+    private var frontAppObserver: NSObjectProtocol?
+
+    /// Replace the shortcut table and the on/off switch together, then create
+    /// or drop the keyboard tap to match. Main thread only.
+    func setKeyboardShortcuts(_ table: [TileAction: KeyShortcut], enabled: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        keyboardShortcutsEnabled = enabled
+        keyboardShortcutTable = table
+        let byShortcut = Dictionary(table.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
+        keyboardState.withLock { $0.table = byShortcut }
+        refreshKeyboardTap()
+    }
+
+    func setKeyboardShortcutsPaused(_ paused: Bool) {
+        keyboardState.withLock { $0.paused = paused }
+    }
+
+    /// Shortcut text per action for the right-click panel's tooltips; empty
+    /// while the feature is off, so the panel looks exactly as it did before.
+    var keyboardShortcutLabels: [TileAction: String] {
+        keyboardShortcutsEnabled ? keyboardShortcutTable.mapValues { $0.display } : [:]
+    }
+
+    /// Create the keyboard tap when shortcuts are on and the mouse tap thread
+    /// is running (the keyboard tap shares its run loop, so a slow main thread
+    /// can never hold up the keyboard); drop it otherwise.
+    private func refreshKeyboardTap() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard keyboardShortcutsEnabled, !keyboardShortcutTable.isEmpty else {
+            teardownKeyboardTap()
+            return
+        }
+        guard keyboardTapSource == nil,
+              let runLoop = cbState.withLock({ $0.tapRunLoop }),
+              let userInfo = tapUserInfo else { return }
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(1) << CGEventType.keyDown.rawValue,
+            callback: keyboardTapCallback,
+            userInfo: userInfo
+        ) else {
+            Self.log.warn("keyboard tap: tapCreate failed")
+            return
+        }
+        keyboardState.withLock { state in
+            state.tap = tap
+            state.frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        }
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        keyboardTapSource = source
+        CFRunLoopAddSource(runLoop, source, .commonModes)
+        CFRunLoopWakeUp(runLoop)
+        frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            self?.keyboardState.withLock { $0.frontPid = app?.processIdentifier ?? 0 }
+        }
+        Self.log.info("keyboard tap: created (\(keyboardShortcutTable.count) shortcuts)")
+    }
+
+    private func teardownKeyboardTap() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let tap = keyboardState.withLock { state -> CFMachPort? in
+            let t = state.tap
+            state.tap = nil
+            return t
+        }
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let source = keyboardTapSource { CFRunLoopSourceInvalidate(source) }
+        keyboardTapSource = nil
+        if let observer = frontAppObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            frontAppObserver = nil
+        }
+    }
+
+    /// After the system disabled the keyboard tap (a slow callback, or Accessibility
+    /// being revoked): turn it back on only while Accessibility is still granted.
+    /// Done on main, never on the tap thread, so a revoke can't make the two fight.
+    private func reenableKeyboardTapIfTrusted() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard AXIsProcessTrusted(), let tap = keyboardState.withLock({ $0.tap }) else { return }
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    /// Keyboard tap callback body, on the tap thread. Only a table lookup and a
+    /// hand-off to main happen here: this thread sits in front of every key
+    /// press on the system.
+    fileprivate func handleKeyboardEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            Self.log.warn("keyboard tap disabled (\(type)) — main will decide whether to re-enable")
+            DispatchQueue.main.async { [weak self] in self?.reenableKeyboardTapIfTrusted() }
+            return Unmanaged.passUnretained(event)
+        }
+        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+
+        // Compare only ⌃⌥⇧⌘. The fn flag macOS adds to arrow keys is left out.
+        let probe = KeyShortcut(
+            keyCode: UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
+            modifiers: KeyShortcut.modifierBits(of: event.flags),
+            label: "")
+        let (action, frontPid, paused) = keyboardState.withLock { ($0.table[probe], $0.frontPid, $0.paused) }
+        guard let action, !paused, frontPid != getpid(), !isBlacklisted(pid: frontPid) else {
+            return Unmanaged.passUnretained(event)
+        }
+        // Holding the keys down repeats keyDown. Swallow the repeats without
+        // acting again, so the shortcut doesn't leak into the app and
+        // multi-window layouts don't reshuffle over and over.
+        if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            DispatchQueue.main.async { [weak self] in self?.performKeyboardTile(action) }
+        }
+        return nil
+    }
+
+    /// Run `action` on the focused window of the frontmost app. The focused
+    /// window comes from Accessibility, but the rest of the tiling code (the
+    /// "restore" record, linked resize) identifies windows by CGWindowID, so the
+    /// matching entry in the on-screen window list is looked up too.
+    private func performKeyboardTile(_ action: TileAction) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard keyboardShortcutsEnabled, axGuardOrAbort("performKeyboardTile"),
+              let app = NSWorkspace.shared.frontmostApplication else { return }
+        let pid = app.processIdentifier
+        guard pid != getpid(), !isBlacklisted(pid: pid) else { return }
+        // A tiling panel or snap-assist picker left open would hang over the old spot.
+        tilingPanel?.dismiss()
+        snapAssistOverlay.hide()
+
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, 0.5)
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &ref) == .success,
+              let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else {
+            Self.log.info("keyboard tile: \(app.localizedName ?? "?") has no focused window")
+            return
+        }
+        let axWindow = ref as! AXUIElement
+        AXUIElementSetMessagingTimeout(axWindow, 0.5)
+        guard let frame = getWindowFrame(axWindow),
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[CFString: Any]]
+        else { return }
+        let match = list.first { w in
+            // Skip fully transparent windows (some apps lay one over the real window).
+            guard (w[kCGWindowOwnerPID] as? pid_t) == pid, (w[kCGWindowLayer] as? Int) == 0,
+                  (w[kCGWindowAlpha] as? Double ?? 1) > 0.01,
+                  let boundsDict = w[kCGWindowBounds] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { return false }
+            return abs(bounds.minX - frame.minX) < 6 && abs(bounds.minY - frame.minY) < 6
+                && abs(bounds.width - frame.width) < 6 && abs(bounds.height - frame.height) < 6
+        }
+        guard let match, let windowID = match[kCGWindowNumber] as? CGWindowID else {
+            Self.log.info("keyboard tile: no on-screen window matches the focused window of \(app.localizedName ?? "?")")
+            return
+        }
+        performTileAction(action, windowInfo: (pid: pid, windowID: windowID, frame: frame, app: app.localizedName ?? ""),
+                          trigger: .keyboard, axWindow: axWindow)
+    }
+
     // MARK: - App blacklist
 
     /// Replace the set of excluded-app bundle identifiers, then refresh the
@@ -3408,6 +3601,12 @@ final class DragEngine {
 }
 
 // MARK: - C-level Event Tap Callback
+
+private let keyboardTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
+    let engine = Unmanaged<DragEngine>.fromOpaque(userInfo).takeUnretainedValue()
+    return engine.handleKeyboardEvent(type: type, event: event)
+}
 
 private let eventTapCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
     guard let userInfo else { return Unmanaged.passUnretained(event) }

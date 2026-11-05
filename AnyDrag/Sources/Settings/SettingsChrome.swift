@@ -15,7 +15,7 @@ func L(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 // MARK: - Sidebar pages
 
 enum SettingsPage: Hashable, CaseIterable {
-    case windowDrag, windowResize, middleClick, excludedApps, general, about
+    case windowDrag, windowResize, middleClick, keyboardShortcuts, excludedApps, general, about
 
     /// Existing Localizable.strings key reused as the page title / sidebar label.
     var titleKey: String {
@@ -23,6 +23,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .windowDrag:   return "section.windowDrag"
         case .windowResize: return "section.windowResize"
         case .middleClick:  return "Middle-click action"
+        case .keyboardShortcuts: return "kbd.title"
         case .excludedApps: return "blacklist.title"
         case .general:      return "General"
         case .about:        return "About"
@@ -34,6 +35,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .windowDrag:   return "arrow.up.and.down.and.arrow.left.and.right"
         case .windowResize: return "arrow.down.right.and.arrow.up.left"
         case .middleClick:  return "square.split.2x2.fill"
+        case .keyboardShortcuts: return "keyboard.fill"
         case .excludedApps: return "nosign"
         case .general:      return "gearshape.fill"
         case .about:        return "info.circle.fill"
@@ -45,6 +47,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .windowDrag:   return .blue
         case .windowResize: return .teal
         case .middleClick:  return .orange
+        case .keyboardShortcuts: return .indigo
         case .excludedApps: return .red
         case .general:      return Color(nsColor: .systemGray)
         case .about:        return .pink
@@ -57,6 +60,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .windowDrag:   return "window_drag"
         case .windowResize: return "window_resize"
         case .middleClick:  return "middle_click"
+        case .keyboardShortcuts: return "keyboard_shortcuts"
         case .excludedApps: return "excluded_apps"
         case .general:      return "general"
         case .about:        return "about"
@@ -203,12 +207,12 @@ struct SettingsRootView: View {
     /// AnyDrag's honest top-level status: permission first, then whether a
     /// primary modifier is set (no modifier ⇒ the engine has nothing to arm on).
     private var statusActive: Bool {
-        store.accessibilityGranted && !store.modifiers.isEmpty
+        store.accessibilityGranted && (!store.modifiers.isEmpty || store.keyboardShortcutsEnabled)
     }
 
     private var statusText: String {
         if !store.accessibilityGranted { return L("status.permission") }
-        return store.modifiers.isEmpty ? L("status.off") : L("status.on")
+        return (store.modifiers.isEmpty && !store.keyboardShortcutsEnabled) ? L("status.off") : L("status.on")
     }
 
     var body: some View {
@@ -228,6 +232,7 @@ struct SettingsRootView: View {
                 case .windowDrag:   WindowDragPage()
                 case .windowResize: WindowResizePage()
                 case .middleClick:  MiddleClickPage()
+                case .keyboardShortcuts: KeyboardShortcutsPage()
                 case .excludedApps: ExcludedAppsPage()
                 case .general:      GeneralPage()
                 case .about:        AboutPage()

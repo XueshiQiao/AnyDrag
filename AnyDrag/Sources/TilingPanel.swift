@@ -47,7 +47,9 @@ final class TilingPanel: NSPanel {
     ///   put it back to. False disables the Restore button — the state is read
     ///   once when the panel is built, which is fine because the panel is
     ///   short-lived (it closes on the next click or when the modifier is let go).
-    init(canRestore: Bool) {
+    /// - Parameter shortcutLabels: the keyboard shortcut of each action (issue
+    ///   #40), shown in the button tooltips. Empty while shortcuts are off.
+    init(canRestore: Bool, shortcutLabels: [TileAction: String] = [:]) {
         super.init(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -60,7 +62,7 @@ final class TilingPanel: NSPanel {
         hasShadow = true
         animationBehavior = .utilityWindow
 
-        let panelView = TilingPanelView(canRestore: canRestore) { [weak self] action in
+        let panelView = TilingPanelView(canRestore: canRestore, shortcutLabels: shortcutLabels) { [weak self] action in
             self?.onAction?(action)
             self?.dismiss()
         }
@@ -99,6 +101,7 @@ final class TilingPanel: NSPanel {
 
 struct TilingPanelView: View {
     let canRestore: Bool
+    var shortcutLabels: [TileAction: String] = [:]
     let onAction: (TileAction) -> Void
 
     var body: some View {
@@ -149,7 +152,7 @@ struct TilingPanelView: View {
     private func tileRow(_ actions: [TileAction], columns: Int = 4) -> some View {
         HStack(spacing: 4) {
             ForEach(actions, id: \.self) { action in
-                TileButton(action: action, isEnabled: isEnabled(action)) { onAction(action) }
+                TileButton(action: action, isEnabled: isEnabled(action), shortcut: shortcutLabels[action]) { onAction(action) }
             }
             ForEach(0..<max(0, columns - actions.count), id: \.self) { _ in
                 Color.clear
@@ -213,6 +216,7 @@ private struct MenuRowButton<Label: View>: View {
 private struct TileButton: View {
     let action: TileAction
     var isEnabled: Bool = true
+    var shortcut: String? = nil
     let onTap: () -> Void
     @State private var isHovered = false
 
@@ -221,6 +225,10 @@ private struct TileButton: View {
     private var helpText: String? {
         if action == .restoreOriginal, !isEnabled {
             return NSLocalizedString("tile.restore.unavailable", comment: "")
+        }
+        // With keyboard shortcuts on, every button names itself and its key.
+        if let shortcut {
+            return "\(NSLocalizedString(action.shortcutNameKey, comment: ""))  \(shortcut)"
         }
         return action.tooltip
     }
@@ -258,7 +266,7 @@ private struct TileButton: View {
 
 // MARK: - TileIconView
 
-private struct TileIconView: View {
+struct TileIconView: View {
     let action: TileAction
     let isHovered: Bool
 

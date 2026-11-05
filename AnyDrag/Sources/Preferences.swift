@@ -72,6 +72,9 @@ enum Preferences {
         // Linked resize: drag the shared seam between two AnyDrag-tiled
         // complementary windows to resize both. Absent = default (on).
         static let linkedResizeEnabled = "AnyDragLinkedResizeEnabled"
+        /// Issue #40: keyboard shortcuts for the tile actions. Off by default.
+        static let keyboardShortcutsEnabled = "AnyDragKeyboardShortcutsEnabled"
+        static let keyboardShortcuts = "AnyDragKeyboardShortcuts"
         // Opposite-half behavior when tiling a window to Left or Right via the
         // middle-click Bento panel (issue #61): Off, Windows 11 Snap Assist
         // picker (default), or immediate Auto-fill with the next window.
@@ -379,6 +382,7 @@ enum Preferences {
         engine.threeFingerDragEnabled = d.object(forKey: Key.threeFingerDragEnabled) as? Bool ?? false
         engine.maximizeEnabled  = d.object(forKey: Key.maximizeEnabled) as? Bool ?? true
         engine.tilingEnabled    = d.object(forKey: Key.tilingEnabled) as? Bool ?? true
+        engine.setKeyboardShortcuts(KeyboardShortcutStore.load(), enabled: d.bool(forKey: Key.keyboardShortcutsEnabled))
         engine.cornerBracketEnabled = d.object(forKey: Key.cornerBracketEnabled) as? Bool ?? true
         engine.resizeFromBottomRightOnly = d.bool(forKey: Key.resizeFromBottomRightOnly)
         engine.multiDisplayBentoEnabled = d.object(forKey: Key.multiDisplayBentoEnabled) as? Bool ?? true

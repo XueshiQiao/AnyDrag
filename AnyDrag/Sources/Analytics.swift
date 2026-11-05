@@ -148,6 +148,7 @@ enum Analytics {
     enum TileTrigger: String {
         case panel
         case middleDirection = "middle_direction"
+        case keyboard
     }
 }
 
