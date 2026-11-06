@@ -266,3 +266,6 @@
 "kbd.record.prompt" = "Press keys…";
 "kbd.record.none" = "Not set";
 "kbd.record.needModifier" = "Add ⌃, ⌥ or ⌘";
+"kbd.perm.title" = "Input Monitoring permission needed";
+"kbd.perm.subtitle" = "macOS only lets an app watch key presses after you allow it under Privacy & Security → Input Monitoring. Turn AnyDrag on there; if the shortcuts still do nothing, quit and reopen AnyDrag.";
+"kbd.perm.button" = "Open System Settings";

@@ -39,6 +39,16 @@ struct KeyboardShortcutsPage: View {
                                      set: { store.setKeyboardShortcutsEnabled($0) })) {
                     featureLabel("keyboard.fill", .indigo, L("kbd.enable"), L("kbd.enable.subtitle"))
                 }
+                if store.keyboardShortcutsEnabled, !store.inputMonitoringGranted {
+                    LabeledContent {
+                        Button(L("kbd.perm.button")) { store.openInputMonitoringSettings() }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L("kbd.perm.title")).foregroundStyle(.orange)
+                            note(L("kbd.perm.subtitle"))
+                        }
+                    }
+                }
                 if store.keyboardShortcutsEnabled, let rival = runningRival {
                     note(String(format: L("kbd.warn.rival"), rival))
                 }
@@ -87,8 +97,10 @@ struct KeyboardShortcutsPage: View {
             }
         }
         .formStyle(.grouped)
+        .navigationTitle(L("kbd.title"))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refresh += 1
+            store.refreshInputMonitoring()
         }
     }
 

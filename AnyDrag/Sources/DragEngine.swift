@@ -3058,6 +3058,17 @@ final class DragEngine {
         refreshKeyboardTap()
     }
 
+    /// Watching key presses needs the Input Monitoring permission on top of
+    /// Accessibility (a mouse-only tap doesn't). Without it `tapCreate` fails.
+    var inputMonitoringGranted: Bool { CGPreflightListenEventAccess() }
+
+    /// Try again to create the keyboard tap, e.g. after the user has just
+    /// granted Input Monitoring. No-op when it already exists or is switched off.
+    func retryKeyboardTap() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        refreshKeyboardTap()
+    }
+
     func setKeyboardShortcutsPaused(_ paused: Bool) {
         keyboardState.withLock { $0.paused = paused }
     }

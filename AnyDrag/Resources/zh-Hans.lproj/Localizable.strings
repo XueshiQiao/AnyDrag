@@ -266,3 +266,6 @@
 "kbd.record.prompt" = "请按下按键…";
 "kbd.record.none" = "未设置";
 "kbd.record.needModifier" = "请加上 ⌃、⌥ 或 ⌘";
+"kbd.perm.title" = "需要「输入监控」权限";
+"kbd.perm.subtitle" = "macOS 要求你在「隐私与安全性 → 输入监控」里允许 AnyDrag，它才能读取按键。请在那里把 AnyDrag 打开；打开后如果快捷键还是没反应，请退出并重新打开 AnyDrag。";
+"kbd.perm.button" = "打开系统设置";
