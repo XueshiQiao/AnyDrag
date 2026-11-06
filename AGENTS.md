@@ -13,7 +13,7 @@ macOS menu bar utility that lets you move any window by holding a modifier key a
 - `TitleBarDragStrategy` -- rewrites mouse coordinates to title bar region so the window server handles the drag natively (zero per-frame IPC)
 - `MenuBarController` -- NSStatusItem menu bar UI
 - `TilingPanel` -- right-click tiling overlay (halves, quarters, fill)
-- `KeyboardShortcuts` + `DragEngine` keyboard tap -- optional global shortcuts for the tile actions (issue #40); a keyDown-only CGEvent tap on the mouse tap thread, off by default
+- `KeyboardShortcuts` + the hot-key section of `DragEngine` -- optional global shortcuts for the tile actions (issue #40), registered with Carbon `RegisterEventHotKey` (no Input Monitoring permission needed, unlike a keyDown event tap); off by default; released while an excluded app or AnyDrag itself is frontmost
 - `PermissionManager` -- Accessibility permission prompt
 - Settings (`Sources/Settings/`) -- a SwiftUI `NavigationSplitView` with a native System-Settings-style sidebar, aligned with the sibling app HyperCapslock. `PreferencesWindowController` hosts `SettingsRootView`; `SettingsStore` is the one ObservableObject bridging SwiftUI bindings to the live `DragEngine` + `Preferences` (UserDefaults) + `Analytics`. Pages: Window Drag / Window Resize / Middle Click / Keyboard Shortcuts / Excluded Apps / General / About.
 

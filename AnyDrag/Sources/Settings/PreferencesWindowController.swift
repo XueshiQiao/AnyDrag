@@ -70,8 +70,8 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var showDebugDot: Bool
     @Published private(set) var keyboardShortcutsEnabled: Bool
     @Published private(set) var keyboardShortcuts: [TileAction: KeyShortcut]
-    /// The Input Monitoring permission the keyboard shortcuts need.
-    @Published private(set) var inputMonitoringGranted: Bool
+    /// Actions whose shortcut another app already holds, so it does nothing.
+    @Published private(set) var shortcutConflicts: Set<TileAction> = []
 
     // ─── Non-engine ──────────────────────────────────────────────────
     @Published private(set) var launchAtLogin: Bool
@@ -120,7 +120,6 @@ final class SettingsStore: ObservableObject {
         showDebugDot = engine.showDebugDot
         keyboardShortcutsEnabled = engine.keyboardShortcutsEnabled
         keyboardShortcuts = engine.keyboardShortcutTable
-        inputMonitoringGranted = engine.inputMonitoringGranted
 
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
         accessibilityGranted = AXIsProcessTrusted()
@@ -329,11 +328,8 @@ final class SettingsStore: ObservableObject {
     func setKeyboardShortcutsEnabled(_ on: Bool) {
         let previous = keyboardShortcutsEnabled
         keyboardShortcutsEnabled = on
-        // Ask for Input Monitoring only now that the user switched shortcuts on,
-        // not at every launch.
-        if on, !engine.inputMonitoringGranted { CGRequestListenEventAccess() }
         engine.setKeyboardShortcuts(keyboardShortcuts, enabled: on)
-        inputMonitoringGranted = engine.inputMonitoringGranted
+        shortcutConflicts = engine.keyboardShortcutConflicts
         UserDefaults.standard.set(on, forKey: Preferences.Key.keyboardShortcutsEnabled)
         if previous != on {
             Analytics.trackPreferenceChanged(key: "keyboard_shortcuts_enabled", value: String(on))
@@ -362,26 +358,22 @@ final class SettingsStore: ObservableObject {
     private func applyKeyboardShortcutTable(_ table: [TileAction: KeyShortcut]) {
         keyboardShortcuts = table
         engine.setKeyboardShortcuts(table, enabled: keyboardShortcutsEnabled)
+        shortcutConflicts = engine.keyboardShortcutConflicts
         KeyboardShortcutStore.save(table)
     }
 
-    /// Re-read the Input Monitoring permission (the user may have just granted
-    /// it in System Settings) and retry creating the keyboard tap.
-    func refreshInputMonitoring() {
-        engine.retryKeyboardTap()
-        inputMonitoringGranted = engine.inputMonitoringGranted
-    }
-
-    func openInputMonitoringSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-            NSWorkspace.shared.open(url)
-        }
+    /// Register the hot keys again (another app may have let go of one) and
+    /// re-read which ones are still refused.
+    func refreshKeyboardShortcuts() {
+        engine.refreshKeyboardShortcuts()
+        shortcutConflicts = engine.keyboardShortcutConflicts
     }
 
     /// While a recorder is waiting for a key press, the global shortcuts step
     /// aside so the press reaches the recorder.
     func setShortcutRecording(_ recording: Bool) {
         engine.setKeyboardShortcutsPaused(recording)
+        shortcutConflicts = engine.keyboardShortcutConflicts
     }
 
     // MARK: Diagnostics

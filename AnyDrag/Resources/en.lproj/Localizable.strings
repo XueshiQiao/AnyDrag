@@ -255,8 +255,6 @@
 "kbd.action.quarters" = "Four windows in four corners";
 "kbd.enable" = "Keyboard shortcuts";
 "kbd.enable.subtitle" = "Move and resize the focused window from the keyboard, without the mouse or the drag modifier.";
-"kbd.warn.rival" = "%1$@ is running and uses the same keys. While this is on, AnyDrag receives them first and %1$@ stops getting them. Quit %1$@, or pick different keys below.";
-"kbd.warn.secureInput" = "Some app is reading the keyboard in secure mode (a password field, or Secure Keyboard Entry in Terminal). Shortcuts do nothing until that stops.";
 "kbd.preset.title" = "Key layout";
 "kbd.preset.rectangle" = "Rectangle / Magnet (⌃⌥)";
 "kbd.preset.spectacle" = "Spectacle (⌘⌥)";
@@ -266,6 +264,4 @@
 "kbd.record.prompt" = "Press keys…";
 "kbd.record.none" = "Not set";
 "kbd.record.needModifier" = "Add ⌃, ⌥ or ⌘";
-"kbd.perm.title" = "Input Monitoring permission needed";
-"kbd.perm.subtitle" = "macOS only lets an app watch key presses after you allow it under Privacy & Security → Input Monitoring. Turn AnyDrag on there; if the shortcuts still do nothing, quit and reopen AnyDrag.";
-"kbd.perm.button" = "Open System Settings";
+"kbd.warn.conflict" = "Another app already uses these shortcuts, so they do nothing here: %@. Change them below, or quit that app and come back to this window.";

@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import Carbon.HIToolbox
 import os
 
 extension Notification.Name {
@@ -672,10 +673,6 @@ final class DragEngine {
         // Lift the bar a previous `stop()` put up (no-op on a first start).
         flagScrubber.resume()
 
-        // The keyboard tap rides on this thread's run loop, so it can only be
-        // created now.
-        refreshKeyboardTap()
-
         cbState.withLock { $0.eventCounter = 0 }
         eventCounterStart = Date()
         tapDisableWindowStart = nil
@@ -696,9 +693,6 @@ final class DragEngine {
         // The bar matters because a gesture may be building one right now on that
         // thread — `resume()` in `start()` lifts it.
         flagScrubber.shutdown()
-
-        // Same for the keyboard tap: it is serviced by the thread being stopped.
-        teardownKeyboardTap()
 
         // Atomically pull the tap and run loop out of the shared state.
         // After this exits the lock, the cbState reflects "no tap running"
@@ -3027,50 +3021,39 @@ final class DragEngine {
     }
 
     // MARK: - Keyboard shortcuts (issue #40)
+    //
+    // The shortcuts are registered with the system as global hot keys
+    // (`RegisterEventHotKey`). The system matches the keys, so AnyDrag needs no
+    // permission beyond the Accessibility one it already has (watching key
+    // presses with an event tap would also need Input Monitoring). A key that
+    // another app has already registered can't be registered a second time,
+    // which is how a clash with Rectangle or Magnet shows up.
 
-    /// What the keyboard tap thread reads. Written on main, read on the tap
-    /// thread, so it lives behind a lock (never nested with `cbState`).
-    private struct KeyboardTapState {
-        /// Shortcut → the action it runs.
-        var table: [KeyShortcut: TileAction] = [:]
-        /// Pid of the frontmost app, kept current by `NSWorkspace` on main so
-        /// the tap thread never has to ask Launch Services.
-        var frontPid: pid_t = 0
-        /// True while a Settings recorder is waiting for the user to press a
-        /// new shortcut: the key must reach the recorder, not trigger an action.
-        var paused = false
-        var tap: CFMachPort?
-    }
-    private let keyboardState = OSAllocatedUnfairLock<KeyboardTapState>(initialState: KeyboardTapState())
     private(set) var keyboardShortcutsEnabled = false
     private(set) var keyboardShortcutTable: [TileAction: KeyShortcut] = [:]
-    private var keyboardTapSource: CFRunLoopSource?
+    /// Actions whose shortcut the system refused to register because another app holds it.
+    private(set) var keyboardShortcutConflicts: Set<TileAction> = []
+    private var keyboardShortcutsPaused = false
+    private var hotKeyRefs: [EventHotKeyRef] = []
+    private var hotKeyActions: [UInt32: TileAction] = [:]
+    private var hotKeyHandler: EventHandlerRef?
     private var frontAppObserver: NSObjectProtocol?
 
-    /// Replace the shortcut table and the on/off switch together, then create
-    /// or drop the keyboard tap to match. Main thread only.
+    /// Replace the shortcut table and the on/off switch together, then register
+    /// the hot keys to match. Main thread only.
     func setKeyboardShortcuts(_ table: [TileAction: KeyShortcut], enabled: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
         keyboardShortcutsEnabled = enabled
         keyboardShortcutTable = table
-        let byShortcut = Dictionary(table.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
-        keyboardState.withLock { $0.table = byShortcut }
-        refreshKeyboardTap()
+        refreshKeyboardShortcuts()
     }
 
-    /// Watching key presses needs the Input Monitoring permission on top of
-    /// Accessibility (a mouse-only tap doesn't). Without it `tapCreate` fails.
-    var inputMonitoringGranted: Bool { CGPreflightListenEventAccess() }
-
-    /// Try again to create the keyboard tap, e.g. after the user has just
-    /// granted Input Monitoring. No-op when it already exists or is switched off.
-    func retryKeyboardTap() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        refreshKeyboardTap()
-    }
-
+    /// While a Settings recorder waits for a new shortcut, the hot keys are
+    /// released so the key press reaches the recorder.
     func setKeyboardShortcutsPaused(_ paused: Bool) {
-        keyboardState.withLock { $0.paused = paused }
+        dispatchPrecondition(condition: .onQueue(.main))
+        keyboardShortcutsPaused = paused
+        refreshKeyboardShortcuts()
     }
 
     /// Shortcut text per action for the right-click panel's tooltips; empty
@@ -3079,101 +3062,63 @@ final class DragEngine {
         keyboardShortcutsEnabled ? keyboardShortcutTable.mapValues { $0.display } : [:]
     }
 
-    /// Create the keyboard tap when shortcuts are on and the mouse tap thread
-    /// is running (the keyboard tap shares its run loop, so a slow main thread
-    /// can never hold up the keyboard); drop it otherwise.
-    private func refreshKeyboardTap() {
+    /// Release every hot key, then register the current table again — unless the
+    /// feature is off, a recorder is open, or the frontmost app is AnyDrag itself
+    /// or an excluded app (the keys then go to that app untouched). Also the way
+    /// to retry a shortcut that was refused because another app held it.
+    func refreshKeyboardShortcuts() {
         dispatchPrecondition(condition: .onQueue(.main))
+        hotKeyRefs.forEach { UnregisterEventHotKey($0) }
+        hotKeyRefs.removeAll()
+        hotKeyActions.removeAll()
+        keyboardShortcutConflicts = []
+
         guard keyboardShortcutsEnabled, !keyboardShortcutTable.isEmpty else {
-            teardownKeyboardTap()
+            if let observer = frontAppObserver {
+                NSWorkspace.shared.notificationCenter.removeObserver(observer)
+                frontAppObserver = nil
+            }
             return
         }
-        guard keyboardTapSource == nil,
-              let runLoop = cbState.withLock({ $0.tapRunLoop }),
-              let userInfo = tapUserInfo else { return }
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(1) << CGEventType.keyDown.rawValue,
-            callback: keyboardTapCallback,
-            userInfo: userInfo
-        ) else {
-            Self.log.warn("keyboard tap: tapCreate failed")
-            return
+        installHotKeyHandlerIfNeeded()
+        if frontAppObserver == nil {
+            frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.refreshKeyboardShortcuts() }
         }
-        keyboardState.withLock { state in
-            state.tap = tap
-            state.frontPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
-        }
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        keyboardTapSource = source
-        CFRunLoopAddSource(runLoop, source, .commonModes)
-        CFRunLoopWakeUp(runLoop)
-        frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            self?.keyboardState.withLock { $0.frontPid = app?.processIdentifier ?? 0 }
-        }
-        Self.log.info("keyboard tap: created (\(keyboardShortcutTable.count) shortcuts)")
-    }
 
-    private func teardownKeyboardTap() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        let tap = keyboardState.withLock { state -> CFMachPort? in
-            let t = state.tap
-            state.tap = nil
-            return t
-        }
-        if let tap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            CFMachPortInvalidate(tap)
-        }
-        if let source = keyboardTapSource { CFRunLoopSourceInvalidate(source) }
-        keyboardTapSource = nil
-        if let observer = frontAppObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
-            frontAppObserver = nil
+        if keyboardShortcutsPaused { return }
+        if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+           front == getpid() || isBlacklisted(pid: front) { return }
+
+        let ordered = keyboardShortcutTable.sorted { $0.key.analyticsKey < $1.key.analyticsKey }
+        for (index, entry) in ordered.enumerated() {
+            let id = EventHotKeyID(signature: 0x4144_4B42 /* "ADKB" */, id: UInt32(index + 1))
+            var ref: EventHotKeyRef?
+            let status = RegisterEventHotKey(UInt32(entry.value.keyCode), entry.value.carbonModifiers, id,
+                                             GetApplicationEventTarget(), 0, &ref)
+            if status == noErr, let ref {
+                hotKeyRefs.append(ref)
+                hotKeyActions[id.id] = entry.key
+            } else {
+                keyboardShortcutConflicts.insert(entry.key)
+                Self.log.warn("hot key \(entry.value.display) for \(entry.key.analyticsKey) not registered (status \(status))")
+            }
         }
     }
 
-    /// After the system disabled the keyboard tap (a slow callback, or Accessibility
-    /// being revoked): turn it back on only while Accessibility is still granted.
-    /// Done on main, never on the tap thread, so a revoke can't make the two fight.
-    private func reenableKeyboardTapIfTrusted() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard AXIsProcessTrusted(), let tap = keyboardState.withLock({ $0.tap }) else { return }
-        CGEvent.tapEnable(tap: tap, enable: true)
-    }
-
-    /// Keyboard tap callback body, on the tap thread. Only a table lookup and a
-    /// hand-off to main happen here: this thread sits in front of every key
-    /// press on the system.
-    fileprivate func handleKeyboardEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            Self.log.warn("keyboard tap disabled (\(type)) — main will decide whether to re-enable")
-            DispatchQueue.main.async { [weak self] in self?.reenableKeyboardTapIfTrusted() }
-            return Unmanaged.passUnretained(event)
-        }
-        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-
-        // Compare only ⌃⌥⇧⌘. The fn flag macOS adds to arrow keys is left out.
-        let probe = KeyShortcut(
-            keyCode: UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),
-            modifiers: KeyShortcut.modifierBits(of: event.flags),
-            label: "")
-        let (action, frontPid, paused) = keyboardState.withLock { ($0.table[probe], $0.frontPid, $0.paused) }
-        guard let action, !paused, frontPid != getpid(), !isBlacklisted(pid: frontPid) else {
-            return Unmanaged.passUnretained(event)
-        }
-        // Holding the keys down repeats keyDown. Swallow the repeats without
-        // acting again, so the shortcut doesn't leak into the app and
-        // multi-window layouts don't reshuffle over and over.
-        if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
-            DispatchQueue.main.async { [weak self] in self?.performKeyboardTile(action) }
-        }
-        return nil
+    private func installHotKeyHandlerIfNeeded() {
+        guard hotKeyHandler == nil else { return }
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+            var id = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                              nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+            let engine = Unmanaged<DragEngine>.fromOpaque(userData).takeUnretainedValue()
+            if let action = engine.hotKeyActions[id.id] { engine.performKeyboardTile(action) }
+            return noErr
+        }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
     }
 
     /// Run `action` on the focused window of the frontmost app. The focused
@@ -3229,6 +3174,8 @@ final class DragEngine {
         dispatchPrecondition(condition: .onQueue(.main))
         blacklistedAppBundleIDs = ids
         recomputeBlacklistedPids()
+        // Excluded apps get the keyboard shortcuts' keys back untouched.
+        refreshKeyboardShortcuts()
     }
 
     /// Recompute which running pids belong to excluded apps. Main thread only —
@@ -3612,12 +3559,6 @@ final class DragEngine {
 }
 
 // MARK: - C-level Event Tap Callback
-
-private let keyboardTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
-    guard let userInfo else { return Unmanaged.passUnretained(event) }
-    let engine = Unmanaged<DragEngine>.fromOpaque(userInfo).takeUnretainedValue()
-    return engine.handleKeyboardEvent(type: type, event: event)
-}
 
 private let eventTapCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
     guard let userInfo else { return Unmanaged.passUnretained(event) }

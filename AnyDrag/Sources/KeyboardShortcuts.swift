@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Carbon.HIToolbox
 
 // Keyboard shortcuts for the tile actions (issue #40). A shortcut is a key plus
 // some of ⌃ ⌥ ⇧ ⌘. fn is deliberately not a modifier here: macOS adds the fn
@@ -51,6 +52,16 @@ struct KeyShortcut: Codable, Hashable {
     /// a letter), and grabbing it would break typing everywhere.
     var isUsable: Bool {
         modifiers & (Self.control | Self.option | Self.command) != 0
+    }
+
+    /// The modifiers as the Carbon hot key API wants them.
+    var carbonModifiers: UInt32 {
+        var m = 0
+        if modifiers & Self.control != 0 { m |= controlKey }
+        if modifiers & Self.option != 0  { m |= optionKey }
+        if modifiers & Self.shift != 0   { m |= shiftKey }
+        if modifiers & Self.command != 0 { m |= cmdKey }
+        return UInt32(m)
     }
 
     /// "⌃⌥←", in the order Apple prints modifiers.

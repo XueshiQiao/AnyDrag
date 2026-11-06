@@ -7,26 +7,6 @@ import Carbon.HIToolbox
 
 struct KeyboardShortcutsPage: View {
     @EnvironmentObject var store: SettingsStore
-    /// Bumped when AnyDrag's windows come to the front, so the warnings below
-    /// (which depend on other apps) are worked out again.
-    @State private var refresh = 0
-
-    /// Window managers that ship the same ⌃⌥ shortcuts. While one of them runs,
-    /// AnyDrag's keyboard tap sees the keys first and Rectangle/Magnet stop
-    /// receiving them, so it is worth saying so.
-    private static let rivalBundleIDs: [String: String] = [
-        "com.knollsoft.Rectangle": "Rectangle",
-        "com.knollsoft.Hookshot": "Rectangle Pro",
-        "com.crowdcafe.windowmagnet": "Magnet",
-    ]
-
-    private var runningRival: String? {
-        _ = refresh
-        for app in NSWorkspace.shared.runningApplications {
-            if let id = app.bundleIdentifier, let name = Self.rivalBundleIDs[id] { return name }
-        }
-        return nil
-    }
 
     private var currentPresetName: String {
         ShortcutPreset.matching(store.keyboardShortcuts).map { L($0.titleKey) } ?? L("kbd.preset.custom")
@@ -39,21 +19,13 @@ struct KeyboardShortcutsPage: View {
                                      set: { store.setKeyboardShortcutsEnabled($0) })) {
                     featureLabel("keyboard.fill", .indigo, L("kbd.enable"), L("kbd.enable.subtitle"))
                 }
-                if store.keyboardShortcutsEnabled, !store.inputMonitoringGranted {
-                    LabeledContent {
-                        Button(L("kbd.perm.button")) { store.openInputMonitoringSettings() }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L("kbd.perm.title")).foregroundStyle(.orange)
-                            note(L("kbd.perm.subtitle"))
-                        }
-                    }
-                }
-                if store.keyboardShortcutsEnabled, let rival = runningRival {
-                    note(String(format: L("kbd.warn.rival"), rival))
-                }
-                if store.keyboardShortcutsEnabled, (refresh >= 0 && IsSecureEventInputEnabled()) {
-                    note(L("kbd.warn.secureInput"))
+                if store.keyboardShortcutsEnabled, !store.shortcutConflicts.isEmpty {
+                    let names = store.shortcutConflicts
+                        .sorted { $0.analyticsKey < $1.analyticsKey }
+                        .compactMap { action in store.keyboardShortcuts[action].map { "\(L(action.shortcutNameKey)) \($0.display)" } }
+                        .joined(separator: "、")
+                    note(String(format: L("kbd.warn.conflict"), names))
+                        .foregroundStyle(.orange)
                 }
             }
 
@@ -99,8 +71,7 @@ struct KeyboardShortcutsPage: View {
         .formStyle(.grouped)
         .navigationTitle(L("kbd.title"))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refresh += 1
-            store.refreshInputMonitoring()
+            store.refreshKeyboardShortcuts()
         }
     }
 
