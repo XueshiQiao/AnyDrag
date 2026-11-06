@@ -264,4 +264,4 @@
 "kbd.record.prompt" = "请按下按键…";
 "kbd.record.none" = "未设置";
 "kbd.record.needModifier" = "请加上 ⌃、⌥ 或 ⌘";
-"kbd.warn.conflict" = "下面这些快捷键已经被别的应用占用，在这里不会有反应：%@。请在下面换成别的按键，或者退出那个应用后回到这个窗口。";
+"kbd.warn.conflict" = "macOS 拒绝注册下面这些快捷键，所以它们不会有反应：%@。请在下面给它们录一个别的按键。";

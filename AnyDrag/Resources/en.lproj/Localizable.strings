@@ -264,4 +264,4 @@
 "kbd.record.prompt" = "Press keys…";
 "kbd.record.none" = "Not set";
 "kbd.record.needModifier" = "Add ⌃, ⌥ or ⌘";
-"kbd.warn.conflict" = "Another app already uses these shortcuts, so they do nothing here: %@. Change them below, or quit that app and come back to this window.";
+"kbd.warn.conflict" = "macOS refused to register these shortcuts, so they do nothing: %@. Record a different key for them below.";

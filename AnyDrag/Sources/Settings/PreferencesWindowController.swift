@@ -71,7 +71,7 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var keyboardShortcutsEnabled: Bool
     @Published private(set) var keyboardShortcuts: [TileAction: KeyShortcut]
     /// Actions whose shortcut another app already holds, so it does nothing.
-    @Published private(set) var shortcutConflicts: Set<TileAction> = []
+    @Published private(set) var shortcutConflicts: Set<TileAction>
 
     // ─── Non-engine ──────────────────────────────────────────────────
     @Published private(set) var launchAtLogin: Bool
@@ -120,6 +120,7 @@ final class SettingsStore: ObservableObject {
         showDebugDot = engine.showDebugDot
         keyboardShortcutsEnabled = engine.keyboardShortcutsEnabled
         keyboardShortcuts = engine.keyboardShortcutTable
+        shortcutConflicts = engine.keyboardShortcutConflicts
 
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
         accessibilityGranted = AXIsProcessTrusted()

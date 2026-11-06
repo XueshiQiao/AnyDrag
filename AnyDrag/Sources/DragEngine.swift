@@ -673,6 +673,9 @@ final class DragEngine {
         // Lift the bar a previous `stop()` put up (no-op on a first start).
         flagScrubber.resume()
 
+        // The keyboard shortcuts only work while the engine runs.
+        refreshKeyboardShortcuts()
+
         cbState.withLock { $0.eventCounter = 0 }
         eventCounterStart = Date()
         tapDisableWindowStart = nil
@@ -722,6 +725,9 @@ final class DragEngine {
         tapThread = nil
         // tapUserInfo intentionally NOT released — kept for next start().
         // Released only in deinit (see init notes).
+
+        // The tap is gone, so the hot keys are released too.
+        refreshKeyboardShortcuts()
 
         strategy.reset()
         resizeStrategy.reset()
@@ -784,6 +790,8 @@ final class DragEngine {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.recomputeBlacklistedPids()
                 self?.recomputePerAppTitleBarYOffsetPids()
+                // A just-launched excluded app is the frontmost one now.
+                self?.refreshKeyboardShortcuts()
             }
         }
     }
@@ -3025,13 +3033,14 @@ final class DragEngine {
     // The shortcuts are registered with the system as global hot keys
     // (`RegisterEventHotKey`). The system matches the keys, so AnyDrag needs no
     // permission beyond the Accessibility one it already has (watching key
-    // presses with an event tap would also need Input Monitoring). A key that
-    // another app has already registered can't be registered a second time,
-    // which is how a clash with Rectangle or Magnet shows up.
+    // presses with an event tap would also need Input Monitoring). Two different
+    // apps CAN register the same key without any error (checked by registering
+    // ctrl+opt+left from a second process); the most recent registration gets the
+    // key. So a clash with Rectangle or Magnet is not detectable here.
 
     private(set) var keyboardShortcutsEnabled = false
     private(set) var keyboardShortcutTable: [TileAction: KeyShortcut] = [:]
-    /// Actions whose shortcut the system refused to register because another app holds it.
+    /// Actions whose shortcut the system refused to register (for example a key it cannot use as a hot key).
     private(set) var keyboardShortcutConflicts: Set<TileAction> = []
     private var keyboardShortcutsPaused = false
     private var hotKeyRefs: [EventHotKeyRef] = []
@@ -3063,8 +3072,9 @@ final class DragEngine {
     }
 
     /// Release every hot key, then register the current table again — unless the
-    /// feature is off, a recorder is open, or the frontmost app is AnyDrag itself
-    /// or an excluded app (the keys then go to that app untouched). Also the way
+    /// feature is off, a recorder is open, the engine is stopped (Accessibility
+    /// revoked), or the frontmost app is an excluded app (the keys then go to
+    /// that app untouched). Also the way
     /// to retry a shortcut that was refused because another app held it.
     func refreshKeyboardShortcuts() {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -3073,7 +3083,9 @@ final class DragEngine {
         hotKeyActions.removeAll()
         keyboardShortcutConflicts = []
 
-        guard keyboardShortcutsEnabled, !keyboardShortcutTable.isEmpty else {
+        // `tap != nil` means the engine is running (Accessibility granted).
+        let running = cbState.withLock { $0.tap != nil }
+        guard keyboardShortcutsEnabled, !keyboardShortcutTable.isEmpty, running else {
             if let observer = frontAppObserver {
                 NSWorkspace.shared.notificationCenter.removeObserver(observer)
                 frontAppObserver = nil
@@ -3089,7 +3101,7 @@ final class DragEngine {
 
         if keyboardShortcutsPaused { return }
         if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-           front == getpid() || isBlacklisted(pid: front) { return }
+           isBlacklisted(pid: front) { return }
 
         let ordered = keyboardShortcutTable.sorted { $0.key.analyticsKey < $1.key.analyticsKey }
         for (index, entry) in ordered.enumerated() {
@@ -3130,7 +3142,7 @@ final class DragEngine {
         guard keyboardShortcutsEnabled, axGuardOrAbort("performKeyboardTile"),
               let app = NSWorkspace.shared.frontmostApplication else { return }
         let pid = app.processIdentifier
-        guard pid != getpid(), !isBlacklisted(pid: pid) else { return }
+        guard !isBlacklisted(pid: pid) else { return }
         // A tiling panel or snap-assist picker left open would hang over the old spot.
         tilingPanel?.dismiss()
         snapAssistOverlay.hide()

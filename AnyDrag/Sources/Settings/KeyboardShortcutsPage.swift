@@ -196,8 +196,10 @@ struct ShortcutRecorder: NSViewRepresentable {
                     window?.makeFirstResponder(nil)
                     return
                 case kVK_Delete, kVK_ForwardDelete:
-                    onChange?(nil)
+                    // Leave recording first: the hot keys must be back on before
+                    // the change is applied, or the conflict check sees none.
                     window?.makeFirstResponder(nil)
+                    onChange?(nil)
                     return
                 default: break
                 }
@@ -211,8 +213,8 @@ struct ShortcutRecorder: NSViewRepresentable {
                 needsDisplay = true
                 return
             }
-            onChange?(candidate)
             window?.makeFirstResponder(nil)
+            onChange?(candidate)
         }
 
         override func draw(_ dirtyRect: NSRect) {
