@@ -5,8 +5,18 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.11.124</title>
-      <description><![CDATA[<h3>What's New in 26.11.124</h3>
+      <title>Version 26.11.125</title>
+      <description><![CDATA[<h3>What's New in 26.11.125</h3>
+<ul>
+  <li><b>Optional keyboard shortcuts for tiling</b> — A new <b>Settings → Keyboard Shortcuts</b> page lets you tile the focused window without the mouse. It is off by default; turn it on and use the same keys as Rectangle and Magnet: <b>⌃⌥← → ↑ ↓</b> for the halves, <b>⌃⌥↩</b> to fill the screen, <b>⌃⌥C</b> to center, <b>⌃⌥U / I / J / K</b> for the four corners and <b>⌃⌥⌫</b> to restore the original size. A one-click <b>Spectacle</b> layout (⌘⌥) is also there, every action can be re-recorded or cleared, and the right-click tiling panel shows each shortcut in its tooltip. Apps listed under Excluded Apps keep their own keys, and no permission beyond Accessibility is needed. If Rectangle or Magnet is running with the same keys, turn one of them off or pick different keys: macOS gives a shared key to whichever app registered it last. Thanks to <a href="https://github.com/arcane58">@arcane58</a> for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/40">#40</a>).</li>
+</ul>
+
+<h3>26.11.125 更新内容</h3>
+<ul>
+  <li><b>新增：可选的键盘快捷键，用键盘平铺窗口</b> — 「设置 → 键盘快捷键」是新增的页面，不用鼠标也能平铺当前窗口。默认关闭，打开后用的是和 Rectangle、Magnet 一样的按键：<b>⌃⌥ 加方向键</b>是四个半屏，<b>⌃⌥↩</b> 铺满屏幕，<b>⌃⌥C</b> 居中，<b>⌃⌥U / I / J / K</b> 是四个角，<b>⌃⌥⌫</b> 恢复原始大小。页面里还有一键切换的 <b>Spectacle</b> 方案（⌘⌥），每个动作都可以重新录制或清空，右键平铺面板的按钮提示里也会显示对应的快捷键。「排除的应用」里的应用保留自己的按键，除了辅助功能以外不需要别的权限。如果 Rectangle 或 Magnet 正在运行并且用了同样的按键，请关掉其中一个，或者换成别的按键：两个应用注册同一个键时，macOS 会把它交给最后注册的那个。感谢 <a href="https://github.com/arcane58">@arcane58</a> 的建议（<a href="https://github.com/XueshiQiao/AnyDrag/issues/40">#40</a>）。</li>
+</ul>
+
+<h3>What's New in 26.11.124</h3>
 <ul>
   <li><b>Moving, resizing, maximizing or tiling a window no longer pulls the app's other windows to the front</b> — If an app was in the background and you dragged, right-drag resized, double-click maximized or tiled one of its windows, all of that app's windows jumped in front of your other apps. Now only the window you touched comes forward and the app's other windows stay where they were, the same as when you click a window directly. If macOS ever stops allowing this, AnyDrag falls back to the previous behavior. Thanks to <a href="https://github.com/jwcacces">@jwcacces</a> for reporting this (<a href="https://github.com/XueshiQiao/AnyDrag/issues/67">#67</a>).</li>
 </ul>
@@ -413,11 +423,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Thu, 05 Nov 2026 05:16:50 +0000</pubDate>
-      <sparkle:version>124</sparkle:version>
-      <sparkle:shortVersionString>26.11.124</sparkle:shortVersionString>
+      <pubDate>Fri, 06 Nov 2026 01:51:48 +0000</pubDate>
+      <sparkle:version>125</sparkle:version>
+      <sparkle:shortVersionString>26.11.125</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.124/AnyDrag.dmg" length="4385163" type="application/octet-stream" sparkle:edSignature="fqeWzYdDn0yyI+w3AF6IxU8zRMI8mJZXkgF++KqNRcQzBDxL4JTvm7rktUXik9pQoK1wsTxx01wuQ7LKZi7LCA==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.125/AnyDrag.dmg" length="4535232" type="application/octet-stream" sparkle:edSignature="hlbfZ9CYTV1rp848Ixty+F8J/lrqKsAtVAkJe/qdg/JCZGtvnr979PyL6Wx3loZTIHhpInzuRWokSho9w1WgCw==" />
     </item>
   </channel>
 </rss>
