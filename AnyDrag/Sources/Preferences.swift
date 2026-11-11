@@ -65,6 +65,10 @@ enum Preferences {
         static let bentoMaterial      = "AnyDragBentoMaterial"
         static let bentoTint          = "AnyDragBentoTint"
         static let middleAction    = "AnyDragMiddleAction"
+        // Trial: back side button + left press moves the window. Absent = false.
+        // No Settings page yet — `defaults write me.xueshi.anydrag
+        // AnyDragSideButtonDrag -bool true`, then relaunch.
+        static let sideButtonDrag  = "AnyDragSideButtonDrag"
         // "Drag-only trigger mode" for the tile-by-direction middle gesture.
         // Absent = false (panel shows immediately on middle-press, the original
         // behavior).
@@ -445,6 +449,8 @@ enum Preferences {
         } else {
             engine.middleAction = .off
         }
+
+        engine.sideButtonDragEnabled = d.bool(forKey: Key.sideButtonDrag)
 
         if let raw = d.object(forKey: Key.titleBarYOffset) as? Double {
             let clamped = min(max(CGFloat(raw), titleBarYOffsetRange.lowerBound), titleBarYOffsetRange.upperBound)

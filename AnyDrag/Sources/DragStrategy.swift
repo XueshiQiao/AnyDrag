@@ -432,6 +432,11 @@ final class TitleBarDragStrategy {
             if rewriteToLeftButton {
                 event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
             }
+            // A move is never a double-click. A press that landed inside the
+            // system double-click interval carries clickState 2, which the
+            // window server would read as a title-bar double-click and refuse
+            // to start the drag.
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
             event.location = dragPoint
             return Unmanaged.passUnretained(event)
         }
@@ -440,6 +445,7 @@ final class TitleBarDragStrategy {
             event.type = .leftMouseDragged
             event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
         }
+        event.setIntegerValueField(.mouseEventClickState, value: 1)
 
         // Translate both axes relative to the initial title-bar click.
         // Round both axes like the initial click so the final translation stays integral.
@@ -466,6 +472,7 @@ final class TitleBarDragStrategy {
             event.type = .leftMouseUp
             event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
         }
+        event.setIntegerValueField(.mouseEventClickState, value: 1)
 
         event.flags = event.flags.subtracting(Self.modifierFlagsToStrip)
         let pos = event.location
