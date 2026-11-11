@@ -322,6 +322,18 @@ final class DragEngine {
         }
     }
 
+    /// Trial feature: hold the mouse's back side button (button 3) and press the
+    /// left button to move the window under the cursor. Off by default; there is
+    /// no Settings page yet, it is switched on with `defaults write`.
+    var sideButtonDragEnabled: Bool = false {
+        didSet {
+            guard oldValue != sideButtonDragEnabled else { return }
+            resetSideButtonState()
+        }
+    }
+    /// `mouseEventButtonNumber` of the back side button.
+    private static let sideButtonNumber: Int64 = 3
+
     var titleBarYOffset: CGFloat {
         get { strategy.titleBarYOffset }
         set { strategy.titleBarYOffset = newValue }
@@ -412,6 +424,34 @@ final class DragEngine {
         /// strip (close / minimize / full screen).
         var tileAction: WindowAction? = nil
         var middleClickOrigin: CGPoint? = nil
+        /// Back side button is physically down (we saw its otherMouseDown).
+        var sideButtonHeld: Bool = false
+        /// The window actually moved (a drag event arrived) while the side
+        /// button was held, so the side button's release is swallowed (no back
+        /// navigation). A press-and-release without movement does not count.
+        var sideButtonDragged: Bool = false
+        /// A first left press was taken over and nothing has moved since, so
+        /// the next press that lands inside the system double-click interval
+        /// (clickState >= 2) is the second half of a double-click →
+        /// maximize/restore. Cleared after the toggle, when the window moves, and
+        /// whenever the side button goes down.
+        var sideButtonFirstClickPending: Bool = false
+        /// The left press we took over never reached the app (we swallowed its
+        /// down), so its release is swallowed too instead of leaking out as a
+        /// lone mouse-up. Consumed at the next left release.
+        var sideButtonSwallowLeftUp: Bool = false
+        /// The side button's own press is swallowed until we know whether it
+        /// was a plain click (replayed whole on release) or a window drag (the
+        /// pair is dropped), so the system never sees a down without its up.
+        /// Where and with which flags that press landed, for the replay.
+        var sideButtonDownLocation: CGPoint = .zero
+        var sideButtonDownFlags: CGEventFlags = []
+        /// The side button's release arrives after the tap was reset mid-drag;
+        /// its down was swallowed, so swallow this lone up as well.
+        var sideButtonSwallowNextUp: Bool = false
+        /// Where the last taken-over left press landed; movement is measured
+        /// from here so a shaky click is not mistaken for a drag.
+        var sideButtonPressOrigin: CGPoint = .zero
         /// Issue #53: where and with which flags the current left-button
         /// press landed, kept only while that press might still turn out to
         /// be a plain ⌘-click the app should receive. Set at mouseDown by
@@ -732,6 +772,7 @@ final class DragEngine {
         strategy.reset()
         resizeStrategy.reset()
         abortTileGesture()
+        resetSideButtonState()
         cbState.withLock { state in
             state.rightTarget = nil
             state.rightOrigin = nil
@@ -1068,6 +1109,9 @@ final class DragEngine {
             // gesture is now stranded. Drop it so we don't apply a stale
             // tile on the next mouse-up.
             abortTileGesture()
+            // The side button's release may have been missed too; a stale
+            // "held" flag would turn the next plain left click into a drag.
+            resetSideButtonState()
             // Same for the trailing scrubber: its gesture can no longer deliver
             // a mouse-up through us, so nothing would ever retire it.
             flagScrubber.end()
@@ -1190,6 +1234,13 @@ final class DragEngine {
             }
         }
 
+        // Back side button already held → this left press moves the window.
+        // Only side-first counts: a left press that came before the side button
+        // was already delivered to the app and is never taken over.
+        if sideButtonDragEnabled, cbState.withLock({ $0.sideButtonHeld }) {
+            return beginSideButtonDrag(event: event)
+        }
+
         // Both left-button features off → nothing to do here.
         if !dragEnabled && !maximizeEnabled {
             return Unmanaged.passUnretained(event)
@@ -1275,6 +1326,164 @@ final class DragEngine {
         )
     }
 
+    // MARK: - Back side button + left press (window drag)
+
+    /// Forget a half-finished side-button gesture. Any thread.
+    private func resetSideButtonState() {
+        // The side button's down was swallowed and its release may be lost (tap
+        // disabled, engine stopped), so never hand the system a lone down: that
+        // is exactly what leaves it believing the button is still held. If the
+        // release does come, swallow it so the pair stays dropped.
+        cbState.withLock { state in
+            if state.sideButtonHeld { state.sideButtonSwallowNextUp = true }
+            state.sideButtonHeld = false
+            state.sideButtonDragged = false
+            state.sideButtonFirstClickPending = false
+            state.sideButtonSwallowLeftUp = false
+        }
+    }
+
+    /// The side button went down. When the feature is armed the press is
+    /// swallowed (and its release decides what the app gets): handing the app a
+    /// down and then swallowing the up would leave the system believing the
+    /// button is still held.
+    private func handleSideButtonDown(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Left already down means the press came first: that click belongs to
+        // the app, so don't arm the side button for the rest of this press.
+        let leftAlreadyDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
+        guard sideButtonDragEnabled, !leftAlreadyDown else {
+            cbState.withLock { $0.sideButtonSwallowNextUp = false }
+            return Unmanaged.passUnretained(event)
+        }
+        let location = event.location
+        let flags = event.flags
+        cbState.withLock { state in
+            state.sideButtonHeld = true
+            state.sideButtonDragged = false
+            state.sideButtonFirstClickPending = false
+            state.sideButtonSwallowLeftUp = false
+            state.sideButtonSwallowNextUp = false
+            state.sideButtonDownLocation = location
+            state.sideButtonDownFlags = flags
+        }
+        return nil
+    }
+
+    /// The side button went up. After a window drag the pair (swallowed down,
+    /// swallowed up) is simply dropped. Otherwise it was a plain click: the real
+    /// release is swallowed and a whole down+up is posted instead, so back /
+    /// forward fire as they always did.
+    private func handleSideButtonUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        enum Outcome { case pass, drop, replay(CGPoint, CGEventFlags) }
+        let outcome = cbState.withLock { state -> Outcome in
+            if state.sideButtonSwallowNextUp {
+                state.sideButtonSwallowNextUp = false
+                return .drop
+            }
+            guard state.sideButtonHeld else { return .pass }
+            defer {
+                state.sideButtonHeld = false
+                state.sideButtonDragged = false
+                state.sideButtonFirstClickPending = false
+            }
+            if state.sideButtonDragged { return .drop }
+            return .replay(event.location, state.sideButtonDownFlags)
+        }
+        switch outcome {
+        case .pass:
+            return Unmanaged.passUnretained(event)
+        case .drop:
+            Self.log.info("side-button drag: swallowing the side-button release")
+            return nil
+        case .replay(let point, let flags):
+            // Off the tap thread — posting from inside the callback can re-enter
+            // our own tap synchronously on the same run loop.
+            DispatchQueue.main.async { [weak self] in
+                self?.replayClick(button: .side, at: point, flags: flags)
+            }
+            return nil
+        }
+    }
+
+    /// Start a window move from a left press made while the side button is held.
+    /// Same title-bar-rewrite move as the modifier+left drag, minus the modifier
+    /// and double-click-maximize handling. Anything that stops us from starting
+    /// (menu bar, no window, excluded app) lets the left press through as a
+    /// normal click and leaves `sideButtonDragged` false.
+    private func beginSideButtonDrag(event: CGEvent) -> Unmanaged<CGEvent>? {
+        let screenPoint = event.location
+        if Self.isOnPrimaryMenuBar(screenPoint) {
+            return Unmanaged.passUnretained(event)
+        }
+        guard let windowInfo = windowUnderCursor(at: screenPoint) else {
+            logNoWindowMiss(button: "side+left", at: screenPoint)
+            return Unmanaged.passUnretained(event)
+        }
+        guard axGuardOrAbort("strategy.handleMouseDown(side+left)") else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // A middle-button gesture (move or tile) is in flight: leave it alone and
+        // give the left press to the app.
+        let middleInFlight = cbState.withLock { $0.tileTarget != nil || $0.middleClickOrigin != nil }
+        if middleInFlight {
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Second half of a double-click: the first press was taken over and
+        // nothing moved. clickState >= 2 only means "close to the previous
+        // press" — the system keeps counting (3, 4, ...) while the user keeps
+        // clicking — so don't compare it to exactly 2. Decided on the original
+        // event, before the strategy rewrites clickState to 1.
+        // With maximize off there is no double-click action: it is just another
+        // press that starts a drag, so the app never sees half a double-click.
+        let isDoubleClick = maximizeEnabled
+            && event.getIntegerValueField(.mouseEventClickState) >= 2
+            && cbState.withLock { $0.sideButtonFirstClickPending }
+        if isDoubleClick {
+            // Next press is a fresh first click; the side-button release must
+            // not navigate back.
+            cbState.withLock { state in
+                state.sideButtonFirstClickPending = false
+                state.sideButtonDragged = true
+            }
+            Self.log.info("side-button maximize toggle: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID)")
+            toggleMaximize(windowID: windowInfo.windowID, pid: windowInfo.pid, windowFrame: windowInfo.frame)
+            cbState.withLock { $0.sideButtonSwallowLeftUp = true }
+            return nil
+        }
+        cbState.withLock { state in
+            state.sideButtonFirstClickPending = true
+            state.sideButtonSwallowLeftUp = true
+            state.sideButtonPressOrigin = screenPoint
+        }
+
+        strategy.reset()
+        // No ⌘-click replay for this press: clear any origin left by an earlier one.
+        cbState.withLock { state in
+            state.plainClickOrigin = nil
+            state.plainClickFlags = nil
+        }
+
+        Self.log.info("side-button drag start: app=\"\(windowInfo.app)\" wid=\(windowInfo.windowID) clickState=\(event.getIntegerValueField(.mouseEventClickState))")
+        let offset = effectiveTitleBarYOffset(forPid: windowInfo.pid)
+        let probe = visibleTopInset(pid: windowInfo.pid, windowFrame: windowInfo.frame,
+                                    aimX: event.location.x, cursorY: event.location.y)
+        beginFlagScrub(candidates: TitleBarDragStrategy.modifierFlagsToStrip, heldOn: event)
+        let result = strategy.handleMouseDown(
+            pid: windowInfo.pid,
+            windowID: windowInfo.windowID,
+            windowFrame: windowInfo.frame,
+            event: event,
+            titleBarYOffset: offset,
+            titleBarXOffsets: perAppTitleBarXOffsetPids.withLock { $0[windowInfo.pid] },
+            visibleTopInset: probe.inset,
+            activateApp: probe.hasTitleBar,
+            debugCaption: probe.summary
+        )
+        return result
+    }
+
     // MARK: - Left-click resize
 
     /// Start a resize-from-anywhere gesture driven by the left button (the
@@ -1338,6 +1547,22 @@ final class DragEngine {
         guard strategy.isActive else {
             return Unmanaged.passUnretained(event)
         }
+        // The window really moved while the side button is held: the side
+        // button's release must not navigate back. Up to 4 pt of movement from a
+        // press we took over is a shaky click, not a drag: swallow those drag
+        // events so the window doesn't creep and the click stays a click.
+        let at = event.location
+        let shaky = cbState.withLock { state -> Bool in
+            guard state.sideButtonHeld else { return false }
+            let o = state.sideButtonPressOrigin
+            if hypot(at.x - o.x, at.y - o.y) > 4 {
+                state.sideButtonDragged = true
+                state.sideButtonFirstClickPending = false
+                return false
+            }
+            return state.sideButtonFirstClickPending
+        }
+        if shaky { return nil }
         return strategy.handleMouseDragged(event: event)
     }
 
@@ -1353,6 +1578,13 @@ final class DragEngine {
             return Unmanaged.passUnretained(event)
         }
 
+        // The down of a side-button-taken-over press was swallowed, so a lone
+        // release must not leak to the app (consumed here, kept for below).
+        let sideSwallowUp = cbState.withLock { state -> Bool in
+            defer { state.sideButtonSwallowLeftUp = false }
+            return state.sideButtonSwallowLeftUp
+        }
+
         // Left-click resize in flight: let the resize strategy commit (on drag)
         // or quietly swallow the press (no drag). Unlike the right-click path
         // there's no TilingPanel fallback — a bare base+extra click is a no-op.
@@ -1362,11 +1594,12 @@ final class DragEngine {
             return result
         }
         guard strategy.isActive else {
-            return Unmanaged.passUnretained(event)
+            return sideSwallowUp ? nil : Unmanaged.passUnretained(event)
         }
         let didDrag = strategy.didDrag
         let modsForAnalytics = self.modifiers
         var result = strategy.handleMouseUp(event: event)
+        if sideSwallowUp && !didDrag { result = nil }
 
         // Issue #53: the press never became a drag. If mouseDown armed it as a
         // plain ⌘-click, swallow this lone up too and hand the app a whole
@@ -1581,7 +1814,15 @@ final class DragEngine {
     // MARK: - Middle Button (drag or tile-by-direction)
 
     private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Only the middle button (button 2) — leave side buttons (3, 4) alone.
+        // The back side button (3) only feeds the side-button window drag; the
+        // forward side button (4) is left alone.
+        if event.getIntegerValueField(.mouseEventButtonNumber) == Self.sideButtonNumber {
+            // Our own replayed click coming back through the tap.
+            if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+                return Unmanaged.passUnretained(event)
+            }
+            return handleSideButtonDown(event: event)
+        }
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
             return Unmanaged.passUnretained(event)
         }
@@ -1718,6 +1959,12 @@ final class DragEngine {
     }
 
     private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Its press was swallowed, so the cursor moving while it is held must
+        // not reach the app as a drag of a button it never saw go down.
+        if event.getIntegerValueField(.mouseEventButtonNumber) == Self.sideButtonNumber,
+           cbState.withLock({ $0.sideButtonHeld }) {
+            return nil
+        }
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
             return Unmanaged.passUnretained(event)
         }
@@ -1813,6 +2060,12 @@ final class DragEngine {
     }
 
     private func handleOtherMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
+        if event.getIntegerValueField(.mouseEventButtonNumber) == Self.sideButtonNumber {
+            if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
+                return Unmanaged.passUnretained(event)
+            }
+            return handleSideButtonUp(event: event)
+        }
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
             return Unmanaged.passUnretained(event)
         }
@@ -2224,12 +2477,14 @@ final class DragEngine {
 
     /// Which button a swallowed click is put back as.
     private enum ReplayButton {
-        case left, middle
+        case left, middle, side
 
         var types: (down: CGEventType, up: CGEventType, button: CGMouseButton) {
             switch self {
             case .left:   return (.leftMouseDown, .leftMouseUp, .left)
-            case .middle: return (.otherMouseDown, .otherMouseUp, .center)
+            // CGMouseButton has no case for button 3; the side button is created
+            // as `.center` and its number is overwritten at the post site.
+            case .middle, .side: return (.otherMouseDown, .otherMouseUp, .center)
             }
         }
     }
@@ -2245,7 +2500,7 @@ final class DragEngine {
     /// same ⌘ (+⇧ …) the user held. nil leaves whatever the event source
     /// supplies, which is what the middle-click path always did.
     private func replayClick(button: ReplayButton, at point: CGPoint, flags: CGEventFlags? = nil) {
-        let label = button == .left ? "replayClick(left)" : "replayClick(middle)"
+        let label = "replayClick(\(button))"
         guard let source = CGEventSource(stateID: .hidSystemState) else {
             Self.log.warn("\(label): CGEventSource creation failed — click swallowed")
             return
@@ -2258,6 +2513,9 @@ final class DragEngine {
         source.localEventsSuppressionInterval = 0
 
         let types = button.types
+        // Build both halves before posting either: a down that goes out without
+        // its up leaves the system thinking the button is held.
+        var events: [CGEvent] = []
         for (phase, type) in [("down", types.down), ("up", types.up)] {
             guard let e = CGEvent(
                 mouseEventSource: source,
@@ -2265,12 +2523,17 @@ final class DragEngine {
                 mouseCursorPosition: point,
                 mouseButton: types.button
             ) else {
-                Self.log.warn("\(label): failed to create mouse\(phase) event")
-                continue
+                Self.log.warn("\(label): failed to create mouse\(phase) event — click swallowed")
+                return
             }
             if let flags { e.flags = flags }
-            e.post(tap: .cghidEventTap)
+            e.setIntegerValueField(.mouseEventClickState, value: 1)
+            if button == .side {
+                e.setIntegerValueField(.mouseEventButtonNumber, value: Self.sideButtonNumber)
+            }
+            events.append(e)
         }
+        events.forEach { $0.post(tap: .cghidEventTap) }
         Self.log.info("\(label): posted down+up at (\(Int(point.x)), \(Int(point.y)))\(flags.map { " flags=0x\(String($0.rawValue, radix: 16))" } ?? "")")
     }
 
