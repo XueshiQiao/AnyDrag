@@ -265,3 +265,13 @@
 "kbd.record.none" = "Not set";
 "kbd.record.needModifier" = "Add ⌃, ⌥ or ⌘";
 "kbd.warn.conflict" = "macOS refused to register these shortcuts, so they do nothing: %@. Record a different key for them below.";
+
+/* Experimental: mouse side-button drag */
+"section.sideButton" = "Mouse Side Button (Experimental)";
+"sideButton.title" = "Move windows with a side button";
+"sideButton.subtitle" = "Hold the side button, then press the left button to drag the window under the cursor";
+"sideButton.which.title" = "Which side button";
+"sideButton.which.subtitle" = "The other side button keeps its normal Back / Forward job";
+"sideButton.which.back" = "Back";
+"sideButton.which.forward" = "Forward";
+"sideButton.notes" = "• Click the side button on its own and it still goes back (or forward), but only when you let go of it.\n• Hold the side button and double-click the left button to maximize or restore the window.\n• Press the left button first and the side button second, and no window is moved.\n• If your mouse driver remaps the side buttons to something else, AnyDrag never sees them and this does nothing.\n• If a game uses the side buttons, turn this off while you play.";

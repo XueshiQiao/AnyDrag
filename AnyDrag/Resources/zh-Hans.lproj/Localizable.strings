@@ -265,3 +265,13 @@
 "kbd.record.none" = "未设置";
 "kbd.record.needModifier" = "请加上 ⌃、⌥ 或 ⌘";
 "kbd.warn.conflict" = "macOS 拒绝注册下面这些快捷键，所以它们不会有反应：%@。请在下面给它们录一个别的按键。";
+
+/* 实验功能:鼠标侧键拖动 */
+"section.sideButton" = "鼠标侧键(实验功能)";
+"sideButton.title" = "用侧键移动窗口";
+"sideButton.subtitle" = "先按住侧键,再按下鼠标左键,拖动鼠标下面的窗口";
+"sideButton.which.title" = "使用哪个侧键";
+"sideButton.which.subtitle" = "另一个侧键保持原来的后退 / 前进功能";
+"sideButton.which.back" = "后退键";
+"sideButton.which.forward" = "前进键";
+"sideButton.notes" = "• 单独点一下侧键,仍然是后退(或前进),但要等你松开侧键才会触发。\n• 按住侧键,再双击左键,可以最大化或还原窗口。\n• 先按左键、后按侧键,不会移动窗口。\n• 如果鼠标驱动把侧键改成了别的功能,AnyDrag 收不到侧键,这个功能就没有效果。\n• 玩游戏时如果要用到侧键,请先把它关掉。";

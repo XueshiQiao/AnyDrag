@@ -61,6 +61,8 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var oppositeHalfMode: OppositeHalfMode
     @Published private(set) var overlayEdgeSafeEnabled: Bool
     @Published private(set) var middleAction: MiddleAction
+    @Published private(set) var sideButtonDragEnabled: Bool
+    @Published private(set) var sideButtonNumber: Int
     @Published private(set) var centeredSizePercent: Int
     @Published private(set) var useFixedTitleBarX: Bool
     @Published private(set) var titleBarLeftInset: CGFloat
@@ -111,6 +113,8 @@ final class SettingsStore: ObservableObject {
         oppositeHalfMode = engine.oppositeHalfMode
         overlayEdgeSafeEnabled = engine.overlayEdgeSafeEnabled
         middleAction = engine.middleAction
+        sideButtonDragEnabled = engine.sideButtonDragEnabled
+        sideButtonNumber = Int(engine.sideButtonNumber)
         centeredSizePercent = engine.centeredSizePercent
         useFixedTitleBarX = engine.useFixedTitleBarX
         titleBarLeftInset = engine.titleBarLeftInset
@@ -246,6 +250,30 @@ final class SettingsStore: ObservableObject {
         UserDefaults.standard.set(action.rawValue, forKey: Preferences.Key.middleAction)
         if previous != action {
             Analytics.trackPreferenceChanged(key: "middle_action", value: action.rawValue)
+        }
+    }
+
+    // MARK: Side-button drag (experimental)
+
+    func setSideButtonDragEnabled(_ on: Bool) {
+        let previous = engine.sideButtonDragEnabled
+        engine.sideButtonDragEnabled = on
+        sideButtonDragEnabled = on
+        UserDefaults.standard.set(on, forKey: Preferences.Key.sideButtonDrag)
+        if previous != on {
+            Analytics.trackPreferenceChanged(key: "side_button_drag", value: on ? "on" : "off")
+        }
+    }
+
+    /// `number` is the mouse button number: 3 = back, 4 = forward.
+    func setSideButtonNumber(_ number: Int) {
+        let clamped = number == 4 ? 4 : 3
+        let previous = sideButtonNumber
+        engine.sideButtonNumber = Int64(clamped)
+        sideButtonNumber = clamped
+        UserDefaults.standard.set(clamped, forKey: Preferences.Key.sideButtonNumber)
+        if previous != clamped {
+            Analytics.trackPreferenceChanged(key: "side_button_number", value: clamped == 4 ? "forward" : "back")
         }
     }
 
