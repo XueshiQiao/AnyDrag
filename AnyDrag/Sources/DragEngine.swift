@@ -322,17 +322,47 @@ final class DragEngine {
         }
     }
 
-    /// Trial feature: hold the mouse's back side button (button 3) and press the
-    /// left button to move the window under the cursor. Off by default; there is
-    /// no Settings page yet, it is switched on with `defaults write`.
-    var sideButtonDragEnabled: Bool = false {
-        didSet {
-            guard oldValue != sideButtonDragEnabled else { return }
-            resetSideButtonState()
+    /// Experimental feature: hold a mouse side button (back or forward, see
+    /// `sideButtonNumber`) and press the left button to move the window under
+    /// the cursor. Off by default; switched on in Settings → Window Drag.
+    /// Lives in `cbState` for the same reason as `sideButtonNumber`.
+    var sideButtonDragEnabled: Bool {
+        get { cbState.withLock { $0.sideButtonEnabled } }
+        set {
+            let changed = cbState.withLock { state -> Bool in
+                guard state.sideButtonEnabled != newValue else { return false }
+                state.sideButtonEnabled = newValue
+                return true
+            }
+            if changed { resetSideButtonState(keepLeftUp: true) }
         }
     }
-    /// `mouseEventButtonNumber` of the back side button.
-    private static let sideButtonNumber: Int64 = 3
+    /// `mouseEventButtonNumber` of the side button that starts the drag:
+    /// 3 = back, 4 = forward. The other side button is left alone.
+    /// Lives in `cbState` because the tap thread reads it on every other-button
+    /// event while Settings writes it from the main thread.
+    var sideButtonNumber: Int64 {
+        get { cbState.withLock { $0.sideButtonConfiguredNumber } }
+        set {
+            let changed = cbState.withLock { state -> Bool in
+                guard state.sideButtonConfiguredNumber != newValue else { return false }
+                state.sideButtonConfiguredNumber = newValue
+                return true
+            }
+            if changed { resetSideButtonState(keepLeftUp: true) }
+        }
+    }
+
+    /// Whether an other-button event belongs to the side-button drag: the
+    /// configured button, or the one that was pressed before the setting was
+    /// changed and whose release is still owed. Tap thread.
+    private func isSideButtonEvent(_ number: Int64) -> Bool {
+        cbState.withLock { state in
+            number == state.sideButtonConfiguredNumber
+                || ((state.sideButtonHeld || state.sideButtonSwallowNextUp)
+                    && number == state.sideButtonActiveNumber)
+        }
+    }
 
     var titleBarYOffset: CGFloat {
         get { strategy.titleBarYOffset }
@@ -424,7 +454,14 @@ final class DragEngine {
         /// strip (close / minimize / full screen).
         var tileAction: WindowAction? = nil
         var middleClickOrigin: CGPoint? = nil
-        /// Back side button is physically down (we saw its otherMouseDown).
+        /// The experimental side-button drag is switched on.
+        var sideButtonEnabled: Bool = false
+        /// Which side button starts the drag (3 = back, 4 = forward).
+        var sideButtonConfiguredNumber: Int64 = 3
+        /// The side button that was actually pressed and swallowed. It can differ
+        /// from the configured one if the setting changes while it is held.
+        var sideButtonActiveNumber: Int64 = 3
+        /// The side button is physically down (we saw its otherMouseDown).
         var sideButtonHeld: Bool = false
         /// The window actually moved (a drag event arrived) while the side
         /// button was held, so the side button's release is swallowed (no back
@@ -1234,7 +1271,7 @@ final class DragEngine {
             }
         }
 
-        // Back side button already held → this left press moves the window.
+        // Side button already held → this left press moves the window.
         // Only side-first counts: a left press that came before the side button
         // was already delivered to the app and is never taken over.
         if sideButtonDragEnabled, cbState.withLock({ $0.sideButtonHeld }) {
@@ -1326,10 +1363,13 @@ final class DragEngine {
         )
     }
 
-    // MARK: - Back side button + left press (window drag)
+    // MARK: - Side button + left press (window drag)
 
-    /// Forget a half-finished side-button gesture. Any thread.
-    private func resetSideButtonState() {
+    /// Forget a half-finished side-button gesture. Any thread. `keepLeftUp` is
+    /// for a Settings change: a left press we already took over is still down,
+    /// so its release must keep being swallowed. When the tap itself went away
+    /// the release may never come, so the flag is cleared instead.
+    private func resetSideButtonState(keepLeftUp: Bool = false) {
         // The side button's down was swallowed and its release may be lost (tap
         // disabled, engine stopped), so never hand the system a lone down: that
         // is exactly what leaves it believing the button is still held. If the
@@ -1339,7 +1379,7 @@ final class DragEngine {
             state.sideButtonHeld = false
             state.sideButtonDragged = false
             state.sideButtonFirstClickPending = false
-            state.sideButtonSwallowLeftUp = false
+            if !keepLeftUp { state.sideButtonSwallowLeftUp = false }
         }
     }
 
@@ -1351,21 +1391,26 @@ final class DragEngine {
         // Left already down means the press came first: that click belongs to
         // the app, so don't arm the side button for the rest of this press.
         let leftAlreadyDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
-        guard sideButtonDragEnabled, !leftAlreadyDown else {
-            cbState.withLock { $0.sideButtonSwallowNextUp = false }
-            return Unmanaged.passUnretained(event)
-        }
         let location = event.location
         let flags = event.flags
-        cbState.withLock { state in
+        // One lock for "is it on" and "arm it", so a Settings change on the
+        // main thread can't land in between.
+        let armed = cbState.withLock { state -> Bool in
+            guard state.sideButtonEnabled, !leftAlreadyDown else {
+                state.sideButtonSwallowNextUp = false
+                return false
+            }
             state.sideButtonHeld = true
+            state.sideButtonActiveNumber = event.getIntegerValueField(.mouseEventButtonNumber)
             state.sideButtonDragged = false
             state.sideButtonFirstClickPending = false
             state.sideButtonSwallowLeftUp = false
             state.sideButtonSwallowNextUp = false
             state.sideButtonDownLocation = location
             state.sideButtonDownFlags = flags
+            return true
         }
+        guard armed else { return Unmanaged.passUnretained(event) }
         return nil
     }
 
@@ -1374,7 +1419,7 @@ final class DragEngine {
     /// release is swallowed and a whole down+up is posted instead, so back /
     /// forward fire as they always did.
     private func handleSideButtonUp(event: CGEvent) -> Unmanaged<CGEvent>? {
-        enum Outcome { case pass, drop, replay(CGPoint, CGEventFlags) }
+        enum Outcome { case pass, drop, replay(CGPoint, CGEventFlags, Int64) }
         let outcome = cbState.withLock { state -> Outcome in
             if state.sideButtonSwallowNextUp {
                 state.sideButtonSwallowNextUp = false
@@ -1387,7 +1432,7 @@ final class DragEngine {
                 state.sideButtonFirstClickPending = false
             }
             if state.sideButtonDragged { return .drop }
-            return .replay(event.location, state.sideButtonDownFlags)
+            return .replay(event.location, state.sideButtonDownFlags, state.sideButtonActiveNumber)
         }
         switch outcome {
         case .pass:
@@ -1395,11 +1440,11 @@ final class DragEngine {
         case .drop:
             Self.log.info("side-button drag: swallowing the side-button release")
             return nil
-        case .replay(let point, let flags):
+        case .replay(let point, let flags, let number):
             // Off the tap thread — posting from inside the callback can re-enter
             // our own tap synchronously on the same run loop.
             DispatchQueue.main.async { [weak self] in
-                self?.replayClick(button: .side, at: point, flags: flags)
+                self?.replayClick(button: .side, at: point, flags: flags, sideNumber: number)
             }
             return nil
         }
@@ -1814,9 +1859,9 @@ final class DragEngine {
     // MARK: - Middle Button (drag or tile-by-direction)
 
     private func handleOtherMouseDown(event: CGEvent) -> Unmanaged<CGEvent>? {
-        // The back side button (3) only feeds the side-button window drag; the
-        // forward side button (4) is left alone.
-        if event.getIntegerValueField(.mouseEventButtonNumber) == Self.sideButtonNumber {
+        // The chosen side button only feeds the side-button window drag; the
+        // other side button is left alone.
+        if isSideButtonEvent(event.getIntegerValueField(.mouseEventButtonNumber)) {
             // Our own replayed click coming back through the tap.
             if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
                 return Unmanaged.passUnretained(event)
@@ -1961,8 +2006,9 @@ final class DragEngine {
     private func handleOtherMouseDragged(event: CGEvent) -> Unmanaged<CGEvent>? {
         // Its press was swallowed, so the cursor moving while it is held must
         // not reach the app as a drag of a button it never saw go down.
-        if event.getIntegerValueField(.mouseEventButtonNumber) == Self.sideButtonNumber,
-           cbState.withLock({ $0.sideButtonHeld }) {
+        let draggedNumber = event.getIntegerValueField(.mouseEventButtonNumber)
+        if cbState.withLock({ ($0.sideButtonHeld || $0.sideButtonSwallowNextUp)
+                              && draggedNumber == $0.sideButtonActiveNumber }) {
             return nil
         }
         guard event.getIntegerValueField(.mouseEventButtonNumber) == 2 else {
@@ -2060,7 +2106,7 @@ final class DragEngine {
     }
 
     private func handleOtherMouseUp(event: CGEvent) -> Unmanaged<CGEvent>? {
-        if event.getIntegerValueField(.mouseEventButtonNumber) == Self.sideButtonNumber {
+        if isSideButtonEvent(event.getIntegerValueField(.mouseEventButtonNumber)) {
             if event.getIntegerValueField(.eventSourceUserData) == Self.synthesizedEventMarker {
                 return Unmanaged.passUnretained(event)
             }
@@ -2482,7 +2528,7 @@ final class DragEngine {
         var types: (down: CGEventType, up: CGEventType, button: CGMouseButton) {
             switch self {
             case .left:   return (.leftMouseDown, .leftMouseUp, .left)
-            // CGMouseButton has no case for button 3; the side button is created
+            // CGMouseButton has no case for buttons 3 / 4; the side button is created
             // as `.center` and its number is overwritten at the post site.
             case .middle, .side: return (.otherMouseDown, .otherMouseUp, .center)
             }
@@ -2499,8 +2545,8 @@ final class DragEngine {
     /// passes the flags recorded at the real mouseDown so the app sees the
     /// same ⌘ (+⇧ …) the user held. nil leaves whatever the event source
     /// supplies, which is what the middle-click path always did.
-    private func replayClick(button: ReplayButton, at point: CGPoint, flags: CGEventFlags? = nil) {
-        let label = "replayClick(\(button))"
+    private func replayClick(button: ReplayButton, at point: CGPoint, flags: CGEventFlags? = nil, sideNumber: Int64 = 3) {
+        let label = "replayClick(\(button)\(button == .side ? " \(sideNumber)" : ""))"
         guard let source = CGEventSource(stateID: .hidSystemState) else {
             Self.log.warn("\(label): CGEventSource creation failed — click swallowed")
             return
@@ -2529,7 +2575,7 @@ final class DragEngine {
             if let flags { e.flags = flags }
             e.setIntegerValueField(.mouseEventClickState, value: 1)
             if button == .side {
-                e.setIntegerValueField(.mouseEventButtonNumber, value: Self.sideButtonNumber)
+                e.setIntegerValueField(.mouseEventButtonNumber, value: sideNumber)
             }
             events.append(e)
         }

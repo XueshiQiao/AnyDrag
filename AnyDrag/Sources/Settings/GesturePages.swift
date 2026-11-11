@@ -79,6 +79,34 @@ struct WindowDragPage: View {
             }
             .disabled(store.modifiers.isEmpty)
 
+            // ─── Experimental: hold a mouse side button, then press left ──────
+            Section {
+                Toggle(isOn: Binding(get: { store.sideButtonDragEnabled }, set: { store.setSideButtonDragEnabled($0) })) {
+                    featureLabel("computermouse.fill", .gray, L("sideButton.title"), L("sideButton.subtitle"))
+                }
+                optionRow(symbol: "arrow.left.arrow.right", color: .gray,
+                          title: L("sideButton.which.title"), subtitle: L("sideButton.which.subtitle")) {
+                    Picker("", selection: Binding(
+                        get: { store.sideButtonNumber },
+                        set: { store.setSideButtonNumber($0) }
+                    )) {
+                        Text(L("sideButton.which.back")).tag(3)
+                        Text(L("sideButton.which.forward")).tag(4)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 140)
+                }
+                .disabled(!store.sideButtonDragEnabled)
+                Text(L("sideButton.notes"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text(L("section.sideButton"))
+            }
+
             // ─── Advanced: centered-window size + per-app title-bar Y offset ──
             Section {
                 // One value for every centered path — the tiling panel's Center
