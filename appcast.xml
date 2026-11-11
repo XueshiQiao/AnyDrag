@@ -5,8 +5,20 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.11.125</title>
-      <description><![CDATA[<h3>What's New in 26.11.125</h3>
+      <title>Version 26.11.126</title>
+      <description><![CDATA[<h3>What's New in 26.11.126</h3>
+<ul>
+  <li><b>Experimental: move windows with a mouse side button</b> — A new <b>Mouse Side Button (Experimental)</b> section under <b>Settings → Window Drag</b>. It is off by default. Turn it on, hold the side button, then press the left button to move the window under the cursor, no keyboard needed. Holding the side button and double-clicking the left button maximizes or restores the window. You can choose the Back or the Forward button; the other one keeps its normal job. A plain click on the side button still goes Back (or Forward), but only when you let go of it. Pressing the left button first and the side button second does nothing. If your mouse driver remaps the side buttons, AnyDrag never sees them and this has no effect; if a game uses the side buttons, turn this off while you play.</li>
+  <li><b>Fewer accidental double-clicks while dragging</b> — Quick repeated presses no longer get read as a title-bar double-click while AnyDrag moves a window.</li>
+</ul>
+
+<h3>26.11.126 更新内容</h3>
+<ul>
+  <li><b>新增（实验功能）：用鼠标侧键移动窗口</b> — 「设置 → 窗口拖动」里新增了「鼠标侧键（实验功能）」。默认关闭。打开后，先按住侧键，再按下鼠标左键，就能拖动鼠标下面的窗口，不用按键盘。按住侧键再双击左键，可以最大化或还原窗口。侧键可以选后退键或前进键，另一个侧键保持原来的功能。单独点一下侧键，仍然是后退（或前进），但要等你松开侧键才会触发。先按左键、后按侧键，不会移动窗口。如果鼠标驱动把侧键改成了别的功能，AnyDrag 收不到侧键，这个功能就没有效果；玩游戏要用到侧键时，请先把它关掉。</li>
+  <li><b>改进：拖动窗口时，快速连按不再被当成标题栏双击</b> — 用 AnyDrag 移动窗口时，连续快速按下鼠标，不会再被系统误认为是在标题栏上双击。</li>
+</ul>
+
+<h3>What's New in 26.11.125</h3>
 <ul>
   <li><b>Optional keyboard shortcuts for tiling</b> — A new <b>Settings → Keyboard Shortcuts</b> page lets you tile the focused window without the mouse. It is off by default; turn it on and use the same keys as Rectangle and Magnet: <b>⌃⌥← → ↑ ↓</b> for the halves, <b>⌃⌥↩</b> to fill the screen, <b>⌃⌥C</b> to center, <b>⌃⌥U / I / J / K</b> for the four corners and <b>⌃⌥⌫</b> to restore the original size. A one-click <b>Spectacle</b> layout (⌘⌥) is also there, every action can be re-recorded or cleared, and the right-click tiling panel shows each shortcut in its tooltip. Apps listed under Excluded Apps keep their own keys, and no permission beyond Accessibility is needed. If Rectangle or Magnet is running with the same keys, turn one of them off or pick different keys: macOS gives a shared key to whichever app registered it last. Thanks to <a href="https://github.com/arcane58">@arcane58</a> for the suggestion (<a href="https://github.com/XueshiQiao/AnyDrag/issues/40">#40</a>).</li>
 </ul>
@@ -423,11 +435,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Fri, 06 Nov 2026 01:51:48 +0000</pubDate>
-      <sparkle:version>125</sparkle:version>
-      <sparkle:shortVersionString>26.11.125</sparkle:shortVersionString>
+      <pubDate>Wed, 11 Nov 2026 13:36:29 +0000</pubDate>
+      <sparkle:version>126</sparkle:version>
+      <sparkle:shortVersionString>26.11.126</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.125/AnyDrag.dmg" length="4535232" type="application/octet-stream" sparkle:edSignature="hlbfZ9CYTV1rp848Ixty+F8J/lrqKsAtVAkJe/qdg/JCZGtvnr979PyL6Wx3loZTIHhpInzuRWokSho9w1WgCw==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.126/AnyDrag.dmg" length="4547037" type="application/octet-stream" sparkle:edSignature="CLTK1mc4pXr5K//0dodMji73MmdKIb6BfEjDjEoTVsY5RYNrPLc/w9jDe3Eb45o9c9ZVj7/YO2NcyE+qYAXUAQ==" />
     </item>
   </channel>
 </rss>
