@@ -707,10 +707,17 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingController(rootView: root)
 
         window = NSWindow(contentViewController: hosting)
-        window.title = NSLocalizedString("AnyDrag Settings", comment: "")
+        // Keep the title visible (do NOT set titleVisibility = .hidden): in the unified
+        // toolbar the title is what pushes a page's toolbar items (e.g. About's update
+        // button) to the trailing edge from the very first open. Seed with the initial
+        // page's localized title; each page's navigationTitle takes over from there.
+        //
+        // Deliberately do NOT set titlebarAppearsTransparent = true: keeping the native
+        // unified titlebar gives macOS's automatic scroll-edge blur when right-pane
+        // content scrolls under the toolbar, while staying transparent at scroll offset 0
+        // and keeping the sidebar full-height under the traffic lights.
+        window.title = L(store.page.titleKey)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.toolbarStyle = .unified
         window.setContentSize(NSSize(width: 860, height: 600))
@@ -727,7 +734,10 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
     /// `page` jumps the sidebar (the main menu's "About AnyDrag" uses it).
     func show(page: SettingsPage? = nil) {
         store.refreshExternalState()
-        if let page { store.page = page }
+        if let page {
+            store.page = page
+            window.title = L(page.titleKey)
+        }
         // makeKeyAndOrderFront is a no-op on a miniaturized window, and the
         // Window menu / ⌘M now make that state reachable.
         if window.isMiniaturized {
