@@ -5,8 +5,18 @@
     <link>https://github.com/XueshiQiao/AnyDrag</link>
     <language>en</language>
     <item>
-      <title>Version 26.11.127</title>
-      <description><![CDATA[<h3>What's New in 26.11.127</h3>
+      <title>Version 26.11.128</title>
+      <description><![CDATA[<h3>What's New in 26.11.128</h3>
+<ul>
+  <li><b>Brand-new app icon &amp; frameless in-app logo</b> — Refreshed the AnyDrag app icon with a 3D soft-clay stacked-window and pointer design on a warm ivory background, paired with a larger, crisp frameless logo in the Settings sidebar header and About page.</li>
+</ul>
+
+<h3>26.11.128 更新内容</h3>
+<ul>
+  <li><b>全新应用图标与无边框界面标志</b> — 换上全新的 3D 软陶层叠窗口与立体指针图标（搭配柔和暖奶白浅底），并将设置窗口左上角与「关于」页升级为更大、更清晰的无边框立体窗口标志。</li>
+</ul>
+
+<h3>What's New in 26.11.127</h3>
 <ul>
   <li><b>Cleaner Settings toolbar and scroll blur</b> — The Settings window now shows each page's title in the unified toolbar, scrolls smoothly behind a native translucent blur at the top edge, and keeps toolbar buttons (such as <b>Check for Updates…</b> on About) pinned to the right from the first open.</li>
 </ul>
@@ -445,11 +455,11 @@
   <li><b>诊断设置默认可见</b> — 「标题栏 Y 偏移」(对微信等顶栏非标准的应用有用)和「模拟点击标记」现在默认显示在「设置 → 通用 → 诊断」中,设置会持久保存,并新增「重置」按钮可还原为默认的 3 px。</li>
   <li><b>Bug 修复与稳定性改进</b></li>
 </ul>]]></description>
-      <pubDate>Sun, 15 Nov 2026 02:26:35 +0000</pubDate>
-      <sparkle:version>127</sparkle:version>
-      <sparkle:shortVersionString>26.11.127</sparkle:shortVersionString>
+      <pubDate>Mon, 16 Nov 2026 13:06:54 +0000</pubDate>
+      <sparkle:version>128</sparkle:version>
+      <sparkle:shortVersionString>26.11.128</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.127/AnyDrag.dmg" length="4547746" type="application/octet-stream" sparkle:edSignature="JZeNmBbWxI6+bYVIjPJJTodKdUl0IDTYheQzYnnwP7FE2125u/1zfcYQNRQbN2VInflQWnqvJ1XuP5n3fTpEDg==" />
+      <enclosure url="https://github.com/XueshiQiao/AnyDrag/releases/download/v26.11.128/AnyDrag.dmg" length="4272505" type="application/octet-stream" sparkle:edSignature="zUat4jP6guHfbX2AgX6DKMQytFCzYZZMn4/aQDx2ZSIEzkRh3dm2r+8TqTSZ4JUzWtEL12ReTkCG20Qznh2DBA==" />
     </item>
   </channel>
 </rss>
