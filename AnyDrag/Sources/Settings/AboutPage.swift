@@ -24,8 +24,11 @@ struct AboutPage: View {
         Form {
             Section {
                 VStack(spacing: 10) {
-                    // Pre-scaled to exactly 84pt, like the sidebar's AppLogo34.
-                    Image("AppLogo84")
+                    // Pre-scaled with Lanczos-5 to exact @1x/@2x/@3x (117×98pt),
+                    // matching BrandMascot48 in the sidebar.
+                    Image("BrandMascot98")
+                        .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 4)
+                        .accessibilityIdentifier("about.logo")
                     Text("AnyDrag").font(.title2).fontWeight(.bold)
                     Text(versionString).font(.callout).foregroundStyle(.secondary)
                 }

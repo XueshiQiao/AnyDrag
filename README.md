@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="./docs/assets/icon.png" alt="AnyDrag" width="96" /><br/>
+  <img src="./docs/assets/logo.png" alt="AnyDrag" width="136" /><br/>
   AnyDrag
 </h1>
 

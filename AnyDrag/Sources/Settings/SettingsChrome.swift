@@ -269,19 +269,20 @@ struct SettingsRootView: View {
 
     private var brand: some View {
         HStack(spacing: 10) {
-            // Pre-scaled to exactly 34pt (AppLogo34) from the 1024px icon, so it
-            // draws 1:1 instead of SwiftUI resampling the app icon at draw time.
-            Image("AppLogo34")
+            // Pre-scaled with Lanczos-5 to exact @1x/@2x/@3x (48×40pt) so it draws
+            // 1:1 without SwiftUI's non-mipmapped GPU downscaling jaggies.
+            Image("BrandMascot48")
+                .shadow(color: .black.opacity(0.16), radius: 3, x: 0, y: 1.5)
+                .accessibilityIdentifier("nav.brand_logo")
             VStack(alignment: .leading, spacing: 1) {
                 Text("AnyDrag").font(.system(size: 14, weight: .bold))
                 Text("v\(appVersion)").font(.system(size: 11)).foregroundColor(.secondary)
             }
             Spacer()
         }
-        // The logo artwork carries 3pt of transparent margin inside its 34pt
-        // frame; 13 instead of 16 puts its visible edge on the same line as the
-        // row icons below (measured: both at 16pt from the window edge).
-        .padding(.leading, 13).padding(.trailing, 16).padding(.top, 16).padding(.bottom, 12)
+        // BrandMascot48 is tightly cropped to its visible clay edge, so 16pt
+        // aligns its leading edge directly with the SidebarIcon tiles below.
+        .padding(.leading, 16).padding(.trailing, 16).padding(.top, 14).padding(.bottom, 10)
     }
 
     private var statusFooter: some View {
