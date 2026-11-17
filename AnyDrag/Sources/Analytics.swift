@@ -1,5 +1,6 @@
 import Foundation
 import Aptabase
+import MoreAppsKit
 
 /// Thin facade over the Aptabase SDK. All call sites in AnyDrag go through
 /// this enum so the rest of the codebase never imports `Aptabase` directly,
@@ -7,6 +8,9 @@ import Aptabase
 ///
 /// Privacy contract:
 /// - No bundle IDs, window titles, or app names ever leave the device.
+///   (The More Apps events name which of the author's own apps the user clicked
+///   on that page, by catalog id such as `qduo`. They say nothing about the
+///   apps the user runs or has installed.)
 /// - All events are gated on `Preferences.Key.analyticsEnabled` (default `true`)
 ///   EXCEPT the meta-event recording the toggle itself (see
 ///   `trackPreferenceChanged`), so the OFF→ON re-enable is still observable.
@@ -31,6 +35,11 @@ enum Analytics {
 
         track("app_launched")
         trackUpdateInstalledIfNeeded()
+        // Set only when another of the author's apps installed and launched us
+        // from its More Apps page; tells us which one sent the user.
+        if let source = MoreApps.launchReferrer {
+            trackMoreApps(.referredLaunch(source: source))
+        }
     }
 
     /// Force-flush any queued events. Call from `applicationWillTerminate`.
@@ -61,6 +70,13 @@ enum Analytics {
             "tile": tile,
             "trigger": trigger.rawValue,
         ])
+    }
+
+    /// Forwards an event from the shared More Apps page (page views, Get clicks,
+    /// install results). The names and properties are defined by MoreAppsKit so
+    /// every app that embeds the page reports them identically.
+    static func trackMoreApps(_ event: MoreAppsEvent) {
+        track(event.name, with: event.properties)
     }
 
     /// Tracks a preference change. The `analytics_enabled` toggle is the one

@@ -15,7 +15,13 @@ func L(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 // MARK: - Sidebar pages
 
 enum SettingsPage: Hashable, CaseIterable {
-    case windowDrag, windowResize, middleClick, keyboardShortcuts, excludedApps, general, about
+    case windowDrag, windowResize, middleClick, keyboardShortcuts, excludedApps, general, moreApps, about
+
+    /// The pages that configure AnyDrag itself.
+    static let featurePages: [SettingsPage] = [.windowDrag, .windowResize, .middleClick, .keyboardShortcuts, .excludedApps, .general]
+    /// The pages about the app and its author, shown as a separate group at the
+    /// bottom of the sidebar so cross-promotion stays out of the feature list.
+    static let infoPages: [SettingsPage] = [.moreApps, .about]
 
     /// Existing Localizable.strings key reused as the page title / sidebar label.
     var titleKey: String {
@@ -26,6 +32,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .keyboardShortcuts: return "kbd.title"
         case .excludedApps: return "blacklist.title"
         case .general:      return "General"
+        case .moreApps:     return "More Apps"
         case .about:        return "About"
         }
     }
@@ -38,6 +45,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .keyboardShortcuts: return "keyboard.fill"
         case .excludedApps: return "nosign"
         case .general:      return "gearshape.fill"
+        case .moreApps:     return "square.grid.2x2.fill"
         case .about:        return "info.circle.fill"
         }
     }
@@ -50,6 +58,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .keyboardShortcuts: return .indigo
         case .excludedApps: return .red
         case .general:      return Color(nsColor: .systemGray)
+        case .moreApps:     return .purple
         case .about:        return .pink
         }
     }
@@ -63,6 +72,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .keyboardShortcuts: return "keyboard_shortcuts"
         case .excludedApps: return "excluded_apps"
         case .general:      return "general"
+        case .moreApps:     return "more_apps"
         case .about:        return "about"
         }
     }
@@ -218,8 +228,15 @@ struct SettingsRootView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $store.page) {
-                ForEach(SettingsPage.allCases, id: \.self) { page in
-                    sidebarRow(page)
+                Section {
+                    ForEach(SettingsPage.featurePages, id: \.self) { page in
+                        sidebarRow(page)
+                    }
+                }
+                Section {
+                    ForEach(SettingsPage.infoPages, id: \.self) { page in
+                        sidebarRow(page)
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -235,6 +252,7 @@ struct SettingsRootView: View {
                 case .keyboardShortcuts: KeyboardShortcutsPage()
                 case .excludedApps: ExcludedAppsPage()
                 case .general:      GeneralPage()
+                case .moreApps:     MoreAppsSettingsPage()
                 case .about:        AboutPage()
                 }
             }

@@ -2,6 +2,7 @@ import Cocoa
 import SwiftUI
 import ServiceManagement
 import ApplicationServices
+import MoreAppsKit
 
 // MARK: - SettingsStore
 //
@@ -27,6 +28,9 @@ final class SettingsStore: ObservableObject {
 
     let engine: DragEngine
     let updateController: UpdateController
+    /// Model of the "More Apps" page (the author's other apps, with in-place
+    /// install). Lives here so the page and the About entry row share one state.
+    let moreApps: MoreAppsStore
 
     private static let log = FileLog("Settings.Store")
 
@@ -131,6 +135,8 @@ final class SettingsStore: ObservableObject {
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
         let savedLang = UserDefaults.standard.string(forKey: Preferences.Key.languageOverride) ?? ""
         languageCode = savedLang.isEmpty ? nil : savedLang
+        moreApps = MoreAppsStore(configuration: .init(language: savedLang.isEmpty ? nil : savedLang))
+        moreApps.onEvent = { Analytics.trackMoreApps($0) }
         let d = UserDefaults.standard
         analyticsEnabled = (d.object(forKey: Preferences.Key.analyticsEnabled) == nil)
             ? true : d.bool(forKey: Preferences.Key.analyticsEnabled)
@@ -153,6 +159,7 @@ final class SettingsStore: ObservableObject {
             guard let self else { return }
             let saved = UserDefaults.standard.string(forKey: Preferences.Key.languageOverride) ?? ""
             self.languageCode = saved.isEmpty ? nil : saved
+            self.moreApps.language = self.languageCode
             self.languageRevision &+= 1
         }
     }
@@ -456,6 +463,15 @@ final class SettingsStore: ObservableObject {
     func resetTitleBarYOffset()   { setTitleBarYOffset(Preferences.defaultTitleBarYOffset) }
     func resetResizeCornerInset() { setResizeCornerInset(Preferences.defaultResizeCornerInset) }
 
+    // MARK: More Apps
+
+    /// Jump to the More Apps page. `source` says where the user came from
+    /// (`about`, `menu`) and is reported with the page-view analytics event.
+    func showMoreApps(from source: String) {
+        moreApps.nextViewSource = source
+        page = .moreApps
+    }
+
     // MARK: Language
 
     func setLanguage(_ code: String?) {
@@ -733,6 +749,8 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
     /// it's closed (permission grant, login-item toggle made elsewhere).
     /// `page` jumps the sidebar (the main menu's "About AnyDrag" uses it).
     func show(page: SettingsPage? = nil) {
+        let wasVisible = window.isVisible
+        let previousPage = store.page
         store.refreshExternalState()
         if let page {
             store.page = page
@@ -747,6 +765,23 @@ final class PreferencesWindowController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
         }
         NSApp.activate(ignoringOtherApps: true)
+
+        // SwiftUI calls a page's `onAppear` only when the page's view is
+        // created. When the More Apps page is already the current one, neither
+        // reopening the window nor asking for that page again creates it, so
+        // tell the page ourselves: it re-reads which apps are installed and
+        // reports the view.
+        if store.page == .moreApps, previousPage == .moreApps, page == .moreApps || !wasVisible {
+            if page == nil { store.moreApps.nextViewSource = "window" }
+            store.moreApps.pageAppeared()
+        }
+    }
+
+    /// Open the window on the More Apps page (the status menu's "More Apps by
+    /// Author…" item).
+    func showMoreApps(from source: String) {
+        store.moreApps.nextViewSource = source
+        show(page: .moreApps)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

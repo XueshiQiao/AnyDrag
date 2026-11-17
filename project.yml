@@ -13,6 +13,12 @@ packages:
   Aptabase:
     url: https://github.com/aptabase/aptabase-swift
     from: "0.3.4"
+  # The shared "More Apps" page (catalog, installer, SwiftUI views), embedded
+  # by the sibling apps too. To try a local change to it, temporarily replace
+  # the two lines below with `path: ../MoreAppsKit`.
+  MoreAppsKit:
+    url: https://github.com/XueshiQiao/MoreAppsKit
+    from: "1.0.0"
 
 schemes:
   AnyDrag:
@@ -56,3 +62,4 @@ targets:
       - package: Sparkle
       - package: Aptabase
         product: Aptabase
+      - package: MoreAppsKit

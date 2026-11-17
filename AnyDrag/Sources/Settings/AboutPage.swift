@@ -1,8 +1,9 @@
 import SwiftUI
 import AppKit
+import MoreAppsKit
 
-// The About page: a centered app hero, author/cross-promo link rows, the
-// anonymous-usage opt-out, and copyright. A check-for-updates button lives in
+// The About page: a centered app hero, author link rows, a one-row entry to
+// the More Apps page, the anonymous-usage opt-out, and copyright. A check-for-updates button lives in
 // the page toolbar. Mirrors HyperCapslock's AboutPage.
 struct AboutPage: View {
     @EnvironmentObject var store: SettingsStore
@@ -10,7 +11,6 @@ struct AboutPage: View {
 
     private static let githubURL  = "https://github.com/XueshiQiao/AnyDrag"
     private static let xURL       = "https://x.com/XueshiQiao"
-    private static let websiteURL = "https://xueshi.dev"
     private static let brandTint  = Color(red: 0.16, green: 0.17, blue: 0.20)
 
     private var versionString: String {
@@ -39,8 +39,14 @@ struct AboutPage: View {
             Section {
                 linkRow(asset: "GitHubLogo", tint: Self.brandTint, title: L("GitHub Repository"), url: Self.githubURL)
                 linkRow(asset: "XLogo", tint: Self.brandTint, title: "@XueshiQiao", url: Self.xURL)
-                linkRow(systemImage: "globe", tint: .blue,
-                        title: "\(L("about.website.description")) xueshi.dev", url: Self.websiteURL)
+            }
+
+            Section {
+                MoreAppsEntryRow(store: store.moreApps, title: L("More Apps")) {
+                    IconTile(symbol: SettingsPage.moreApps.symbol, color: SettingsPage.moreApps.color)
+                } action: {
+                    store.showMoreApps(from: "about")
+                }
             }
 
             Section {

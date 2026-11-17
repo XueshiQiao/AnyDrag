@@ -31,6 +31,7 @@
 "General" = "通用";
 "Advanced" = "高级";
 "About" = "关于";
+"More Apps" = "更多应用";
 
 /* Permission alert */
 "permission.title" = "AnyDrag 需要授权";
@@ -219,7 +220,6 @@
 /* %1$@ = short version (e.g. 1.2.4), %2$@ = build number (e.g. 3) */
 "about.version.format" = "版本 %1$@ (%2$@)";
 "about.copyright" = "© 2026 Xueshi Qiao";
-"about.website.description" = "查看我创作的所有应用:";
 "GitHub Repository" = "GitHub 仓库";
 
 /* About — analytics opt-out (co-located with the disclosure line) */

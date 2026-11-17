@@ -103,8 +103,8 @@ final class MenuBarController: NSObject {
         feedbackItem.target = self
         menu.addItem(feedbackItem)
 
-        // More Apps by Author → xueshi.dev
-        let moreAppsItem = NSMenuItem(title: NSLocalizedString("More Apps by Author…", comment: ""), action: #selector(openAuthorWebsite(_:)), keyEquivalent: "")
+        // More Apps by Author → the More Apps page in Settings
+        let moreAppsItem = NSMenuItem(title: NSLocalizedString("More Apps by Author…", comment: ""), action: #selector(openMoreApps(_:)), keyEquivalent: "")
         moreAppsItem.target = self
         menu.addItem(moreAppsItem)
 
@@ -144,9 +144,8 @@ final class MenuBarController: NSObject {
         updateController.checkForUpdates(sender)
     }
 
-    @objc private func openAuthorWebsite(_ sender: NSMenuItem) {
-        guard let url = URL(string: "https://xueshi.dev") else { return }
-        NSWorkspace.shared.open(url)
+    @objc private func openMoreApps(_ sender: NSMenuItem) {
+        preferencesWindowController.showMoreApps(from: "menu")
     }
 
     @objc private func quitApp(_ sender: NSMenuItem) {
