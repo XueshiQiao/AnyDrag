@@ -35,11 +35,6 @@ enum Analytics {
 
         track("app_launched")
         trackUpdateInstalledIfNeeded()
-        // Set only when another of the author's apps installed and launched us
-        // from its More Apps page; tells us which one sent the user.
-        if let source = MoreApps.launchReferrer {
-            trackMoreApps(.referredLaunch(source: source))
-        }
     }
 
     /// Force-flush any queued events. Call from `applicationWillTerminate`.
