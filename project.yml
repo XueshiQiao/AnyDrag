@@ -18,7 +18,7 @@ packages:
   # the two lines below with `path: ../MoreAppsKit`.
   MoreAppsKit:
     url: https://github.com/XueshiQiao/MoreAppsKit
-    from: "1.2.0"
+    from: "1.2.1"
 
 schemes:
   AnyDrag:
